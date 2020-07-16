@@ -84,7 +84,7 @@ it = 0;
 ih = 0;
 ic = 0;
 % Split these up into real and imaginary so I can do conjugate stuff
-A = zeros(3*ftot, 3*ftot);
+A = zeros(3*ff, 3*ff);
 Ar = A;
 Ai = A;
 Atr = zeros(3,3);
@@ -92,12 +92,13 @@ Ati = Atr;
 At = Atr;
 At2 = At;
 v = Atr;
-b = zeros(3*ftot,1);
+b = zeros(3*ff,1);
 bt = zeros(3,1);
 
 for i = 1:npc
     for j = 1:ntc
         ic = ic+1;
+        if(ic>ff); break; end
         row = 3*(ic-1)+1;
 %       Loop over harmonics
         bt(:) = 0;
@@ -105,14 +106,14 @@ for i = 1:npc
         for n = 0:p
 %           All spherical harmonics of order n evaluated at integ points
             Ypcur = Yt{n+1};
-            im = 0;
+            im = n; %???
             for m = 0:n
                 ih = ih+1;
                 im = im+1;
 %               SpHarms order n, degreem eval'd at integ points
                 Y = squeeze(Ypcur(im,:,:));
 %               Corresponding negative harmonic
-                if(n~=0) Y2 = squeeze(Ypcur(im-2,:,:));
+                if(m~=0); Y2 = squeeze(Ypcur(im-2*m,:,:)); end
                 At(:) = 0;
                 At2(:) = 0;
                 for ig = 1:np
@@ -127,14 +128,18 @@ for i = 1:npc
                         if(n==0)
                             bt = bt + Tij(r,nk(:,jg,ig))*U ... 
                                 *J(jg,ig)*wg(jg)*dphi/sin(tht(jg));
-%                       If n isn't 0, add the corresponding negative f in 
-                        else
-                            At2 = 
+                        end
+                        
+%                       If m isn't 0, add the corresponding negative f in 
+                        if(m~=0)
+                            At2 = At2 + v*Y2(jg,ig) ...
+                            *J(jg,ig)*wg(jg)*dphi/sin(tht(jg));
+                            Atr = Atr + (-1)^m*real(At2);
+                            Ati = Ati - (-1)^m*imag(At2);
                         end
                     end
                 end
                 col = 3*(ih-1)+1;
-                coli = col + ftot/2*3;
                 
 %               Integral calc'd for colloc/harm combo. Put in A
                 Ar(row:row+2,col:col+2) = Ar(row:row+2,col:col+2) + Atr;
@@ -147,6 +152,15 @@ for i = 1:npc
 end
 % Now let's enforce the negative complex conjugate part
 A = Ar + 1i*Ai;
+f =A\b;
+ft = zeros(1,3*ftot);
+for n = 0:p
+    for  m =-n:n
+        
+    end
+end
+
+
 
 %% Reconstruction
 fa = zeros(nsd,nt,np);
