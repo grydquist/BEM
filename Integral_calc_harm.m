@@ -194,8 +194,8 @@ b = zeros(3*ff,1);
 bt = zeros(3,1);
 
 
-for i = 1:npc
-    for j = 1:ntc
+for i = 1:ntc
+    for j = 1:npc
 %       Collocation count
         ic = ic+1;
         
@@ -205,11 +205,11 @@ for i = 1:npc
         ih = 0;
         
 %       Points to recalculate spherical harmonics at
-        thet = squeeze(alla(1,j,i,:,:));
-        phit = squeeze(alla(2,j,i,:,:));
+        thet = squeeze(alla(1,i,j,:,:));
+        phit = squeeze(alla(2,i,j,:,:));
         
 %       Velocity at colloc point
-        Uc = U + dU*xc(:,j,i);
+        Uc = U + dU*xc(:,i,j);
         
 %       Loop over harmonics
         for n = 0:p
@@ -222,15 +222,15 @@ for i = 1:npc
 %               SpHarms order n, degreem eval'd at integ points
                 Y = squeeze(Ypcur(im,:,:));
                 At(:) = 0;
-                for ig = 1:np
-                    for jg = 1:nt
-                        r = (squeeze(e(j,i,:,:)))\([0,0,1]'-x(:,jg,ig));
+                for ig = 1:nt
+                    for jg = 1:np
+                        r = (squeeze(e(i,j,:,:)))\([0,0,1]'-x(:,ig,jg));
                         v = Gij(r); 
-                        At = At + v*Y(jg,ig)*Jt(j,i,jg,ig)*ws(jg)*dphi;
+                        At = At + v*Y(ig,jg)*Jt(i,j,ig,jg)*ws(ig)*dphi;
 %                       Only need to calc B once per colloc point
                         if(n==0)
-                            v = Tij(r,-(squeeze(e(j,i,:,:)))\x(:,jg,ig));
-                            bt = bt + v*(U + dU*(squeeze(e(j,i,:,:))\x(:,jg,ig)))*Jt(j,i,jg,ig)*ws(jg);
+                            v = Tij(r,-(squeeze(e(i,j,:,:)))\x(:,ig,jg));
+                            bt = bt + v*(U + dU*(squeeze(e(i,j,:,:))\x(:,ig,jg)))*Jt(i,j,ig,jg)*ws(ig);
                         end
                     end
                 end

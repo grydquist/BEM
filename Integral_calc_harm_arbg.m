@@ -85,8 +85,8 @@ bt = zeros(3,1);
 thet = zeros(nt,np);
 phit = thet;
 
-for i = 1:npc
-    for j = 1:ntc
+for i = 1:ntc
+    for j = 1:npc
         
 %       Collocation count
         ic = ic+1;
@@ -97,12 +97,12 @@ for i = 1:npc
         ih = 0;
         
 %       Velocity at colloc point
-        Uc = U + dU*xc(:,j,i);        
+        Uc = U + dU*xc(:,i,j);        
         
 %       Rotation Matrix
-        t1 = [cos(phic(i)),-sin(phic(i)),0;sin(phic(i)),cos(phic(i)),0;0,0,1];
-        t2 = [cos(-thtc(j)),0,sin(-thtc(j));0,1,0;-sin(-thtc(j)),0,cos(-thtc(j))];
-        t3 = [cos(-phic(i)),-sin(-phic(i)),0;sin(-phic(i)),cos(-phic(i)),0;0,0,1]; 
+        t1 = [cos(phic(j)),-sin(phic(j)),0;sin(phic(j)),cos(phic(j)),0;0,0,1];
+        t2 = [cos(-thtc(i)),0,sin(-thtc(i));0,1,0;-sin(-thtc(i)),0,cos(-thtc(i))];
+        t3 = [cos(-phic(j)),-sin(-phic(j)),0;sin(-phic(j)),cos(-phic(j)),0;0,0,1]; 
         Tx = t1*t2*t3;
 
 %       Gauss points after rotation, in non-rotated reference. !!! likely a better way to do this
@@ -136,15 +136,15 @@ for i = 1:npc
 %               SpHarms order n, degreem eval'd at integ points
                 Y = squeeze(Ypcur(im,:,:));
                 At(:) = 0;
-                for ig = 1:np
-                    for jg = 1:nt
-                        r = Tx\(xcr-xcg(:,jg,ig));
+                for ig = 1:nt
+                    for jg = 1:np
+                        r = Tx\(xcr-xcg(:,ig,jg));
                         v = Gij(r);
-                        At = At + v*Y(jg,ig)*Jg(jg,ig)*ws(jg);
+                        At = At + v*Y(ig,jg)*Jg(ig,jg)*ws(ig);
 %                       Only need to calc B once per colloc point
                         if(n==0)
-                            v = Tij(r,Tx\nkg(:,jg,ig));
-                            bt = bt + v*(U + dU*(Tx\xcg(:,jg,ig)))*Jg(jg,ig)*ws(jg);
+                            v = Tij(r,Tx\nkg(:,ig,jg));
+                            bt = bt + v*(U + dU*(Tx\xcg(:,ig,jg)))*Jg(ig,jg)*ws(ig);
                             g=1;
                         end
                     end
