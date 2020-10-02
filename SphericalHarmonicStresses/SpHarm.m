@@ -3,6 +3,7 @@ function Ynm = SpHarm(n, tht, phi)
 [t,p] = size(tht);
 Pnm = legendre(n, cos(tht));
 Ynm = zeros(2*n+1, t, p);
+
 it = 0;
 for m = -n:n
     it = it+1;

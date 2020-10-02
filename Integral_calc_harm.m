@@ -12,7 +12,7 @@ s = rng;
 
 % Order of harmonics !!! Gets it exactly right for even p??? Think I'm
 % maybe somehow doing something wrong with odds
-p = 2;
+p = 1;
 ff = (p+1)*(p+1);
 % How many coefficients per dimension?
 ftot = (p+1)^2;

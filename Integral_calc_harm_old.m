@@ -5,7 +5,7 @@ mu = 1;
 U = [0;0;0];
 nsd = 3;
 dU = [0,0,0;0,0,0;0,0,0];
-dU = [0,.5,0;-.5,0,0;0,0,0];
+dU = [0,.5,0;.5,0,0;0,0,0];
 %% Actual code - Spherical harmonics creation
 
 % Order of harmonics

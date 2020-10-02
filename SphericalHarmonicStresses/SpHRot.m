@@ -1,15 +1,6 @@
 function f = SpHRot(fmn, a, b, c)
 
-sz = size(fmn);
-
-% To make sure the vector multiplication works
-if(sz(1) ~= 1)
-    myf = fmn.';
-else
-    myf = fmn;
-end
-
-f = zeros(sz);
+f = zeros(size(fmn));
 p = sqrt(length(f))-1;
 
 % Loop over harmonic order
@@ -32,7 +23,7 @@ for n = 0:p
 %             Dmm(im1) = exp(1i*m*a)*dmm*exp(1i*m*c);
             Dmm(im1) = exp(1i*m*a)*dmm;
         end
-        f(it) = f(it) + myf(frng)*Dmm.';
+        f(it) = f(it) + sum(Dmm.*fmn(frng));
     end
 end
 
