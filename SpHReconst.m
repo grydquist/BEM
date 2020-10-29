@@ -1,9 +1,13 @@
-function x = SpHReconst(f,Y)
+function x = SpHReconst(f,Y,p)
 % Reconstructs field given spherical harmonic coefficients
-p = length(Y)-1;
+if(nargin ==3)
+    pp=p;
+else
+    pp = length(Y)-1;
+end
 ih = 0;
 it = 0;
-for n = 0:p
+for n = 0:pp
     ih = ih+1;
     Ycur = Y{ih};
     if (n==0); x = zeros(size(squeeze(Ycur)));end

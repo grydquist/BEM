@@ -2,7 +2,14 @@ function dY = ThetDer(Y, phi, n, m, ord)
 % Recursively calculates the partial derivative of order ord w.r.t. theta
 % Ym dhould be harmonics of all degree at order n in a cell array
 
-Ym = Y{n+1};
+% Cell is useful for multiple derivatives, but not a good REQUIREMENT
+if(iscell(Y))
+    Ym = Y{n+1};
+else
+%   Note that you need to be very careful that you input n+1 here!    
+    Ym = Y;
+end
+
 dY = zeros(size(phi));
 % Make sure phi is a mesh grid!
 

@@ -18,16 +18,23 @@ dphi = phi(1,2) - phi(1,1);
 
 fnm = zeros((n+1)^2,1);
 it = 0;
+ih = 0;
+Yls = zeros((n+1)^2,(n+1)^2);
 for i = 0:n
     Y = Ynm{i+1};
     for m = -i:i
+        ih = ih+1;
         ind = m + i + 1;
         Yt = squeeze(Y(ind,:,:));
         it = it+1;
+        ic = 0;
         for j = 1:t
             for k = 1:p
+                ic = ic+1;
                 fnm(it) = fnm(it) + conj(Yt(j,k))*f(j,k)*wg(j)*dphi;
+                Yls(ih,ic) = Yt(j,k);
             end
         end
     end
 end
+

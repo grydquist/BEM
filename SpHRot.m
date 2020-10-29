@@ -1,4 +1,4 @@
-function f = SpHRot(fmn, a, b, c)
+function f = SpHRot(fmn, a, b, c, facs)
 
 sz = size(fmn);
 
@@ -26,9 +26,9 @@ for n = 0:p
             Smm = 0;
             im1 = im1 + 1;
             for s = max(0,m - mp):min(n+m,n-mp)
-                Smm = Smm + (-1)^s*(cos(b/2)^(2*(n-s)+m-mp)*sin(b/2)^(2*s-m+mp))/(factorial(n+m-s)*factorial(s)*factorial(mp-m+s)*factorial(n-mp-s));
+                Smm = Smm + (-1)^s*(cos(b/2)^(2*(n-s)+m-mp)*sin(b/2)^(2*s-m+mp))/(facs(n+m-s+1)*facs(s+1)*facs(mp-m+s+1)*facs(n-mp-s+1));
             end 
-            dmm = (-1)^(mp-m)*(factorial(n+mp)*factorial(n-mp)*factorial(n+m)*factorial(n-m))^0.5*Smm;
+            dmm = (-1)^(mp-m)*(facs(n+mp+1)*facs(n-mp+1)*facs(n+m+1)*facs(n-m+1))^0.5*Smm;
 %             Dmm(im1) = exp(1i*m*a)*dmm*exp(1i*m*c);
             Dmm(im1) = exp(1i*m*a)*dmm;
         end
