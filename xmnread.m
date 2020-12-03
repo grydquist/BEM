@@ -32,7 +32,7 @@ Ytrc = SpHarmTNew(p,0,0);
 
 disp('Start!')
 % Do timesteps
-for i = 1:15:tts
+for i = 1:20:tts
 %   Column vector of all data in timestep
     raw = a((i-1)*lent1  + i:i*lent1 + i-1);
     

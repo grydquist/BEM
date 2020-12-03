@@ -327,4 +327,69 @@ PURE FUNCTION RREF3(U) RESULT(V)
 
 END FUNCTION RREF3
 
+! -------------------------------------------------------------------------!
+! Gets values after specified input
+! GENERIC, PUBLIC :: READ_GRINT => READ_GRINT_DOUB, READ_GRINT_INT, READ_GRINT_CHAR
+
+FUNCTION READ_GRINT_DOUB(filen, srch) RESULT(x)
+    CHARACTER (len=*) filen, srch
+    CHARACTER (len=1000) :: text
+    CHARACTER (len=20) :: word
+    REAL(KIND = 8) :: x
+    INTEGER ierr
+
+    OPEN(unit = 88, file = filen, action = 'read')
+    DO
+        READ (88,"(a)",iostat=ierr) text ! read line into character variable
+        IF (ierr /= 0) EXIT
+        READ (text,*) word ! read first word of line
+        IF (word == srch) THEN ! found search string at beginning of line
+           READ (text,*) word,x
+           EXIT
+           CLOSE(88)
+        ENDIF
+    ENDDO
+END FUNCTION READ_GRINT_DOUB
+
+FUNCTION READ_GRINT_INT(filen, srch) RESULT(x)
+    CHARACTER (len=*) filen, srch
+    CHARACTER (len=1000) :: text
+    CHARACTER (len=20) :: word
+    INTEGER :: x
+    INTEGER ierr
+
+    OPEN(unit = 88, file = filen, action = 'read')
+    DO
+        READ (88,"(a)",iostat=ierr) text ! read line into character variable
+        IF (ierr /= 0) EXIT
+        READ (text,*) word ! read first word of line
+        IF (word == srch) THEN ! found search string at beginning of line
+           READ (text,*) word,x
+           EXIT
+           CLOSE(88)
+        ENDIF
+    ENDDO
+END FUNCTION READ_GRINT_INT
+
+FUNCTION READ_GRINT_CHAR(filen, srch) RESULT(x)
+    CHARACTER (len=*) filen, srch
+    CHARACTER (len=1000) :: text
+    CHARACTER (len=20) :: word
+    CHARACTER x
+    INTEGER ierr
+
+    OPEN(unit = 88, file = filen, action = 'read')
+    DO
+        READ (88,"(a)",iostat=ierr) text ! read line into character variable
+        IF (ierr /= 0) EXIT
+        READ (text,*) word ! read first word of line
+        IF (word == srch) THEN ! found search string at beginning of line
+           READ (text,*) word,x
+           EXIT
+           CLOSE(88)
+        ENDIF
+    ENDDO
+END FUNCTION READ_GRINT_CHAR
+
+
 END MODULE UTILMOD

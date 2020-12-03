@@ -887,22 +887,20 @@ SUBROUTINE Fluidcell(cell)
             
 !           Area element, needed for integration, in rotated reference frame
 !           Additionally, we want rotated points in nonrotated reference frame
-            DO i2 = 1,Yf%nt
-                DO j2 = 1,Yf%np
-                    IF(i2 .le. Y%nt .and. j2 .le. Y%np) THEN
-!                       Gauss point rotated in parameter space
-                        gp = (/SIN(Y%tht(i2))*COS(Y%phi(j2)), &
-                               SIN(Y%tht(i2))*SIN(Y%phi(j2)), &
-                               COS(Y%tht(i2))/)
+            DO i2 = 1,Y%nt
+                DO j2 = 1,Y%np
+!                   Gauss point rotated in parameter space
+                    gp = (/SIN(Y%tht(i2))*COS(Y%phi(j2)), &
+                           SIN(Y%tht(i2))*SIN(Y%phi(j2)), &
+                           COS(Y%tht(i2))/)
 
-    !                   Rotate this Gauss point to nonrotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! check this is right
-                        gp = INNER3_33(gp, Tx)
-    !                   Sometimes precision can be an issue...!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Don't need to do this everytime (calcs same spot always)
-                        IF(gp(3).gt.1)  gp(3) =  1D0
-                        IF(gp(3).lt.-1) gp(3) = -1D0
-                        phit(i2, j2) = ATAN2(gp(2), gp(1))
-                        thet(i2, j2) = ACOS(gp(3))
-                    ENDIF
+!                   Rotate this Gauss point to nonrotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! check this is right
+                    gp = INNER3_33(gp, Tx)
+!                   Sometimes precision can be an issue...!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Don't need to do this everytime (calcs same spot always)
+                    IF(gp(3).gt.1)  gp(3) =  1D0
+                    IF(gp(3).lt.-1) gp(3) = -1D0
+                    phit(i2, j2) = ATAN2(gp(2), gp(1))
+                    thet(i2, j2) = ACOS(gp(3))
 
 !                   We need the basis vectors in the rotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Perhaps theres a way to speed this up
 !                   to get the area element
@@ -912,7 +910,7 @@ SUBROUTINE Fluidcell(cell)
                     dxpg = 0
                     DO n = 0,Y%p
                         ih = ih + 1
-                        nm => Yf%nm(ih)
+                        nm => Y%nm(ih)
                         im = 0
                         DO m = -n,n
                             im = im + 1
@@ -934,16 +932,15 @@ SUBROUTINE Fluidcell(cell)
                     nkg = -nkg/(sqrt(nkg(1)*nkg(1) + nkg(2)*nkg(2) + nkg(3)*nkg(3)))
 
 !                   Jacobian via fundamental forms
-                    Jgf(i2,j2) = sqrt(DOT(dxtg,dxtg)*DOT(dxpg,dxpg) &
+                    Jg(i2,j2) = sqrt(DOT(dxtg,dxtg)*DOT(dxpg,dxpg) &
                               -      DOT(dxtg,dxpg)*DOT(dxtg,dxpg))
 
 !                   Calculate kernels now, since we're already looping over these points
-                    ! r = xcr - xcg(:,i2,j2)
-                    ! vG(:,:,i2,j2) = Gij(r, eye)
-                    ! vT(:,:,i2,j2) = Tij(r, nkg)
+                    r = xcr - xcg(:,i2,j2)
+                    vG(:,:,i2,j2) = Gij(r, eye)
+                    vT(:,:,i2,j2) = Tij(r, nkg)
                 ENDDO
             ENDDO
-            Jg = cell%dealias(Jgf)
 !           Harmonics of integration points of rotated frame in nonrotated frame
             Yt = Ytype(thet, phit)
 
@@ -975,19 +972,17 @@ SUBROUTINE Fluidcell(cell)
                     DO i2 = 1,Y%nt
                         DO j2 = 1,Y%np
 !                           Add in integral parts
-                            !At = At + vT(:,:,i2,j2)*vcurt(i2,j2)*Jg(i2,j2)&
-                            !   * cell%Y%ws(i2)*cell%Y%dphi
+                            At = At + vT(:,:,i2,j2)*vcurt(i2,j2)*Jg(i2,j2)&
+                               * cell%Y%ws(i2)*cell%Y%dphi
 !                           RHS part, only need to do once
                             IF(n .eq. 0) THEN
-                                r = xcr - xcg(:,i2,j2)
-                                vtg = Gij(r, eye)
-                                bt = bt + INNER3_33(frot(:,i2,j2),vtG) &
+                                bt = bt + INNER3_33(frot(:,i2,j2),vG(:,:,i2,j2)) &
                                    * Jg(i2,j2)*cell%Y%ws(i2)
                             ENDIF
                         ENDDO
                     ENDDO
 !                   Add in the rest of the LHS that isn't an integral
-                    !At = At*(1D0-cell%lam)/(1D0+cell%lam) - vcurn(i,j)*4D0*pi*eye
+                    At = At*(1D0-cell%lam)/(1D0+cell%lam) - vcurn(i,j)*4D0*pi*eye
 
 !                   LHS at integration point/harmonic combo, put in big matrix
                     !A(row:row+2, col:col+2) = A(row:row+2, col:col+2) + At
@@ -1029,7 +1024,7 @@ SUBROUTINE Fluidcell(cell)
                             ic = ic+1
 !                           Value of inner integral at IP
                             !v = A(3*ic-2:3*ic, 3*im2-2:3*im2)
-                            !At = At + v*CONJG(vcurn(i,j))*cell%Y%wg(i)*cell%Y%dphi
+                            At = At + v*CONJG(vcurn(i,j))*cell%Y%wg(i)*cell%Y%dphi
 
 !                           Intg. b (essentially forward transform of RHS!)
                             IF(n2 .eq. 0) THEN

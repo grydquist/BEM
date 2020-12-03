@@ -33,10 +33,10 @@ dU = [0,0,1;0,0,0;.0,0,0];
 %% Reference Shape Definition
 
 % Order of the force and velocity transforms
-p = 3;
+p = 12;
 
 % To de-alias the force, we need to get a finer grid. The factor is fali
-fali = 2;
+fali = 4;
 
 % Order of SpH for the fine grid
 q = p*fali;

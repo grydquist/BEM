@@ -1,0 +1,11 @@
+Viscosity 1
+Viscosity_ratio 1
+Shear_Modulus .005
+Dilatation_Modulus 100
+Bending_Modulus 0.0669
+Max_time_steps 5000
+Time_step 0.001
+Output xmn.txt
+Harmonic_order 12
+Refinement_factor 3
+

@@ -36,7 +36,7 @@ dU = [0,0,1;0,0,0;.0,0,0];
 p = 8;
 
 % To de-alias the force, we need to get a finer grid. The factor is fali
-fali = 2;
+fali = 4;
 
 % Order of SpH for the fine grid
 q = p*fali;
