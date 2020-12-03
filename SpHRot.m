@@ -15,7 +15,7 @@ p = sqrt(length(f))-1;
 % Loop over harmonic order
 it = 0;
 for n = 0:p
-    frng = it + 1:it + 2*n+1;
+    frng = (it + 1):(it + 2*n+1);
 %   Loop over harmonic degree we're trying to calculate
     for mp = -n:n
         Dmm = zeros(1,2*n+1);

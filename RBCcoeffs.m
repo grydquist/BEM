@@ -1,11 +1,11 @@
-function [x1mn,x2mn,x3mn] = RBCcoeffs(Y, tht, phi) 
+function [x1mn,x2mn,x3mn, x1] = RBCcoeffs(Y, tht, phi, ord) 
 % Given the order of spherical harmonics and points to evaluate, returns x,
 %y, and z coeffecients for RBC shape
 
 % First define the reference shape. The x-points are defined at the
 % following points
 alph = 1.38581894;
-a = .72;
+a = 1;
 
 [t,p] = size(tht);
 thts = tht(:,1);
@@ -28,10 +28,15 @@ for i = 1:p
     
 end
 
+if(nargin ==4)
+    n = ord;
+else
+    n = length(Y)-1;
+end
 % Do the transforms individually
-x1mn = SpT(Y,x1,tht,phi);
-x2mn = SpT(Y,x2,tht,phi);
-x3mn = SpT(Y,x3,tht,phi);
+x1mn = SpT(Y,x1,tht,phi,n);
+x2mn = SpT(Y,x2,tht,phi,n);
+x3mn = SpT(Y,x3,tht,phi,n);
 
 % xt1 = real(SpHReconst(x1mn,Y));
 % xt2 = real(SpHReconst(x2mn,Y));

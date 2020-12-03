@@ -14,14 +14,14 @@ lam = 1;%/5;
 % Deformation resistance constants
 % B = 0.005;
 % C = 100;
-B=.001;
+B=.001;% !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 C=100;
 
 % Bending modulus
 Eb = 0;%1;%0.0669; % Non-dimensional !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 % Total time steps
-NT = 10000;
+NT = 1400;
 % dt = 0.00001;
 dt = 0.005;
 
@@ -29,8 +29,8 @@ dt = 0.005;
 U = [0;0;0];
 
 shft = [cos(pi/4),0,sin(pi/4);0,1,0;-sin(pi/4),0,cos(pi/4)];
-% dU = shft'*[0,0,1;0,0,0;.0,0,0]*shft;
-dU = shft'*[0,0,1;0,0,0;1,0,0]*shft;
+dU = [0,0,1;0,0,0;.0,0,0]/4/pi;
+% dU = shft'*[0,0,1;0,0,0;1,0,0]*shft;
 %% Reference Shape Definition
 
 % Order of the force and velocity transforms
@@ -83,18 +83,19 @@ x1 = rrr.*sin(th).*cos(ph);
 x2 = rrr.*sin(th).*sin(ph);
 x3 = rrr.*cos(th);
 
-x1mn = SpT(Yt,x1,th,ph);
-x2mn = SpT(Yt,x2,th,ph);
-x3mn = SpT(Yt,x3,th,ph);
+% x1mn = SpT(Yt,x1,th,ph);
+% x2mn = SpT(Yt,x2,th,ph);
+% x3mn = SpT(Yt,x3,th,ph);
 
-ix3mn = x3mn;
 % For the RBC, fully defined at p = 5
-% [x1mn,x2mn,x3mn] = RBCcoeffs(Yt,th,ph);
+[x1mn,x2mn,x3mn] = RBCcoeffs(Yt,th,ph);
+ix3mn = x3mn;
 
 %% Preallocation of all the solid things I need
 
-% Actual locations
+% Actual locations/areas
 x = zeros(3,nt,np);
+J = zeros(nt,np);
 
 % Total derivatives, in Cartesian
 dxp = zeros(3,nt,np);
@@ -135,6 +136,30 @@ dc2tR= c1R;
 dc2pR= c1R;
 kR = zeros(nt,np,nt,np);
 kdR = zeros(2,nt,np,nt,np);
+
+% Get all the derivatives of the Spherical Harmonics up front
+Ytd1 = zeros(nt,np,(p+1)^2);
+Ytd2 = Ytd1;
+Ytd3 = Ytd1;
+
+it = 0;
+im = 0;
+for n = 0:p
+    im = 0;
+    for m = -n:n
+        im = im + 1;
+        it = it + 1;
+        
+%       Theta derivative
+        Ytd1(:,:,it) = ThetDer(Yt,ph,n,m,1);
+        
+%       Second theta derivative 
+        Ytd2(:,:,it) = ThetDer(Yt,ph,n,m,2);
+
+%       Third theta derivative
+        Ytd3(:,:,it) = ThetDer(Yt,ph,n,m,3);
+    end
+end
 %% Fluid Preallocation
 
 A = zeros(3*nt*np, 3*ftot);
@@ -162,12 +187,18 @@ Yr = SpHarmT(p,tmpth,tmpph,myfacs);
 
 trcpnt = zeros(1,NT);
 trcvel = zeros(1,NT);
+trcvelz = zeros(1,NT);
+
+% Spherical harmonic evaluated at right hand side of sphere
+Ytrc = SpHarmT(p,pi/2,0,myfacs);
 
 %% Time stepping loop
 for cts = 1:NT
 %% Calculation of residual force at convected points
 % After calculation, do SpHarm transform
-if(cts==25);dU(:)=0;end %!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+if(cts==25)
+%     dU(:)=0;
+end %!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 % Get Geometric information for current configuration (Perhaps the best way
 % to do this is with a subroutine that takes in the SpHarm consts for the
@@ -186,7 +217,6 @@ ip = 0;
 ic = 0;
 A(:) = 0;
 b(:) = 0;
-
 
 % To get just the motion from the stress !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 bb = b;
@@ -293,7 +323,7 @@ for i = 1:nt
         %       Current values of harmonic at degree and order
                 Ym = squeeze(Ypcur(im,:,:));
         %       Theta derivative
-                td1 = ThetDer(Yt,ph,n,m,1);
+                td1 = Ytd1(:,:,it);
 
         %       Get the derivative in theta and add in
                 dxt(1,:,:) = squeeze(dxt(1,:,:)) + f1*td1;
@@ -307,7 +337,7 @@ for i = 1:nt
 
         %       Second order derivatives (for curvature
         %       Second theta derivative 
-                td2 = ThetDer(Yt,ph,n,m,2);
+                td2 = Ytd2(:,:,it);
 
         %       Second phi derivative
                 dxp2(1,:,:) = squeeze(dxp2(1,:,:)) + f1*-m^2*Ym;
@@ -340,13 +370,24 @@ for i = 1:nt
                 dxtp2(3,:,:) = squeeze(dxtp2(3,:,:)) + f3*-m^2*td1;
 
         %       Third theta derivative
-                td3 = ThetDer(Yt,ph,n,m,3);
+                td3 = Ytd3(:,:,it);
                 dxt3(1,:,:) = squeeze(dxt3(1,:,:)) + f1*td3;
                 dxt3(2,:,:) = squeeze(dxt3(2,:,:)) + f2*td3;
                 dxt3(3,:,:) = squeeze(dxt3(3,:,:)) + f3*td3;
             end
         end
-
+%       These shouldn't be imaginary, but some creeps in        
+        dxt   = real(dxt);
+        dxt2  = real(dxt2);
+        dxt3  = real(dxt3);
+        
+        dxp   = real(dxp);
+        dxp2  = real(dxp2);
+        dxp3  = real(dxp3);
+        
+        dxtp  = real(dxtp);
+        dxt2p = real(dxt2p);
+        dxtp2 = real(dxtp2);
         
 %       Here come the stresses!        
         for i2 = 1:nt
@@ -554,7 +595,7 @@ for i = 1:nt
                 dtauab = [c1'*dtaut*c1, c1'*dtaut*c2;
                           c2'*dtaup*c1, c2'*dtaup*c2];
 
-%       And finally the forces!
+%%      And finally the forces!
                 
         %       Metric tensor
                 g = [E,F;F,G];
@@ -620,13 +661,8 @@ for i = 1:nt
                         
 %                       Only need to calc B once per colloc point
                         if(n==0)
-                            r = xcr-xcg(:,ig,jg);
                             v = Gij(r);
                             bt = bt + v*Nmyf(:,ig,jg)*J(ig,jg)*ws(ig);
-                            if (i==3 && j==1) %!!!!!!!!!!!!!!!!!!!!!!!!! To check the integrals
-                                qv(:,ig,jg) = v*Nmyf(:,ig,jg)*J(ig,jg)*ws(ig);
-                                qx = xcg;
-                            end
                         end
                     end
                 end
@@ -644,7 +680,7 @@ for i = 1:nt
         end
 %       Forcing integral calc'd for a colloc point! Put in B
         bb(row:row+2) = bb(row:row+2) + bt*dphi/mu/(1+lam); %!!!!!!!!!!!!!!!!!!!!!!!!!
-        b(row:row+2) = b(row:row+2) + bt*dphi/mu/(1+lam) - Uc*2/(1+lam);
+        b(row:row+2) = b(row:row+2) + bt*dphi/mu/(1+lam) - Uc*8*pi/(1+lam);
     end
 end
 
@@ -700,11 +736,13 @@ for n = 0:p
         bb2(row:row+2) = bt2; %!!!!!!!!!!!
     end
 end
-
+% A2 = -4*pi*eye(3*(p+1)^2);
 ut = A2\b2;
+
 %% Convection of points and new surface constants
-% Including getting new angles for convected points, then go back to the
-% top
+
+% Throw out highest order coefficients (give lots of error, unstable)
+ut(3*p^2+1:end) = 0;
 
 u1 = ut(1:3:end);
 u2 = ut(2:3:end);
@@ -720,7 +758,7 @@ ua11(3,:,:) = real(SpHReconst(u3,Yt));
 
 
 %!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! switching vel here to just stress
-ut = A2\bb2;
+% ut = A2\bb2;
 
 u1 = ut(1:3:end);
 u2 = ut(2:3:end);
@@ -758,7 +796,18 @@ fintz = reshape(fintz,np,nt)';
 
 % q=quiver3(reshape(x1,[1,numel(x1)]),reshape(x2,[1,numel(x1)]),reshape(x3,[1,numel(x1)]),reshape(myf21,[1,numel(x1)]),reshape(myf22,[1,numel(x1)]),reshape(myf23,[1,numel(x1)]));
 
-surf(x1,x2,x3,'edgecolor','none')
+trcpnt(cts) = real(SpHReconst(x1mn,Ytrc));%x(1,floor(nt/2)+1,1);
+trcvel(cts) = real(SpHReconst(u1,Ytrc));%ua(1,floor(nt/2)+1,1);
+trcvelz(cts) = real(SpHReconst(u3,Ytrc));%ua(3,floor(nt/2)+1,1);
+
+h1 = subplot(2,1,1);
+set(h1, 'Units', 'normalized');
+set(h1, 'Position', [-.1, 0.5, 1.15, .6]);
+
+surf(x1,x2,x3,myf23,'edgecolor','none','FaceColor',[1 0 0], ...
+      'FaceAlpha',0.75,'FaceLighting','gouraud')
+lightangle(gca,150,50)
+set(gca,'nextplot','replacechildren','visible','off')
 % Top down
 % view(0,90);
 % Side
@@ -766,40 +815,64 @@ view(0,0);
 axis([-2,2,0,2,-2,2])
 pbaspect([1,.5,1])
 hold on
+scatter3(trcpnt(cts),real(SpHReconst(x2mn,Ytrc)),real(SpHReconst(x3mn,Ytrc)),75,'go','filled');
 
 % Just from stress - magenta
-quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua(1,:,:),[1,numel(x(1,:,:))]),reshape(ua(2,:,:),[1,numel(x(1,:,:))]),reshape(ua(3,:,:),[1,numel(x(1,:,:))]),'m')
+% quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua(1,:,:),[1,numel(x(1,:,:))]),reshape(ua(2,:,:),[1,numel(x(1,:,:))]),reshape(ua(3,:,:),[1,numel(x(1,:,:))]),'m')
 % Force - green
-% quiver3(reshape(xcg(1,:,:),[1,numel(x(1,:,:))]),reshape(xcg(2,:,:),[1,numel(x(1,:,:))]),reshape(xcg(3,:,:),[1,numel(x(1,:,:))]),reshape(real(myf(1,:,:)),[1,numel(x(1,:,:))]),reshape(real(myf(2,:,:)),[1,numel(x(1,:,:))]),reshape(real(myf(3,:,:)),[1,numel(x(1,:,:))]),'g')
-% Stress and fluid - cyan
-quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua11(1,:,:),[1,numel(x(1,:,:))]),reshape(ua11(2,:,:),[1,numel(x(1,:,:))]),reshape(ua11(3,:,:),[1,numel(x(1,:,:))]),'c')
+% quiver3(reshape(xf(1,:,:),[1,numel(xf(1,:,:))]),reshape(xf(2,:,:),[1,numel(xf(1,:,:))]),reshape(xf(3,:,:),[1,numel(xf(1,:,:))]),reshape(real(myf(1,:,:)),[1,numel(xf(1,:,:))]),reshape(real(myf(2,:,:)),[1,numel(xf(1,:,:))]),reshape(real(myf(3,:,:)),[1,numel(xf(1,:,:))]),'g')
+% Stress and fluid - blue
+quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua11(1,:,:),[1,numel(x(1,:,:))]),reshape(ua11(2,:,:),[1,numel(x(1,:,:))]),reshape(ua11(3,:,:),[1,numel(x(1,:,:))]),'b')
+
+h2 = subplot(2,1,2);
+set(h2, 'Units', 'normalized');
+set(h2, 'Position', [0.05, 0, 1, .7]);
+
+surf(x1,x2,x3,myf23,'edgecolor','none','FaceColor',[1 0 0], ... %!!!!!!!!!!!!! make full cell?
+      'FaceAlpha',0.75,'FaceLighting','gouraud')
+lightangle(gca,150,50)
+set(gca,'nextplot','replacechildren','visible','off')
+set(gcf, 'color', 'white');
+% Top down
+% view(0,90);
+% Side
+view(45,45);
+axis([-2,2,0,2,-2,2])
+pbaspect([1,.5,1])
+hold on
+scatter3(trcpnt(cts),real(SpHReconst(x2mn,Ytrc)),real(SpHReconst(x3mn,Ytrc)),75,'go','filled');
+
+
+% Just from stress - magenta, includes highest order!
+% quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua(1,:,:),[1,numel(x(1,:,:))]),reshape(ua(2,:,:),[1,numel(x(1,:,:))]),reshape(ua(3,:,:),[1,numel(x(1,:,:))]),'m')
+% Force - green
+% quiver3(reshape(xf(1,:,:),[1,numel(xf(1,:,:))]),reshape(xf(2,:,:),[1,numel(xf(1,:,:))]),reshape(xf(3,:,:),[1,numel(xf(1,:,:))]),reshape(real(myf(1,:,:)),[1,numel(xf(1,:,:))]),reshape(real(myf(2,:,:)),[1,numel(xf(1,:,:))]),reshape(real(myf(3,:,:)),[1,numel(xf(1,:,:))]),'g')
+% Stress and fluid - blue
+quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua11(1,:,:),[1,numel(x(1,:,:))]),reshape(ua11(2,:,:),[1,numel(x(1,:,:))]),reshape(ua11(3,:,:),[1,numel(x(1,:,:))]),'b')
 
 %vel plots
-res = 10;
-drs = 4/res;
-xqv1 = zeros(1,res*res);
-xqv2 = xqv1;
-xqv3 = xqv1;
-vqv1 = xqv1;
-vqv2 = xqv1;
-vqv3 = xqv1;
-ntt=0;
-for i = 1:res
-    for j = 1:res
-        ntt = ntt+1;
-        xqv1(ntt) = -2 + (i-1)*drs;
-        xqv3(ntt) = -2 + (j-1)*drs;
-        vt = U + dU*[xqv1(ntt);xqv2(ntt);xqv3(ntt)];
-        vqv1(ntt) = vt(1);
-        vqv2(ntt) = vt(2);
-        vqv3(ntt) = vt(3);
-    end
-end
-quiver3(xqv1,xqv2,xqv3,vqv1,vqv2,vqv3);
+% res = 10;
+% drs = 4/res;
+% xqv1 = zeros(1,res*res);
+% xqv2 = xqv1;
+% xqv3 = xqv1;
+% vqv1 = xqv1;
+% vqv2 = xqv1;
+% vqv3 = xqv1;
+% ntt=0;
+% for i = 1:res
+%     for j = 1:res
+%         ntt = ntt+1;
+%         xqv1(ntt) = -2 + (i-1)*drs;
+%         xqv3(ntt) = -2 + (j-1)*drs;
+%         vt = U + dU*[xqv1(ntt);xqv2(ntt);xqv3(ntt)];
+%         vqv1(ntt) = vt(1);
+%         vqv2(ntt) = vt(2);
+%         vqv3(ntt) = vt(3);
+%     end
+% end
+% quiver3(xqv1,xqv2,xqv3,vqv1,vqv2,vqv3);
 
-scatter3(x(1,floor(nt/2)+1,1),x(2,floor(nt/2)+1,1),x(3,floor(nt/2)+1,1),'ro');
-trcpnt(cts) = x(1,floor(nt/2)+1,1);
-trcvel(cts) = ua(1,floor(nt/2)+1,1);
 
 % gif maker
 drawnow
@@ -815,7 +888,7 @@ else
 end 
 
 % some output
-disp([max(abs(x3mn-ix3mn)), real(u3(1)), max(max(squeeze(ua(1,:,:)))),max(max(max(abs(myf(:,:,:))))),cts]);
+disp([max(abs(x3mn-ix3mn)), real(u3(1)),max(max(max(abs(myf(:,:,:))))),cts]);
 
  end
 
