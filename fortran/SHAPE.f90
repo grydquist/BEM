@@ -76,16 +76,14 @@ FUNCTION newcell(filein) RESULT(cell)
 !   Material properties from input
     cell%mu = READ_GRINT_DOUB(filein, 'Viscosity')
     cell%lam = READ_GRINT_DOUB(filein, 'Viscosity_ratio')
-    ! cell%B = 12.4D0
-    ! cell%C = 200D0
     cell%B = READ_GRINT_DOUB(filein, 'Shear_Modulus')
     cell%C = READ_GRINT_DOUB(filein, 'Dilatation_Modulus')
     cell%Eb = READ_GRINT_DOUB(filein, 'Bending_Modulus')
-    cell%cts = 0
     cell%NT = READ_GRINT_INT(filein, 'Max_time_steps')
     cell%dt = READ_GRINT_DOUB(filein, 'Time_step')
     cell%fileout = READ_GRINT_CHAR(filein, 'Output')
 
+    cell%cts = 1
 !   Coarse and fine grids    
     p = READ_GRINT_INT(filein, 'Harmonic_order')
     cell%p = p
@@ -102,8 +100,8 @@ FUNCTION newcell(filein) RESULT(cell)
     npf = cell%Yf%np
 
 !   Velocity gradient (from input eventually)
-    cell%dU = 0
-    cell%dU(1,3) = 1
+    cell%dU = 0D0
+    cell%dU(1,3) = 1D0
 
 !   Allocating everything, starting with derivatives
     ALLOCATE(cell%dxt(3,ntf,npf), cell%dxp(3,ntf,npf), cell%dxp2(3,ntf,npf), &
@@ -125,6 +123,7 @@ FUNCTION newcell(filein) RESULT(cell)
 
 !   Get the harmonic constants to start out
     cell%xmn = RBCcoeff(cell%Y)
+    ! cell%xmn = Spherecoeff(cell%Y)
     
 !   Initial positions
     cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
@@ -144,18 +143,27 @@ FUNCTION newcell(filein) RESULT(cell)
     cell%init = .true.
 END FUNCTION
 
-
 ! -------------------------------------------------------------------------!
 ! Writes xmn to a text file. Could be better
 SUBROUTINE Writecell(cell)
     CLASS(cellType), INTENT(IN) ::cell
     IF(cell%init) THEN
-        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = "xmn.txt")
+        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = cell%fileout)
     ELSE
-        OPEN (UNIT = 88, FILE = "xmn.txt")
+        OPEN (UNIT = 88, FILE = cell%fileout)
     ENDIF
     WRITE(88,*) REAL(cell%xmn)
     WRITE(88,*) AIMAG(cell%xmn)
+    WRITE(88,*) cell%cts
+    CLOSE(88)
+    
+    IF(cell%init) THEN
+        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'u_'//cell%fileout)
+    ELSE
+        OPEN (UNIT = 88, FILE = 'u_'//cell%fileout)
+    ENDIF
+    WRITE(88,*) REAL(cell%umn)
+    WRITE(88,*) AIMAG(cell%umn)
     WRITE(88,*) cell%cts
     CLOSE(88)
 
@@ -297,66 +305,6 @@ SUBROUTINE Derivscell(cell)
         ENDDO
     ENDDO
 
-!   De-alias all derivs
-!   First order
-!     CALL cell%dealias(cell%dxt(1,:,:))
-!     CALL cell%dealias(cell%dxt(2,:,:))
-!     CALL cell%dealias(cell%dxt(3,:,:))
-    
-!     CALL cell%dealias(cell%dxp(1,:,:))
-!     CALL cell%dealias(cell%dxp(2,:,:))
-!     CALL cell%dealias(cell%dxp(3,:,:))
-    
-! !   Second order
-!     CALL cell%dealias(cell%dxt2(1,:,:))
-!     CALL cell%dealias(cell%dxt2(2,:,:))
-!     CALL cell%dealias(cell%dxt2(3,:,:))
-    
-!     CALL cell%dealias(cell%dxtp(1,:,:))
-!     CALL cell%dealias(cell%dxtp(2,:,:))
-!     CALL cell%dealias(cell%dxtp(3,:,:))
-
-!     CALL cell%dealias(cell%dxp2(1,:,:))
-!     CALL cell%dealias(cell%dxp2(2,:,:))
-!     CALL cell%dealias(cell%dxp2(3,:,:))
-
-! !   Third order
-!     CALL cell%dealias(cell%dxt3(1,:,:))
-!     CALL cell%dealias(cell%dxt3(2,:,:))
-!     CALL cell%dealias(cell%dxt3(3,:,:))
-    
-!     CALL cell%dealias(cell%dxt2p(1,:,:))
-!     CALL cell%dealias(cell%dxt2p(2,:,:))
-!     CALL cell%dealias(cell%dxt2p(3,:,:))
-
-!     CALL cell%dealias(cell%dxtp2(1,:,:))
-!     CALL cell%dealias(cell%dxtp2(2,:,:))
-!     CALL cell%dealias(cell%dxtp2(3,:,:))
-
-!     CALL cell%dealias(cell%dxp3(1,:,:))
-!     CALL cell%dealias(cell%dxp3(2,:,:))
-!     CALL cell%dealias(cell%dxp3(3,:,:))
-
-! !   Fourth order
-!     CALL cell%dealias(cell%dxt4(1,:,:))
-!     CALL cell%dealias(cell%dxt4(2,:,:))
-!     CALL cell%dealias(cell%dxt4(3,:,:))
-    
-!     CALL cell%dealias(cell%dxt3p(1,:,:))
-!     CALL cell%dealias(cell%dxt3p(2,:,:))
-!     CALL cell%dealias(cell%dxt3p(3,:,:))
-
-!     CALL cell%dealias(cell%dxt2p2(1,:,:))
-!     CALL cell%dealias(cell%dxt2p2(2,:,:))
-!     CALL cell%dealias(cell%dxt2p2(3,:,:))
-
-!     CALL cell%dealias(cell%dxtp3(1,:,:))
-!     CALL cell%dealias(cell%dxtp3(2,:,:))
-!     CALL cell%dealias(cell%dxtp3(3,:,:))
-
-!     CALL cell%dealias(cell%dxp4(1,:,:))
-!     CALL cell%dealias(cell%dxp4(2,:,:))
-!     CALL cell%dealias(cell%dxp4(3,:,:))
 END SUBROUTINE Derivscell
 
 ! -------------------------------------------------------------------------!
@@ -674,15 +622,6 @@ SUBROUTINE Stresscell(cell)
             ev1 = ev(:,3)
             ev2 = ev(:,2)
 
-! !           Old way of doing it
-!             CALL EIG3(V2, lams, ev)
-!             es(1) = sqrt(lams(1))
-!             es(2) = sqrt(lams(2))
-
-! !           Eigenvectors I actually need
-!             ev1 = ev(:,1)/norm2(ev(:,1))
-!             ev2 = ev(:,2)/norm2(ev(:,3))
-
 !           Strain invariants
             I1 = es(1)*es(1) + es(2)*es(2) - 2D0
             I2 = es(1)*es(1)*es(2)*es(2) - 1D0
@@ -797,7 +736,7 @@ SUBROUTINE Stresscell(cell)
         cell%fc(2,:,:) = cell%Y%backward(cell%fmn(2,:), cell%p)
         cell%fc(3,:,:) = cell%Y%backward(cell%fmn(3,:), cell%p)
 
-        tmp = cell%fmn(1,:)
+        ! tmp = cell%fmn(1,:)
         ! tmp2 = cell%ff(1,:,:)
         ! print *, tmp !!!!!!! precision dips: from cvt=>tauab,dtauab, I2t,es1t, FROM C=100!
     ENDIF
@@ -810,18 +749,12 @@ SUBROUTINE Fluidcell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, ih, it, im, row, col, im2, n2, m2
-    COMPLEX(KIND = 8) :: A(1,1), &!A(3*cell%Y%nt*cell%Y%np, 3*(cell%Y%p + 1)*(cell%Y%p + 1)), &
-                         b(3*cell%Y%nt*cell%Y%np), At(3,3), bt(3), &
-                         A2(1,1), &!A2(3*(cell%Y%p + 1)*(cell%Y%p + 1), 3*(cell%Y%p + 1)*(cell%Y%p + 1)), &
-                         b2(3*(cell%Y%p + 1)*(cell%Y%p + 1)), td1, &
-                         vcur, v(3,3)
+    COMPLEX(KIND = 8) :: At(3,3), bt(3), td1, vcur, v(3,3)
     REAL(KIND = 8) :: dxtg(3), dxpg(3), Uc(3), t1(3,3), t2(3,3), t3(3,3), Tx(3,3), &
-                      xcr(3), gp(3), Utmp(3,3), &
-                      thet(cell%Y%nt, cell%Y%np), phit(cell%Y%nt, cell%Y%np), nkg(3), &
-                      Jg(cell%Y%nt, cell%Y%np), frot(3, cell%Y%nt, cell%Y%np), &
-                      r(3), vT(3,3,cell%Y%nt, cell%Y%np), vG(3,3,cell%Y%nt, cell%Y%np), &
-                      eye(3,3) , xcg(3, cell%Y%nt, cell%Y%np), Jgf(cell%Yf%nt, cell%Yf%np), &
-                      Vtt(3,3), Vtg(3,3)
+                      xcr(3), gp(3), Utmp(3,3), nkg(3), r(3), eye(3,3) , Vtt(3,3), Vtg(3,3)
+    COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), A2(:,:), b(:), b2(:)
+    REAL(KIND = 8), ALLOCATABLE :: thet(:,:), phit(:,:), Jg(:,:), frot(:,:,:), &
+                                   vT(:,:,:,:), vG(:,:,:,:), xcg(:,:,:), Jgf(:,:)
     COMPLEX(KIND = 8), POINTER :: vcurn(:,:), vcurt(:,:)
     TYPE(YType), POINTER :: Y, Yf
     TYPE(Ytype), TARGET :: Yt
@@ -831,6 +764,21 @@ SUBROUTINE Fluidcell(cell)
 
     Y => cell%Y
     Yf=> cell%Yf
+
+!   Allocate things
+    ALLOCATE(A(3*Y%nt*Y%np, 3*(Y%p + 1)*(Y%p + 1)), &
+             A2(3*(Y%p + 1)*(Y%p + 1), 3*(Y%p + 1)*(Y%p + 1)), &
+             b(3*Y%nt*Y%np), &
+             b2(3*(Y%p + 1)*(Y%p + 1)), &
+             thet(Y%nt, Y%np), &
+             phit(Y%nt, Y%np), &
+             Jg(Y%nt, Y%np), &
+             frot(3, Y%nt, Y%np), &
+             vT(3,3,Y%nt, Y%np), &
+             vG(3,3,Y%nt, Y%np), &
+             xcg(3, Y%nt, Y%np), &
+             Jgf(Yf%nt, Yf%np))
+
     eye = 0D0
     FORALL(j = 1:3) eye(j,j) = 1D0
 !   We need to do two integral loops: the first calculates the integral 
@@ -852,6 +800,11 @@ SUBROUTINE Fluidcell(cell)
 !           Velocity at integration point
             Utmp = TRANSPOSE(cell%dU)
             Uc = INNER3_33(cell%x(:,i,j), Utmp)
+            ! IF(cell%cts.gt.15) UC = 0D0
+! !           Pouiseille!
+!             Uc = 0D0
+!             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
+!             Uc(3) = rt*rt - 1D0/3D0
 
 !           To integrate these nasty integrals, we need to rotate the 
 !           spherical harmonic coefficients so the integration point is at
@@ -890,18 +843,18 @@ SUBROUTINE Fluidcell(cell)
             DO i2 = 1,Yf%nt
                 DO j2 = 1,Yf%np
                     IF(i2 .le. Y%nt .and. j2 .le. Y%np) THEN
-!                       Gauss point rotated in parameter space
-                        gp = (/SIN(Y%tht(i2))*COS(Y%phi(j2)), &
-                               SIN(Y%tht(i2))*SIN(Y%phi(j2)), &
-                               COS(Y%tht(i2))/)
+!                   Gauss point rotated in parameter space
+                    gp = (/SIN(Y%tht(i2))*COS(Y%phi(j2)), &
+                           SIN(Y%tht(i2))*SIN(Y%phi(j2)), &
+                           COS(Y%tht(i2))/)
 
-    !                   Rotate this Gauss point to nonrotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! check this is right
-                        gp = INNER3_33(gp, Tx)
-    !                   Sometimes precision can be an issue...!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Don't need to do this everytime (calcs same spot always)
-                        IF(gp(3).gt.1)  gp(3) =  1D0
-                        IF(gp(3).lt.-1) gp(3) = -1D0
-                        phit(i2, j2) = ATAN2(gp(2), gp(1))
-                        thet(i2, j2) = ACOS(gp(3))
+!                   Rotate this Gauss point to nonrotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! check this is right
+                    gp = INNER3_33(gp, Tx)
+!                   Sometimes precision can be an issue...!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Don't need to do this everytime (calcs same spot always)
+                    IF(gp(3).gt.1)  gp(3) =  1D0
+                    IF(gp(3).lt.-1) gp(3) = -1D0
+                    phit(i2, j2) = ATAN2(gp(2), gp(1))
+                    thet(i2, j2) = ACOS(gp(3))
                     ENDIF
 
 !                   We need the basis vectors in the rotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Perhaps theres a way to speed this up
@@ -1048,7 +1001,7 @@ SUBROUTINE Fluidcell(cell)
 !   The highest order coefficients are calculated with large error,
 !   so we need to throw them out
 !   We could just not even calculate these at all to save some time!!!!!!!!!!!!!!!!!!!!!!!!!!
-    b2(3*Y%p*Y%p+1:3*(Y%p+1)*(Y%p+1)) = 0D0
+    b2(3*(Y%p)*(Y%p)+1:3*(Y%p+1)*(Y%p+1)) = 0D0 !!!!!!!!!!!!!!!!!!!!!!!!!!! I changed this. Is this off by one or something?
 
     cell%umn(1,:) = b2((/(i, i=1,3*(Y%p+1)*(Y%p+1)-2, 3)/))/(-4D0*pi)
     cell%umn(2,:) = b2((/(i, i=2,3*(Y%p+1)*(Y%p+1)-1, 3)/))/(-4D0*pi)

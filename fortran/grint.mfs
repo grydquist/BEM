@@ -4,8 +4,8 @@ Shear_Modulus 12.4
 Dilatation_Modulus 200
 Bending_Modulus 0.0669
 Max_time_steps 5000
-Time_step 0.001
-Output xmn.txt
-Harmonic_order 12
-Refinement_factor 3
+Time_step 0.0005
+Output xmn2.txt
+Harmonic_order 6
+Refinement_factor 4
 

@@ -101,7 +101,9 @@ FUNCTION newcell(filein) RESULT(cell)
 
 !   Velocity gradient (from input eventually)
     cell%dU = 0D0
-    cell%dU(1,3) = 1D0
+    ! cell%dU(1,3) = 1D0
+    cell%dU(3,3) = 1D0
+    cell%dU(1,1) = -1D0
 
 !   Allocating everything, starting with derivatives
     ALLOCATE(cell%dxt(3,ntf,npf), cell%dxp(3,ntf,npf), cell%dxp2(3,ntf,npf), &
@@ -122,8 +124,8 @@ FUNCTION newcell(filein) RESULT(cell)
     cell%ff = 0D0  
 
 !   Get the harmonic constants to start out
-    cell%xmn = RBCcoeff(cell%Y)
-    ! cell%xmn = Spherecoeff(cell%Y)
+    ! cell%xmn = RBCcoeff(cell%Y)
+    cell%xmn = Spherecoeff(cell%Y)
     
 !   Initial positions
     cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
@@ -154,7 +156,7 @@ SUBROUTINE Writecell(cell)
     ENDIF
     WRITE(88,*) REAL(cell%xmn)
     WRITE(88,*) AIMAG(cell%xmn)
-    WRITE(88,*) cell%cts
+    WRITE(88,*) cell%cts - 1
     CLOSE(88)
     
     IF(cell%init) THEN
@@ -331,12 +333,15 @@ SUBROUTINE Stresscell(cell)
                       c111p, c112p,        c222p, c221p, c211p
     REAL(KIND = 8) :: mab(2,2), mabt(2,2), mabp(2,2), dmab2(2,2), &
                       q1, q2, dq(2), Fd(3,3), Prj(3,3), V2(3,3), &
-                      lams(3), es(2), ev(3,3), ev1(3), ev2(3), I1, I2, &
+                      lams(3), es(2), ev(3,3), ev1(3), ev2(3), &
                       tau(3,3), tauab(2,2), B, C, Eb, wrk(102), tV2(3,3)
     REAL(KIND = 8) :: Fdt(3,3), Fdp(3,3), V2t(3,3), V2p(3,3), lam1dV2(3,3), &
                       lam2dV2(3,3), es1t, es1p, es2t, es2p, I1t, I1p, I2t, I2p, &
                       Prjt(3,3), Prjp(3,3), taut(3,3), taup(3,3), dtauab(2,2), &
-                      bv(2,2), bm(2,2), cvt, cvp, cq, normev1, normev2
+                      bv(2,2), bm(2,2), cvt, cvp, cq, normev1, &
+                      eye(3,3), tauin(3,3),teps(3,3), trteps, trtepsp, trtepst,&
+                      tauint(3,3), tauinp(3,3), epst(3,3), epsp(3,3),             tmp3(3,3,3), tmpt(3,3), tmpp(3,3)
+
                       
 
 
@@ -345,6 +350,8 @@ SUBROUTINE Stresscell(cell)
     B = cell%B
     C = cell%C
     Eb = cell%Eb
+    eye = 0D0
+    FORALL(j = 1:3) eye(j,j) = 1D0
     
 !   Big loop over all points in grid
     DO i = 1, cell%Yf%nt
@@ -600,8 +607,6 @@ SUBROUTINE Stresscell(cell)
 !           In plane tension and derivatives
 !           Deformation gradient tensor                  
             Fd = outer(cell%dxt(:,i,j), cell%c1R(:,i,j)) + outer(cell%dxp(:,i,j), cell%c2R(:,i,j))
-
-!           Surface projection operator
             Prj = 0D0
             FORALL(q = 1:3) Prj(q,q) = 1D0
             Prj = Prj - outer(nk,nk)
@@ -609,32 +614,29 @@ SUBROUTINE Stresscell(cell)
 !           Left Cauchy-Green
             V2 = MATMUL(Fd, TRANSPOSE(Fd))
 
-!           Principal strains/directions
-            tV2 = V2
-            CALL dsyev('v', 'u', 3, V2, 3, lams, wrk, 102, rc)
-            ev = V2
-            V2 = tV2
-            
-            es(1) = sqrt(lams(3))
-            es(2) = sqrt(lams(2))
+!           Test strain measure (in plane)
+            teps = 0.5D0*(MATMUL(TRANSPOSE(Fd), Fd) - Prj)
+            trteps = teps(1,1) + teps(2,2) + teps(3,3)
 
-!           Eigenvectors I actually need
-            ev1 = ev(:,3)
-            ev2 = ev(:,2)
-
-!           Strain invariants
-            I1 = es(1)*es(1) + es(2)*es(2) - 2D0
-            I2 = es(1)*es(1)*es(2)*es(2) - 1D0
+!           Tau inside parentheses for ease
+            tauin = C*trteps*eye + B*(V2-eye)
 
 !           In plane tension (Cartesian)
-            tau = 0.5D0*(B/(es(1)*es(2))*(I1 + 1)*V2 &
-                + es(1)*es(2)*(C*I2 - B)*Prj)
-                
+            tau = 1D0/cell%J(i,j)*MATMUL(V2, tauin)
+            
 !           Tau in surface coordinates
             tauab(1,1) = DOT(INNER3_33(c1,tau), c1)
             tauab(1,2) = DOT(INNER3_33(c1,tau), c2)
             tauab(2,1) = DOT(INNER3_33(c2,tau), c1)
             tauab(2,2) = DOT(INNER3_33(c2,tau), c2)
+
+            mab = 0D0
+            mab(2,2) = 1D0/sin(cell%Yf%tht(i))
+            mab(1,1) = 1D0
+            dmab2(1,1) = 0.5D0*(mab(1,1)*gv(1,1)*mab(1,1) - 1D0)
+            dmab2(2,2) = 0.5D0*(mab(2,2)*gv(2,2)*mab(2,2) - 1D0)
+            dmab2(1,2) = 0.5D0*(mab(1,1)*gv(1,2)*mab(2,2))
+            dmab2(2,1) = 0.5D0*(mab(2,2)*gv(2,1)*mab(1,1))
 
 !           We need the derivatives of tau with respect to phi/theta. It isn't really written
 !           in terms of these, though, so we need several partials in order to do chain rule
@@ -646,42 +648,33 @@ SUBROUTINE Stresscell(cell)
             V2t = MATMUL(Fdt, TRANSPOSE(Fd)) + MATMUL(Fd, TRANSPOSE(Fdt))
             V2p = MATMUL(Fdp, TRANSPOSE(Fd)) + MATMUL(Fd, TRANSPOSE(Fdp))
 
-!           Eigenvalues w.r.t. their matrix
-            lam1dV2 = outer(ev1, ev1)
-            lam2dV2 = outer(ev2, ev2)
+!           Derivatives of trace of teps
+            epst = 0.5D0*(MATMUL(transpose(Fdt), Fd) + MATMUL(transpose(Fd), Fdt) - Prjt)
+            epsp = 0.5D0*(MATMUL(transpose(Fdp), Fd) + MATMUL(transpose(Fd), Fdp) - Prjp)
 
-!           Principal strains to angles.
-            es1t = 0.5D0/es(1)*SUM(lam1dV2*V2t)
-            es1p = 0.5D0/es(1)*SUM(lam1dV2*V2p)
-            es2t = 0.5D0/es(2)*SUM(lam2dV2*V2t)
-            es2p = 0.5D0/es(2)*SUM(lam2dV2*V2p)
+            trtepst = epst(1,1) + epst(2,2) + epst(3,3)!SUM(F*Fdt)
+            trtepsp = epsp(1,1) + epsp(2,2) + epsp(3,3)!SUM(F*Fdp)
 
-!           Strain invariant derivatives
-            I1t = 2D0*es(1)*es1t + 2D0*es(2)*es2t
-            I1p = 2D0*es(1)*es1p + 2D0*es(2)*es2p
-            I2t = (2D0*es(1)*es(2)*es(2))*es1t + (es(1)*es(1)*2D0*es(2))*es2t
-            I2p = (2D0*es(1)*es(2)*es(2))*es1p + (es(1)*es(1)*2D0*es(2))*es2p
-
-!           Projection operator deriv (double neg in 2nd part)
-            Prjt = outer(-dnt, -nk) + outer(nk, dnt)
-            Prjp = outer(-dnp, -nk) + outer(nk, dnp)
+!           Derivatives of interior part
+            tauint = C*trtepst*eye + B*(V2t)
+            tauinp = C*trtepsp*eye + B*(V2p)
 
 !           And finally the big one: derivatives of tau, separated via chain rule
 !           starting with es(1), es(2)
-            taut = (-B/(2D0*es(1)*es(1)*es(2))*(I1 + 1D0)*V2 + 0.5D0*es(2)*(C*I2 - B)*Prj)*es1t & 
-                 + (-B/(2D0*es(1)*es(2)*es(2))*(I1 + 1D0)*V2 + 0.5D0*es(1)*(C*I2 - B)*Prj)*es2t &
-                 + 0.5D0*B/(es(1)*es(2))*V2*I1t & ! Strain invariants
-                 + 0.5D0*es(1)*es(2)*C*Prj*I2t &
-                 + 0.5D0*B/(es(1)*es(2))*(I1 + 1D0)*V2t & ! Tensors
-                 + 0.5D0*es(1)*es(2)*(I2 - B)*Prjt
+            taut = 1D0/cell%J(i,j)*(-Jt*tau + MATMUL(V2t,tauin) &
+                 + MATMUL(V2, tauint))
 
-            taup = (-B/(2D0*es(1)*es(1)*es(2))*(I1 + 1D0)*V2 + 0.5D0*es(2)*(C*I2 - B)*Prj)*es1p & 
-                 + (-B/(2D0*es(1)*es(2)*es(2))*(I1 + 1D0)*V2 + 0.5D0*es(1)*(C*I2 - B)*Prj)*es2p &
-                 + 0.5D0*B/(es(1)*es(2))*V2*I1p & ! Strain invariants
-                 + 0.5D0*es(1)*es(2)*C*Prj*I2p &
-                 + 0.5D0*B/(es(1)*es(2))*(I1 + 1D0)*V2p & ! Tensors
-                 + 0.5D0*es(1)*es(2)*(I2 - B)*Prjp
-                 
+            taup = 1D0/cell%J(i,j)*(-Jp*tau + MATMUL(V2p,tauin) &
+                 + MATMUL(V2, tauinp))
+
+                !  IF(i.eq.2 .and. j .eq.2) THEN          ! tauin seems ok...
+                !      tmp3(:,:,1) = tau
+                !      tmpt = taut
+                !      tmpp = taut
+                !  ENDIF
+                !  IF(i.eq.3 .and. j .eq.2) tmp3(:,:,2) = tau
+                !  IF(i.eq.2 .and. j .eq.3) tmp3(:,:,3) = tau
+
 !           Put into local surface coordinates, keeping only needed derivs
             dtauab(1,1) = DOT(INNER3_33(c1,taut), c1)
             dtauab(1,2) = DOT(INNER3_33(c1,taut), c2)
@@ -728,6 +721,11 @@ SUBROUTINE Stresscell(cell)
 !   Now we need to filter for anti-aliasing. Do the transform of the force into spectral
 !   space, cut the highest modes, and transform back into physical space
     IF(cell%init) THEN
+        ! print *, (tmp3(:,:,1) + tmpt*(cell%Yf%tht(3) - cell%Yf%tht(2)) - tmp3(:,:,2))
+        ! print *, ' '
+        ! print *, -tmp3(1,1,1) + tmp3(1,1,2), tmpt(1,1)*(cell%Yf%tht(3) - cell%Yf%tht(2))
+        ! print *, ' '
+
         cell%fmn(1,:) = cell%Yf%forward(cell%ff(1,:,:), cell%q)
         cell%fmn(2,:) = cell%Yf%forward(cell%ff(2,:,:), cell%q)
         cell%fmn(3,:) = cell%Yf%forward(cell%ff(3,:,:), cell%q)
@@ -749,12 +747,18 @@ SUBROUTINE Fluidcell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, ih, it, im, row, col, im2, n2, m2
-    COMPLEX(KIND = 8) :: At(3,3), bt(3), td1, vcur, v(3,3)
+    COMPLEX(KIND = 8) :: A(1,1), &!A(3*cell%Y%nt*cell%Y%np, 3*(cell%Y%p + 1)*(cell%Y%p + 1)), &
+                         b(3*cell%Y%nt*cell%Y%np), At(3,3), bt(3), &
+                         A2(1,1), &!A2(3*(cell%Y%p + 1)*(cell%Y%p + 1), 3*(cell%Y%p + 1)*(cell%Y%p + 1)), &
+                         b2(3*(cell%Y%p + 1)*(cell%Y%p + 1)), td1, &
+                         vcur, v(3,3)
     REAL(KIND = 8) :: dxtg(3), dxpg(3), Uc(3), t1(3,3), t2(3,3), t3(3,3), Tx(3,3), &
-                      xcr(3), gp(3), Utmp(3,3), nkg(3), r(3), eye(3,3)
-    COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), A2(:,:), b(:), b2(:)
-    REAL(KIND = 8), ALLOCATABLE :: thet(:,:), phit(:,:), Jg(:,:), frot(:,:,:), &
-                                   vT(:,:,:,:), vG(:,:,:,:), xcg(:,:,:), Jgf(:,:)
+                      xcr(3), gp(3), Utmp(3,3), &
+                      thet(cell%Y%nt, cell%Y%np), phit(cell%Y%nt, cell%Y%np), nkg(3), &
+                      Jg(cell%Y%nt, cell%Y%np), frot(3, cell%Y%nt, cell%Y%np), &
+                      r(3), vT(3,3,cell%Y%nt, cell%Y%np), vG(3,3,cell%Y%nt, cell%Y%np), &
+                      eye(3,3) , xcg(3, cell%Y%nt, cell%Y%np), Jgf(cell%Yf%nt, cell%Yf%np), &
+                      Vtt(3,3), Vtg(3,3), rt
     COMPLEX(KIND = 8), POINTER :: vcurn(:,:), vcurt(:,:)
     TYPE(YType), POINTER :: Y, Yf
     TYPE(Ytype), TARGET :: Yt
@@ -764,21 +768,6 @@ SUBROUTINE Fluidcell(cell)
 
     Y => cell%Y
     Yf=> cell%Yf
-
-!   Allocate things
-    ALLOCATE(A(3*Y%nt*Y%np, 3*(Y%p + 1)*(Y%p + 1)), &
-             A2(3*(Y%p + 1)*(Y%p + 1), 3*(Y%p + 1)*(Y%p + 1)), &
-             b(3*Y%nt*Y%np), &
-             b2(3*(Y%p + 1)*(Y%p + 1)), &
-             thet(Y%nt, Y%np), &
-             phit(Y%nt, Y%np), &
-             Jg(Y%nt, Y%np), &
-             frot(3, Y%nt, Y%np), &
-             vT(3,3,Y%nt, Y%np), &
-             vG(3,3,Y%nt, Y%np), &
-             xcg(3, Y%nt, Y%np), &
-             Jgf(Yf%nt, Yf%np))
-
     eye = 0D0
     FORALL(j = 1:3) eye(j,j) = 1D0
 !   We need to do two integral loops: the first calculates the integral 
@@ -800,7 +789,7 @@ SUBROUTINE Fluidcell(cell)
 !           Velocity at integration point
             Utmp = TRANSPOSE(cell%dU)
             Uc = INNER3_33(cell%x(:,i,j), Utmp)
-            ! IF(cell%cts.gt.15) UC = 0D0
+            IF(cell%cts.gt.15) Uc = 0D0
 ! !           Pouiseille!
 !             Uc = 0D0
 !             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
@@ -840,20 +829,22 @@ SUBROUTINE Fluidcell(cell)
             
 !           Area element, needed for integration, in rotated reference frame
 !           Additionally, we want rotated points in nonrotated reference frame
-            DO i2 = 1,Y%nt
-                DO j2 = 1,Y%np
-!                   Gauss point rotated in parameter space
-                    gp = (/SIN(Y%tht(i2))*COS(Y%phi(j2)), &
-                           SIN(Y%tht(i2))*SIN(Y%phi(j2)), &
-                           COS(Y%tht(i2))/)
+            DO i2 = 1,Yf%nt
+                DO j2 = 1,Yf%np
+                    IF(i2 .le. Y%nt .and. j2 .le. Y%np) THEN
+!                       Gauss point rotated in parameter space
+                        gp = (/SIN(Y%tht(i2))*COS(Y%phi(j2)), &
+                               SIN(Y%tht(i2))*SIN(Y%phi(j2)), &
+                               COS(Y%tht(i2))/)
 
-!                   Rotate this Gauss point to nonrotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! check this is right
-                    gp = INNER3_33(gp, Tx)
-!                   Sometimes precision can be an issue...!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Don't need to do this everytime (calcs same spot always)
-                    IF(gp(3).gt.1)  gp(3) =  1D0
-                    IF(gp(3).lt.-1) gp(3) = -1D0
-                    phit(i2, j2) = ATAN2(gp(2), gp(1))
-                    thet(i2, j2) = ACOS(gp(3))
+    !                   Rotate this Gauss point to nonrotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! check this is right
+                        gp = INNER3_33(gp, Tx)
+    !                   Sometimes precision can be an issue...!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Don't need to do this everytime (calcs same spot always)
+                        IF(gp(3).gt.1)  gp(3) =  1D0
+                        IF(gp(3).lt.-1) gp(3) = -1D0
+                        phit(i2, j2) = ATAN2(gp(2), gp(1))
+                        thet(i2, j2) = ACOS(gp(3))
+                    ENDIF
 
 !                   We need the basis vectors in the rotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Perhaps theres a way to speed this up
 !                   to get the area element
@@ -863,7 +854,7 @@ SUBROUTINE Fluidcell(cell)
                     dxpg = 0
                     DO n = 0,Y%p
                         ih = ih + 1
-                        nm => Y%nm(ih)
+                        nm => Yf%nm(ih)
                         im = 0
                         DO m = -n,n
                             im = im + 1
@@ -885,15 +876,16 @@ SUBROUTINE Fluidcell(cell)
                     nkg = -nkg/(sqrt(nkg(1)*nkg(1) + nkg(2)*nkg(2) + nkg(3)*nkg(3)))
 
 !                   Jacobian via fundamental forms
-                    Jg(i2,j2) = sqrt(DOT(dxtg,dxtg)*DOT(dxpg,dxpg) &
+                    Jgf(i2,j2) = sqrt(DOT(dxtg,dxtg)*DOT(dxpg,dxpg) &
                               -      DOT(dxtg,dxpg)*DOT(dxtg,dxpg))
 
 !                   Calculate kernels now, since we're already looping over these points
-                    r = xcr - xcg(:,i2,j2)
-                    vG(:,:,i2,j2) = Gij(r, eye)
-                    vT(:,:,i2,j2) = Tij(r, nkg)
+                    ! r = xcr - xcg(:,i2,j2)
+                    ! vG(:,:,i2,j2) = Gij(r, eye)
+                    ! vT(:,:,i2,j2) = Tij(r, nkg)
                 ENDDO
             ENDDO
+            Jg = cell%dealias(Jgf)
 !           Harmonics of integration points of rotated frame in nonrotated frame
             Yt = Ytype(thet, phit)
 
@@ -929,7 +921,9 @@ SUBROUTINE Fluidcell(cell)
                             !   * cell%Y%ws(i2)*cell%Y%dphi
 !                           RHS part, only need to do once
                             IF(n .eq. 0) THEN
-                                bt = bt + INNER3_33(frot(:,i2,j2),vG(:,:,i2,j2)) &
+                                r = xcr - xcg(:,i2,j2)
+                                vtg = Gij(r, eye)
+                                bt = bt + INNER3_33(frot(:,i2,j2),vtG) &
                                    * Jg(i2,j2)*cell%Y%ws(i2)
                             ENDIF
                         ENDDO

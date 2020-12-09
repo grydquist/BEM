@@ -396,6 +396,7 @@ FUNCTION rotateY(Y, fmn, a, b, c) RESULT(f)
         ENDDO
     ENDDO
 END FUNCTION rotateY
+
 ! -------------------------------------------------------------------------!
 ! Calculate spherical harmonic coefficients for an RBC
 FUNCTION RBCcoeff(Y, ord) RESULT(xmn)
@@ -441,5 +442,41 @@ FUNCTION RBCcoeff(Y, ord) RESULT(xmn)
         if(abs(xmn(3,i)).lt.1E-12) xmn(3,i) = 0D0
     ENDDO
 END FUNCTION RBCcoeff
+
+! -------------------------------------------------------------------------!
+! Calculate spherical harmonic coefficients for a Sphere
+FUNCTION Spherecoeff(Y, ord) RESULT(xmn)
+    TYPE(YType),INTENT(IN) :: Y
+    COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:)
+    INTEGER, OPTIONAL :: ord
+
+    REAL(KIND = 8), ALLOCATABLE :: x1(:,:), x2(:,:), x3(:,:)
+    INTEGER :: p, i
+
+    ALLOCATE(x1(Y%nt,Y%np), x2(Y%nt,Y%np), x3(Y%nt,Y%np), &
+        xmn(3,(Y%p + 1)*(Y%p + 1)))
+
+
+    IF(PRESENT(ord)) THEN
+        p = ord
+    ELSE
+        p = Y%p
+    ENDIF
+
+    x1 = COS(Y%ph)*SIN(Y%th)
+    x2 = SIN(Y%ph)*SIN(Y%th)
+    x3 = COS(Y%th)
+
+    xmn(1,:) = Y%forward(x1)
+    xmn(2,:) = Y%forward(x2)
+    xmn(3,:) = Y%forward(x3)
+
+!   Gotta get that max precision
+    DO i = 1,INT(size(xmn)/3)
+        if(abs(xmn(1,i)).lt.1E-12) xmn(1,i) = 0D0
+        if(abs(xmn(2,i)).lt.1E-12) xmn(2,i) = 0D0
+        if(abs(xmn(3,i)).lt.1E-12) xmn(3,i) = 0D0
+    ENDDO
+END FUNCTION Spherecoeff
 
 END MODULE HARMMOD

@@ -12,13 +12,14 @@ mu = 1;
 lam = 1;%/5;
 
 % Deformation resistance constants
-B = 12.4;
-C = 200;
-% B = .005;
-% C = 1;
+% B = 12.4;
+% C = 200;
+B = .005;
+C = 100;
 
 % Bending modulus
-Eb = 0.0669;
+% Eb = 0.0669;
+Eb = 0;
 
 % Total time steps
 NT = 100;
@@ -33,10 +34,10 @@ dU = [0,0,1;0,0,0;.0,0,0];
 %% Reference Shape Definition
 
 % Order of the force and velocity transforms
-p = 12;
+p = 6;
 
 % To de-alias the force, we need to get a finer grid. The factor is fali
-fali = 4;
+fali = 2;
 
 % Order of SpH for the fine grid
 q = p*fali;

@@ -42,6 +42,7 @@ DO i = 1,cell%NT
         print *, i, MAXVAL((ABS(cell%ff)))
         print *, '   '
         cell%xmn = cell%xmn + cell%umn*cell%dt               !!!! make update step
+        cell%xmn(:,1) = 0D0  !! No RBM
         cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
         cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
         cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))

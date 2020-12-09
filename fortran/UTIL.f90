@@ -374,8 +374,8 @@ END FUNCTION READ_GRINT_INT
 FUNCTION READ_GRINT_CHAR(filen, srch) RESULT(x)
     CHARACTER (len=*) filen, srch
     CHARACTER (len=1000) :: text
-    CHARACTER (len=20) :: word
-    CHARACTER x
+    CHARACTER (len=20) :: word, word2
+    CHARACTER (len=:), ALLOCATABLE :: x
     INTEGER ierr
 
     OPEN(unit = 88, file = filen, action = 'read')
@@ -384,7 +384,8 @@ FUNCTION READ_GRINT_CHAR(filen, srch) RESULT(x)
         IF (ierr /= 0) EXIT
         READ (text,*) word ! read first word of line
         IF (word == srch) THEN ! found search string at beginning of line
-           READ (text,*) word,x
+           READ (text,*) word,word2
+           x = trim(word2)
            EXIT
            CLOSE(88)
         ENDIF
