@@ -1,6 +1,5 @@
 MODULE HARMMOD
 USE UTILMOD
-USE FFTMOD
 IMPLICIT NONE
 
 !==============================================================================!
@@ -29,6 +28,10 @@ TYPE YType
 
 !   Individual harmonics
     TYPE(nmType), ALLOCATABLE :: nm(:)
+
+!   Items to keep for the FFT
+    REAL(KIND = 8), ALLOCATABLE :: WSAVE(:)
+    INTEGER LENSAV 
     
 
     CONTAINS
@@ -106,20 +109,31 @@ FUNCTION newY(p, dero) RESULT(Y)
         Y%nm(i+1) = nmType(i, dero, Y)
     ENDDO
 
+!   Initialize for FFT (np values in each transform)
+    Y%LENSAV = 2*Y%np + INT(LOG(REAL(Y%np))) + 4
+    ALLOCATE(Y%WSAVE(Y%LENSAV))
+    CALL zfft1i(Y%np, Y%WSAVE, Y%LENSAV, i)
+
 END FUNCTION newY
 
 !------------------------------------------------------------------!
 ! Makes a new Y, but takes in thts and phis instead of assuming a 
 ! plain ole grid
-FUNCTION newYbare(th, ph) RESULT(Y)
+FUNCTION newYbare(th, ph, p) RESULT(Y)
     TYPE(YType) Y
 
     REAL(KIND = 8) :: th(:,:), ph(:,:)
-    INTEGER i
+    INTEGER, OPTIONAL :: p
+    INTEGER i, ntp(2)
 
-    Y%p  = INT(sqrt(REAL(size(th)/2)) - 1)
-    Y%nt = Y%p + 1
-    Y%np = 2*(Y%p + 1)
+    IF(present(p)) THEN
+        Y%p = p
+    ELSE
+        Y%p  = INT(sqrt(REAL(size(th)/2)) - 1)
+    ENDIF
+    ntp  = SHAPE(th)
+    Y%nt = ntp(1)
+    Y%np = ntp(2)
     ALLOCATE(Y%th(Y%nt,Y%np), Y%ph(Y%nt,Y%np))
     Y%ph = ph
     Y%th = th
@@ -248,12 +262,11 @@ FUNCTION forwardY(Y, f, p) RESULT(fmn)
     INTEGER, OPTIONAL, INTENT(IN) :: p
 
     INTEGER :: pp, it, in, n, m, iserr
-    COMPLEX(KIND = 8), ALLOCATABLE :: gm(:,:), gint(:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: gm(:,:), gint(:), c(:)
     REAL(KIND = 8), POINTER :: legint(:), wg(:), dphi
-    REAL(KIND = 8), ALLOCATABLE :: a(:), b(:)
+    REAL(KIND = 8), ALLOCATABLE :: wrk(:)
 
-    ALLOCATE(gm(Y%nt,Y%np), fmn((Y%p + 1)*(Y%p + 1)), &
-    a(Y%np), b(Y%np))
+    ALLOCATE(gm(Y%nt,Y%np), fmn((Y%p + 1)*(Y%p + 1)), c(Y%np), wrk(2*Y%np))
     wg => Y%wg
     dphi => Y%dphi
 !   You can choose the order, but if you don't it'll just do max order    
@@ -265,11 +278,9 @@ FUNCTION forwardY(Y, f, p) RESULT(fmn)
 
 !   Do FFT along phi for each value of theta
     DO it = 1, Y%nt
-        a = f(it,:)
-        b = 0D0
-        CALL FFT1(a,b,Y%np,1,iserr)        
-        b = - b !                       It seems like the constants are negative when they shouldn't be
-        gm(it,:) = (a + b*ii)*dphi
+        c = f(it,:)
+        CALL ZFFT1F(Y%np, 1, c, Y%np, Y%WSAVE, Y%LENSAV, wrk, 2*Y%np, iserr)
+        gm(it,:) = c*dphi*Y%np
     ENDDO
 
 !   Now do the integrals across the thetas
@@ -463,13 +474,19 @@ FUNCTION Spherecoeff(Y, ord) RESULT(xmn)
         p = Y%p
     ENDIF
 
-    x1 = COS(Y%ph)*SIN(Y%th)
-    x2 = SIN(Y%ph)*SIN(Y%th)
+    x1 = 0.5D0*COS(Y%ph)*SIN(Y%th)
+    x2 = 0.5D0*SIN(Y%ph)*SIN(Y%th)
     x3 = COS(Y%th)
+
+    ! x1(1:10,1:10) = x1(1:10,1:10) + .05D0
+    ! x2(1:10,1:10) = x2(1:10,1:10) + .08D0
+    ! x3(1:3,1:3) = x3(1:3,1:3) + .05D0
 
     xmn(1,:) = Y%forward(x1)
     xmn(2,:) = Y%forward(x2)
     xmn(3,:) = Y%forward(x3)
+
+    xmn(:,1) = 0D0
 
 !   Gotta get that max precision
     DO i = 1,INT(size(xmn)/3)

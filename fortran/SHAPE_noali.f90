@@ -35,7 +35,7 @@ TYPE cellType
 
 !   Force variables
     REAL(KIND = 8), ALLOCATABLE :: fab(:,:,:), ff(:,:,:), fc(:,:,:)
-    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:), fabmn(:,:)
 
 !   Velocity gradient
     REAL(KIND = 8) :: dU(3,3)
@@ -102,6 +102,9 @@ FUNCTION newcell(filein) RESULT(cell)
 !   Velocity gradient (from input eventually)
     cell%dU = 0D0
     cell%dU(1,3) = 1D0
+    ! cell%dU(1,1) = -.5D0
+    ! cell%dU(2,2) = -.5D0
+    ! cell%dU(3,3) = 1D0
 
 !   Allocating everything, starting with derivatives
     ALLOCATE(cell%dxt(3,ntf,npf), cell%dxp(3,ntf,npf), cell%dxp2(3,ntf,npf), &
@@ -118,12 +121,14 @@ FUNCTION newcell(filein) RESULT(cell)
 
 !   Force items
     ALLOCATE(cell%fab(3,ntf,npf), cell%ff(3,ntf,npf), cell%fc(3,nt,np), &
-             cell%fmn(3,(cell%q+1)*(cell%q+1)))
+             cell%fmn(3,(cell%q+1)*(cell%q+1)), cell%fabmn(3,(cell%q+1)*(cell%q+1)))
     cell%ff = 0D0  
+    cell%fmn = 0D0
+    cell%umn = 0D0
 
 !   Get the harmonic constants to start out
-    cell%xmn = RBCcoeff(cell%Y)
-    ! cell%xmn = Spherecoeff(cell%Y)
+    ! cell%xmn = RBCcoeff(cell%Y)
+    cell%xmn = Spherecoeff(cell%Y)
     
 !   Initial positions
     cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
@@ -147,6 +152,8 @@ END FUNCTION
 ! Writes xmn to a text file. Could be better
 SUBROUTINE Writecell(cell)
     CLASS(cellType), INTENT(IN) ::cell
+
+!   Write position
     IF(cell%init) THEN
         OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = cell%fileout)
     ELSE
@@ -156,7 +163,8 @@ SUBROUTINE Writecell(cell)
     WRITE(88,*) AIMAG(cell%xmn)
     WRITE(88,*) cell%cts
     CLOSE(88)
-    
+
+!   Write velocity
     IF(cell%init) THEN
         OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'u_'//cell%fileout)
     ELSE
@@ -165,6 +173,20 @@ SUBROUTINE Writecell(cell)
     WRITE(88,*) REAL(cell%umn)
     WRITE(88,*) AIMAG(cell%umn)
     WRITE(88,*) cell%cts
+    CLOSE(88)
+
+!   Write third thing (usually force)
+    IF(cell%init) THEN
+        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'f_'//cell%fileout)
+    ELSE
+        OPEN (UNIT = 88, FILE = 'f_'//cell%fileout)
+    ENDIF
+    ! WRITE(88,*) REAL(cell%fmn)
+    ! WRITE(88,*) AIMAG(cell%fmn)
+    ! WRITE(88,*) REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
+    ! WRITE(88,*) AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
+    WRITE(88,*) cell%ff
+
     CLOSE(88)
 
 END SUBROUTINE Writecell
@@ -337,6 +359,10 @@ SUBROUTINE Stresscell(cell)
                       lam2dV2(3,3), es1t, es1p, es2t, es2p, I1t, I1p, I2t, I2p, &
                       Prjt(3,3), Prjp(3,3), taut(3,3), taup(3,3), dtauab(2,2), &
                       bv(2,2), bm(2,2), cvt, cvp, cq, normev1, normev2
+
+
+
+    REAL(KIND = 8) :: tauders(3,3,3), nkm(3,3)
                       
 
 
@@ -567,18 +593,18 @@ SUBROUTINE Stresscell(cell)
             c222p = dot(cell%dxp3(:,i,j) ,c2) + dot(cell%dxp2(:,i,j),c2p)
 
 !           Now finally some mechanics, starting with bending moments/derivs
-            mab = (k - cell%kR(i,j))*gn
-            mabt = (kt - cell%kdR(1,i,j))*gn + (k - cell%kR(i,j))*dgt
-            mabp = (kp - cell%kdR(2,i,j))*gn + (k - cell%kR(i,j))*dgp
+            mab = -(k - cell%kR(i,j))*gn
+            mabt = -(kt - cell%kdR(1,i,j))*gn - (k - cell%kR(i,j))*dgt
+            mabp = -(kp - cell%kdR(2,i,j))*gn - (k - cell%kR(i,j))*dgp
             
-            dmab2(1,1) = (kt2 - cell%kd2R(1,i,j))*gn(1,1) + 2D0*(kt - cell%kdR(1,i,j))*dgt(1,1) &
-                       + (k - cell%kR(i,j))*dgt2(1,1)
-            dmab2(1,2) = (ktp - cell%kd2R(3,i,j))*gn(1,2) + (kt - cell%kdR(1,i,j))*dgp(1,2) &
-                       + (kp  - cell%kdR(2,i,j))*dgt(1,2) + (k  - cell%kR(i,j))*dgtp(1,2)
-            dmab2(2,1) = (ktp - cell%kd2R(3,i,j))*gn(2,1) + (kt - cell%kdR(1,i,j))*dgp(2,1) &
-                       + (kp  - cell%kdR(2,i,j))*dgt(2,1) + (k  - cell%kR(i,j))*dgtp(2,1)
-            dmab2(2,2) = (kp2 - cell%kd2R(2,i,j))*gn(2,2) + 2D0*(kp - cell%kdR(2,i,j))*dgp(2,2) &
-                       + (k - cell%kR(i,j))*dgp2(2,2)
+            dmab2(1,1) =-(kt2 - cell%kd2R(1,i,j))*gn(1,1) - 2D0*(kt - cell%kdR(1,i,j))*dgt(1,1) &
+                       - (k - cell%kR(i,j))*dgt2(1,1)
+            dmab2(1,2) =-(ktp - cell%kd2R(3,i,j))*gn(1,2) - (kt - cell%kdR(1,i,j))*dgp(1,2) &
+                       - (kp  - cell%kdR(2,i,j))*dgt(1,2) - (k  - cell%kR(i,j))*dgtp(1,2)
+            dmab2(2,1) =-(ktp - cell%kd2R(3,i,j))*gn(2,1) - (kt - cell%kdR(1,i,j))*dgp(2,1) &
+                       - (kp  - cell%kdR(2,i,j))*dgt(2,1) - (k  - cell%kR(i,j))*dgtp(2,1)
+            dmab2(2,2) =-(kp2 - cell%kd2R(2,i,j))*gn(2,2) - 2D0*(kp - cell%kdR(2,i,j))*dgp(2,2) &
+                       - (k - cell%kR(i,j))*dgp2(2,2)
 
 !           Transverse shears and partials
             q1 = Eb*(mabt(1,1) + mabp(2,1) + mab(1,1)*(2D0*c111 + c221) &
@@ -717,6 +743,35 @@ SUBROUTINE Stresscell(cell)
             cell%ff(:, i, j) = cell%fab(1, i, j)*cell%dxt(:,i,j) &
                               + cell%fab(2, i, j)*cell%dxp(:,i,j) &
                               + cell%fab(3, i, j)*(-nk)
+!           Alternate way, staying in Cartesian
+!           First get cartesian derivatives of tau via chain rule
+            tauders(1,:,:) = taut*c1(1) + taup*c2(1)
+            tauders(2,:,:) = taut*c1(2) + taup*c2(2)
+            tauders(3,:,:) = taut*c1(3) + taup*c2(3)
+
+            nkm = outer(nk,nk)
+!           Surface divergence
+            cell%ff(1,i,j) = -(tauders(1,1,1) + tauders(2,2,1) + tauders(3,3,1) &
+            + nkm(1,1)*tauders(1,1,1) + nkm(1,2)*tauders(2,1,1) &
+            + nkm(1,3)*tauders(3,1,1) + nkm(2,1)*tauders(1,2,1) &
+            + nkm(2,2)*tauders(2,2,1) + nkm(2,3)*tauders(3,2,1) &
+            + nkm(3,1)*tauders(1,3,1) + nkm(3,2)*tauders(2,3,1) &
+            + nkm(3,3)*tauders(3,3,1))
+            
+            cell%ff(2,i,j) = -(tauders(1,1,2) + tauders(2,2,2) + tauders(3,3,2) &
+            + nkm(1,1)*tauders(1,1,2) + nkm(1,2)*tauders(2,1,2) &
+            + nkm(1,3)*tauders(3,1,2) + nkm(2,1)*tauders(1,2,2) &
+            + nkm(2,2)*tauders(2,2,2) + nkm(2,3)*tauders(3,2,2) &
+            + nkm(3,1)*tauders(1,3,2) + nkm(3,2)*tauders(2,3,2) &
+            + nkm(3,3)*tauders(3,3,2))
+            
+            cell%ff(3,i,j) = -(tauders(1,1,3) + tauders(2,2,3) + tauders(3,3,3) &
+            + nkm(1,1)*tauders(1,1,3) + nkm(1,2)*tauders(2,1,3) &
+            + nkm(1,3)*tauders(3,1,3) + nkm(2,1)*tauders(1,2,3) &
+            + nkm(2,2)*tauders(2,2,3) + nkm(2,3)*tauders(3,2,3) &
+            + nkm(3,1)*tauders(1,3,3) + nkm(3,2)*tauders(2,3,3) &
+            + nkm(3,3)*tauders(3,3,3))
+
         ENDDO inner
     ENDDO
 
@@ -731,6 +786,10 @@ SUBROUTINE Stresscell(cell)
         cell%fmn(1,:) = cell%Yf%forward(cell%ff(1,:,:), cell%q)
         cell%fmn(2,:) = cell%Yf%forward(cell%ff(2,:,:), cell%q)
         cell%fmn(3,:) = cell%Yf%forward(cell%ff(3,:,:), cell%q)
+        
+        cell%fabmn(1,:) = cell%Yf%forward(cell%fab(1,:,:), cell%q)
+        cell%fabmn(2,:) = cell%Yf%forward(cell%fab(2,:,:), cell%q)
+        cell%fabmn(3,:) = cell%Yf%forward(cell%fab(3,:,:), cell%q)
 
         cell%fc(1,:,:) = cell%Y%backward(cell%fmn(1,:), cell%p)
         cell%fc(2,:,:) = cell%Y%backward(cell%fmn(2,:), cell%p)
@@ -748,13 +807,17 @@ END SUBROUTINE Stresscell
 SUBROUTINE Fluidcell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
 
-    INTEGER :: ip, ic, i, j, i2, j2, n, m, ih, it, im, row, col, im2, n2, m2
+    INTEGER :: ip, ic, i, j, i2, j2, n, m, ih, it, im, row, col, im2, n2, m2, &
+               Nmat, iter, info
     COMPLEX(KIND = 8) :: At(3,3), bt(3), td1, vcur, v(3,3)
     REAL(KIND = 8) :: dxtg(3), dxpg(3), Uc(3), t1(3,3), t2(3,3), t3(3,3), Tx(3,3), &
                       xcr(3), gp(3), Utmp(3,3), nkg(3), r(3), eye(3,3)
-    COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), A2(:,:), b(:), b2(:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), A2(:,:), b(:), b2(:), ut(:), wrk(:)
     REAL(KIND = 8), ALLOCATABLE :: thet(:,:), phit(:,:), Jg(:,:), frot(:,:,:), &
-                                   vT(:,:,:,:), vG(:,:,:,:), xcg(:,:,:), Jgf(:,:)
+                                   vT(:,:,:,:), vG(:,:,:,:), xcg(:,:,:), Jgf(:,:), &
+                                   rwrk(:)
+    COMPLEX, ALLOCATABLE :: swrk(:)
+    INTEGER, ALLOCATABLE :: IPIV(:)
     COMPLEX(KIND = 8), POINTER :: vcurn(:,:), vcurt(:,:)
     TYPE(YType), POINTER :: Y, Yf
     TYPE(Ytype), TARGET :: Yt
@@ -765,11 +828,14 @@ SUBROUTINE Fluidcell(cell)
     Y => cell%Y
     Yf=> cell%Yf
 
+!   Big matrix size    
+    Nmat = 3*(Y%p)*(Y%p)
+
 !   Allocate things
-    ALLOCATE(A(3*Y%nt*Y%np, 3*(Y%p + 1)*(Y%p + 1)), &
-             A2(3*(Y%p + 1)*(Y%p + 1), 3*(Y%p + 1)*(Y%p + 1)), &
+    ALLOCATE(A(3*Y%nt*Y%np, Nmat), &
+             A2(Nmat, Nmat), &
              b(3*Y%nt*Y%np), &
-             b2(3*(Y%p + 1)*(Y%p + 1)), &
+             b2(Nmat), &
              thet(Y%nt, Y%np), &
              phit(Y%nt, Y%np), &
              Jg(Y%nt, Y%np), &
@@ -777,7 +843,9 @@ SUBROUTINE Fluidcell(cell)
              vT(3,3,Y%nt, Y%np), &
              vG(3,3,Y%nt, Y%np), &
              xcg(3, Y%nt, Y%np), &
-             Jgf(Yf%nt, Yf%np))
+             Jgf(Yf%nt, Yf%np), &
+             ut(Nmat), &
+             IPIV(Nmat), wrk(Nmat), swrk(Nmat*(Nmat+1)), rwrk(Nmat))
 
     eye = 0D0
     FORALL(j = 1:3) eye(j,j) = 1D0
@@ -800,7 +868,11 @@ SUBROUTINE Fluidcell(cell)
 !           Velocity at integration point
             Utmp = TRANSPOSE(cell%dU)
             Uc = INNER3_33(cell%x(:,i,j), Utmp)
-            ! IF(cell%cts.gt.15) UC = 0D0
+            IF(cell%cts.gt.25) THEN
+                ! Uc = 0D0
+                ! cell%B = 0D0
+                ! cell%C = 100D0
+            ENDIF
 ! !           Pouiseille!
 !             Uc = 0D0
 !             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
@@ -894,8 +966,9 @@ SUBROUTINE Fluidcell(cell)
                     vT(:,:,i2,j2) = Tij(r, nkg)
                 ENDDO
             ENDDO
-!           Harmonics of integration points of rotated frame in nonrotated frame
-            Yt = Ytype(thet, phit)
+!           Harmonics of integration points of rotated frame in nonrotated frame 
+            Yt = Ytype(thet, phit)                  !! could seriously save time by not doing this every time
+            ! Yt = Ytype(thet, phit, cell%q)
 
 !           Forces on rotated grid
             frot(1,:,:) = Yt%backward(cell%fmn(1,:))
@@ -908,7 +981,7 @@ SUBROUTINE Fluidcell(cell)
             ih = 0
 
 !           Loop over harmonics
-            DO n = 0, Y%p
+            DO n = 0, Y%p - 1
                 nm  => Y%nm(n+1)
                 nmt => Yt%nm(n+1)
                 im = 0
@@ -925,8 +998,8 @@ SUBROUTINE Fluidcell(cell)
                     DO i2 = 1,Y%nt
                         DO j2 = 1,Y%np
 !                           Add in integral parts
-                            !At = At + vT(:,:,i2,j2)*vcurt(i2,j2)*Jg(i2,j2)&
-                            !   * cell%Y%ws(i2)*cell%Y%dphi
+                            At = At + vT(:,:,i2,j2)*vcurt(i2,j2)*Jg(i2,j2)&
+                              * cell%Y%ws(i2)*cell%Y%dphi
 !                           RHS part, only need to do once
                             IF(n .eq. 0) THEN
                                 bt = bt + INNER3_33(frot(:,i2,j2),vG(:,:,i2,j2)) &
@@ -935,10 +1008,10 @@ SUBROUTINE Fluidcell(cell)
                         ENDDO
                     ENDDO
 !                   Add in the rest of the LHS that isn't an integral
-                    !At = At*(1D0-cell%lam)/(1D0+cell%lam) - vcurn(i,j)*4D0*pi*eye
+                    At = At*(1D0-cell%lam)/(1D0+cell%lam) - vcurn(i,j)*4D0*pi*eye
 
 !                   LHS at integration point/harmonic combo, put in big matrix
-                    !A(row:row+2, col:col+2) = A(row:row+2, col:col+2) + At
+                    A(row:row+2, col:col+2) = A(row:row+2, col:col+2) + At
                 ENDDO
             ENDDO
 !           Put RHS into big vector
@@ -953,7 +1026,7 @@ SUBROUTINE Fluidcell(cell)
     it = 0
 
 !   Loop over outer product harmonics
-    DO n = 0,Y%p
+    DO n = 0,Y%p - 1
         nm => cell%Y%nm(n+1)
         im = 0
         DO m = -n,n
@@ -965,7 +1038,7 @@ SUBROUTINE Fluidcell(cell)
             im2 = 0
             
 !           Loop over inner harmonics (constant value is a column)
-            DO n2 = 0,Y%p
+            DO n2 = 0,Y%p - 1
                 DO m2 = -n2,n2
                     im2 = im2 + 1
                     col = 3*im2 - 2
@@ -976,8 +1049,8 @@ SUBROUTINE Fluidcell(cell)
                         DO j = 1,Y%np
                             ic = ic+1
 !                           Value of inner integral at IP
-                            !v = A(3*ic-2:3*ic, 3*im2-2:3*im2)
-                            !At = At + v*CONJG(vcurn(i,j))*cell%Y%wg(i)*cell%Y%dphi
+                            v = A(3*ic-2:3*ic, 3*im2-2:3*im2)
+                            At = At + v*CONJG(vcurn(i,j))*cell%Y%wg(i)*cell%Y%dphi
 
 !                           Intg. b (essentially forward transform of RHS!)
                             IF(n2 .eq. 0) THEN
@@ -986,7 +1059,7 @@ SUBROUTINE Fluidcell(cell)
                             ENDIF
                         ENDDO
                     ENDDO
-                    !A2(row:row+2,col:col+2) = At
+                    A2(row:row+2,col:col+2) = At
                 ENDDO
             ENDDO
             b2(row:row+2) = bt
@@ -995,12 +1068,16 @@ SUBROUTINE Fluidcell(cell)
 
 !   The highest order coefficients are calculated with large error,
 !   so we need to throw them out
-!   We could just not even calculate these at all to save some time!!!!!!!!!!!!!!!!!!!!!!!!!!
-    b2(3*(Y%p)*(Y%p)+1:3*(Y%p+1)*(Y%p+1)) = 0D0 !!!!!!!!!!!!!!!!!!!!!!!!!!! I changed this. Is this off by one or something?
+    ! b2(3*(Y%p)*(Y%p)+1:3*(Y%p+1)*(Y%p+1)) = 0D0 !!!! Incorrect as of now because A2 no longer identity
 
-    cell%umn(1,:) = b2((/(i, i=1,3*(Y%p+1)*(Y%p+1)-2, 3)/))/(-4D0*pi)
-    cell%umn(2,:) = b2((/(i, i=2,3*(Y%p+1)*(Y%p+1)-1, 3)/))/(-4D0*pi)
-    cell%umn(3,:) = b2((/(i, i=3,3*(Y%p+1)*(Y%p+1)  , 3)/))/(-4D0*pi)
+    CALL zcgesv(Nmat, 1, A2, Nmat, IPIV, b2, Nmat, ut, Nmat, wrk, swrk, rwrk, iter, info)
+    cell%umn = 0D0
+    ! cell%umn(1,1:(Y%p)*(Y%p)) = b2((/(i, i=1,3*(Y%p)*(Y%p)-2, 3)/))/(-4D0*pi)
+    ! cell%umn(2,1:(Y%p)*(Y%p)) = b2((/(i, i=2,3*(Y%p)*(Y%p)-1, 3)/))/(-4D0*pi)
+    ! cell%umn(3,1:(Y%p)*(Y%p)) = b2((/(i, i=3,3*(Y%p)*(Y%p)  , 3)/))/(-4D0*pi)
+    cell%umn(1,1:Nmat/3) = ut((/(i, i=1,Nmat-2, 3)/))
+    cell%umn(2,1:Nmat/3) = ut((/(i, i=2,Nmat-1, 3)/))
+    cell%umn(3,1:Nmat/3) = ut((/(i, i=3,Nmat  , 3)/))
 
     ! tmp = cell%umn(3,:)
     ! print *, tmp

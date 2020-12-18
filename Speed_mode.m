@@ -12,18 +12,22 @@ mu = 1;
 lam = 1;%/5;
 
 % Deformation resistance constants
-% B = 12.4;
+B = 12.4;
+% C = 0;
 % C = 200;
-B = .005;
+% B = .005;
 C = 100;
+% B = 0;
+% C = 10;
 
 % Bending modulus
 % Eb = 0.0669;
 Eb = 0;
+% Eb = 0.01;
 
 % Total time steps
-NT = 100;
-dt = 0.001;
+NT = 1000;
+dt = 0.005;
 
 % Velocity and gradient
 U = [0;0;0];
@@ -37,7 +41,7 @@ dU = [0,0,1;0,0,0;.0,0,0];
 p = 6;
 
 % To de-alias the force, we need to get a finer grid. The factor is fali
-fali = 2;
+fali = 10;
 
 % Order of SpH for the fine grid
 q = p*fali;
@@ -114,6 +118,10 @@ xmns(:,3,1) = x3mn;
 x1mn(abs(x1mn)<1e-12) = 0;
 x2mn(abs(x2mn)<1e-12) = 0;
 x3mn(abs(x3mn)<1e-12) = 0;
+
+% x1mn = xx11;
+% x2mn = xx22;
+% x3mn = xx33;
 
 % x1mn = SpT(Yt,x1,th,ph);
 % x2mn = SpT(Yt,x2,th,ph);
@@ -596,16 +604,16 @@ for i = 1:ntf
         c222p = dot(dxp3(:,i,j) ,c2) + dot(dxp2(:,i,j),c2p);
         
 %       Moments and their needed partials
-        mab = (k - kR(i,j))*gn;
-        dmabt = (kt - kdR(1,i,j))*gn + (k - kR(i,j))*dgt;
-        dmabp = (kp - kdR(2,i,j))*gn + (k - kR(i,j))*dgp;
+        mab = -(k - kR(i,j))*gn;
+        dmabt = -(kt - kdR(1,i,j))*gn + (k - kR(i,j))*dgt;
+        dmabp = -(kp - kdR(2,i,j))*gn + (k - kR(i,j))*dgp;
         
-        dmab2(1,1) = (kt2 - kd2R(1,i,j))*gn(1,1) + 2*(kt - kdR(1,i,j))*dgt(1,1) + (k - kR(i,j))*dgt2(1,1);
-        dmab2(1,2) = (ktp - kd2R(3,i,j))*gn(1,2) + (kt - kdR(1,i,j))*dgp(1,2) ...
-                   + (kp  - kdR(2,i,j))*dgt(1,2) + (k  - kR(i,j))*dgtp(1,2);
-        dmab2(2,1) = (ktp - kd2R(3,i,j))*gn(2,1) + (kt - kdR(1,i,j))*dgp(2,1) ...
-                   + (kp  - kdR(2,i,j))*dgt(2,1) + (k  - kR(i,j))*dgtp(2,1);
-        dmab2(2,2) = (kp2 - kd2R(2,i,j))*gn(2,2) + 2*(kp - kdR(2,i,j))*dgp(2,2) + (k - kR(i,j))*dgp2(2,2);
+        dmab2(1,1) = -(kt2 - kd2R(1,i,j))*gn(1,1) - 2*(kt - kdR(1,i,j))*dgt(1,1) - (k - kR(i,j))*dgt2(1,1);
+        dmab2(1,2) = -(ktp - kd2R(3,i,j))*gn(1,2) - (kt - kdR(1,i,j))*dgp(1,2) ...
+                   + -(kp  - kdR(2,i,j))*dgt(1,2) - (k  - kR(i,j))*dgtp(1,2);
+        dmab2(2,1) = -(ktp - kd2R(3,i,j))*gn(2,1) - (kt - kdR(1,i,j))*dgp(2,1) ...
+                   + -(kp  - kdR(2,i,j))*dgt(2,1) - (k  - kR(i,j))*dgtp(2,1);
+        dmab2(2,2) = -(kp2 - kd2R(2,i,j))*gn(2,2) - 2*(kp - kdR(2,i,j))*dgp(2,2) - (k - kR(i,j))*dgp2(2,2);
         
 %       Transverse Shears (Covariant divergence of moment tensor)
         q1 = Eb*(dmabt(1,1) + dmabp(2,1) + mab(1,1)*(2*c111 + c221) ...
@@ -728,7 +736,7 @@ for i = 1:ntf
         
 %       Covariant divergence of tau in theta, then phi
         cvt = dtauab(1,1) + dtauab(2,1) + tau11*(2*c111 + c221) ...
-            + tau21*(2*c112 + c222) + tau12*c112 + tau22*c122;
+            + tau21*(2*c112 + c222) + tau12*c112 + tau22*c122;  
         cvp = dtauab(1,2) + dtauab(2,2) + tau12*(c111 + 2*c221) ...
             + tau22*(c112 + 2*c222) + tau11*c211 + tau21*c221;
 %       Covariant divergence of Q        
@@ -742,12 +750,73 @@ for i = 1:ntf
 %       These are in terms of (contravariant) surface vectors, put them into Cartesian
         myf(:,i,j) = fab(1,i,j)*dxt(:,i,j) + fab(2,i,j)*dxp(:,i,j) + fab(3,i,j)*-nk(:,i,j);
         
+        if(i==2)
+            gesus = 1;
+        end
+        
+        tauders(1,:,:) = dtaut*c1(1) + dtaup*c2(1);
+        tauders(2,:,:) = dtaut*c1(2) + dtaup*c2(2);
+        tauders(3,:,:) = dtaut*c1(3) + dtaup*c2(3);
+        
+        ffs(1,i,j) = P(1,1)*tauders(1,1,1) + P(1,2)*tauders(2,1,1) + P(1,3)*tauders(3,1,1) ...
+                   + P(2,1)*tauders(1,2,1) + P(1,2)*tauders(2,2,1) + P(1,3)*tauders(3,2,1) ...
+                   + P(3,1)*tauders(1,3,1) + P(1,2)*tauders(2,3,1) + P(1,3)*tauders(3,3,1);
+        ffs(2,i,j) = P(1,1)*tauders(1,1,2) + P(1,2)*tauders(2,1,2) + P(1,3)*tauders(3,1,2) ...
+                   + P(2,1)*tauders(1,2,2) + P(1,2)*tauders(2,2,2) + P(1,3)*tauders(3,2,2) ...
+                   + P(3,1)*tauders(1,3,2) + P(1,2)*tauders(2,3,2) + P(1,3)*tauders(3,3,2);
+        ffs(3,i,j) = P(1,1)*tauders(1,1,3) + P(1,2)*tauders(2,1,3) + P(1,3)*tauders(3,1,3) ...
+                   + P(2,1)*tauders(1,2,3) + P(1,2)*tauders(2,2,3) + P(1,3)*tauders(3,2,3) ...
+                   + P(3,1)*tauders(1,3,3) + P(1,2)*tauders(2,3,3) + P(1,3)*tauders(3,3,3);
+        
+        ffs(:,i,j) = 0;
+        ffs(1,i,j) = tauders(1,1,1) + tauders(2,2,1) + tauders(3,3,1)  ...
+                   + nmat(1,1)*tauders(1,1,1) + nmat(1,2)*tauders(2,1,1) ...
+                   + nmat(1,3)*tauders(3,1,1) + nmat(2,1)*tauders(1,2,1) ...
+                   + nmat(2,2)*tauders(2,2,1) + nmat(2,3)*tauders(3,2,1) ...
+                   + nmat(3,1)*tauders(1,3,1) + nmat(3,2)*tauders(2,3,1) ...
+                   + nmat(3,3)*tauders(3,3,1);
+        ffs(2,i,j) = tauders(1,1,2) + tauders(2,2,2) + tauders(3,3,2)  ...
+                   + nmat(1,1)*tauders(1,1,2) + nmat(1,2)*tauders(2,1,2) ...
+                   + nmat(1,3)*tauders(3,1,2) + nmat(2,1)*tauders(1,2,2) ...
+                   + nmat(2,2)*tauders(2,2,2) + nmat(2,3)*tauders(3,2,2) ...
+                   + nmat(3,1)*tauders(1,3,2) + nmat(3,2)*tauders(2,3,2) ...
+                   + nmat(3,3)*tauders(3,3,2);
+        ffs(3,i,j) = tauders(1,1,3) + tauders(2,2,3) + tauders(3,3,3)  ...
+                   + nmat(1,1)*tauders(1,1,3) + nmat(1,2)*tauders(2,1,3) ...
+                   + nmat(1,3)*tauders(3,1,3) + nmat(2,1)*tauders(1,2,3) ...
+                   + nmat(2,2)*tauders(2,2,3) + nmat(2,3)*tauders(3,2,3) ...
+                   + nmat(3,1)*tauders(1,3,3) + nmat(3,2)*tauders(2,3,3) ...
+                   + nmat(3,3)*tauders(3,3,3);
+               
+        nders(1,:) = -dnt*c1(1) - dnp*c2(1);
+        nders(2,:) = -dnt*c1(2) - dnp*c2(2);
+        nders(3,:) = -dnt*c1(3) - dnp*c2(3);
+        
+        Bt(1,1) = P(1,1)*nders(1,1) + P(1,2)*nders(2,1) + P(1,3)*nders(3,1);
+        Bt(1,2) = P(1,1)*nders(1,2) + P(1,2)*nders(2,2) + P(1,3)*nders(3,2);
+        Bt(1,3) = P(1,1)*nders(1,3) + P(1,2)*nders(2,3) + P(1,3)*nders(3,3);
+        Bt(2,1) = P(2,1)*nders(1,1) + P(2,2)*nders(2,1) + P(2,3)*nders(3,1);
+        Bt(2,2) = P(2,1)*nders(1,2) + P(2,2)*nders(2,2) + P(2,3)*nders(3,2);
+        Bt(2,3) = P(2,1)*nders(1,3) + P(2,2)*nders(2,3) + P(2,3)*nders(3,3);
+        Bt(3,1) = P(3,1)*nders(1,1) + P(3,2)*nders(2,1) + P(3,3)*nders(3,1);
+        Bt(3,2) = P(3,1)*nders(1,2) + P(3,2)*nders(2,2) + P(3,3)*nders(3,2);
+        Bt(3,3) = P(3,1)*nders(1,3) + P(3,2)*nders(2,3) + P(3,3)*nders(3,3);
+           
+        myf(:,i,j) = -ffs(:,i,j);
         
 %       Just to check if derivs are ok
-        ggg(i,j) = es(1);
-        dggg(i,j) = I2;
-        ddgg(i,j) = es(2);
-        dddg(i,j) = I1;
+        ggg(i,j) = c111;
+        dggg(i,j) = tau11;
+        ddgg(:,:,i,j) = dtauab;
+        dddg(i,j) = tauders(1,2,3);%cvt;
+        dddd(i,j) = tauders(2,3,1);%c221;
+        gddd(i,j) = tauders(3,1,1);%tau21;
+        ggdd(i,j) = tau(2,3);%tau12;
+        gggd(i,j) = tau(3,1);%tau22;
+        gggg(i,j) = tau(1,1);%c112;
+        gg(i,j) = norm(tau);
+        g_g(i,j) = c122;
+        gugu(:,i,j) = c1;
     end
 end
 
@@ -1138,7 +1207,7 @@ scatter3(trcpnt(cts),real(SpHReconst(x2mn,Ytrc)),real(SpHReconst(x3mn,Ytrc)),75,
 
 
 % Just from stress - magenta, includes highest order!
-% quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua(1,:,:),[1,numel(x(1,:,:))]),reshape(ua(2,:,:),[1,numel(x(1,:,:))]),reshape(ua(3,:,:),[1,numel(x(1,:,:))]),'m')
+quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua(1,:,:),[1,numel(x(1,:,:))]),reshape(ua(2,:,:),[1,numel(x(1,:,:))]),reshape(ua(3,:,:),[1,numel(x(1,:,:))]),'m')
 % Force - green
 % quiver3(reshape(xf(1,:,:),[1,numel(xf(1,:,:))]),reshape(xf(2,:,:),[1,numel(xf(1,:,:))]),reshape(xf(3,:,:),[1,numel(xf(1,:,:))]),reshape(real(myf(1,:,:)),[1,numel(xf(1,:,:))]),reshape(real(myf(2,:,:)),[1,numel(xf(1,:,:))]),reshape(real(myf(3,:,:)),[1,numel(xf(1,:,:))]),'g')
 % Stress and fluid - blue
