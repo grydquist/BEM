@@ -1,10 +1,11 @@
 Viscosity 1 
-Viscosity_ratio 10000
-Shear_Modulus 12.4
-Dilatation_Modulus 200
-Bending_Modulus .0
-Max_time_steps 5000
-Time_step 0.005
-Output xmn1.txt
-Harmonic_order 6
-Refinement_factor 2
+Viscosity_ratio 5
+Shear_Modulus 0.8
+Dilatation_Modulus 0.8
+Bending_Modulus 0   .0669
+Max_time_steps 2700
+Time_step 0.01
+Output x25W.txt
+Harmonic_order 9
+Refinement_factor 4
+Gradient_file vel_grad.txt

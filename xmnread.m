@@ -1,33 +1,37 @@
 % Reads the txt file output from the fortran code
 
 % Read in raw data
-fID = fopen('fortran/xmn1.txt');
+fID = fopen('fortran/x25W.txt');
+% fID = fopen('pap_dat/TaylorValidation/x005.txt');
 a = fscanf(fID,'%f');
 fclose(fID);
 
-fID = fopen('fortran/u_xmn1.txt');
+fID = fopen('fortran/u_x25W.txt');
+% fID = fopen('pap_dat/TaylorValidation/u_x005.txt');
 us = fscanf(fID,'%f');
 fclose(fID);
 
-fID = fopen('fortran/f_xmn1.txt');
+fID = fopen('fortran/f_x1W.txt');
+% fID = fopen('pap_dat/TaylorValidation/f_x005.txt');
 fs = fscanf(fID,'%f');
 fclose(fID);
 
-% Get info about a
+% Get info about a  
 
 % Total time steps, including initialization
-tts = a(end) +                                0;
-incr = 200;
+tts = a(end) +                                 0;
+incr = 100;
 xtop = zeros(floor(tts/incr),1);
 ytop = zeros(floor(tts/incr),1);
 ztop = zeros(floor(tts/incr),1);
+Dij = ytop;
+incl = Dij;
 
 % Number of values without time steps
 lent = length(a) - tts;
 
 % Number total values in a time step
 lent1 = lent/(tts);
-
 % length of 1 collection in one time step
 tot = lent1/6;
 
@@ -37,7 +41,7 @@ Ex = zeros(p+1,floor(tts/incr));
 Eu = zeros(p+1,floor(tts/incr));
 
 % Evaluation of spherical harmonics for interpolation
-tmpt = linspace(0,pi,100);tmpp = linspace(0,pi,100);
+tmpt = linspace(0,pi,100);tmpp = linspace(0,2*pi,101);
 [tmpph,tmpth] = meshgrid(tmpp,tmpt);
 Yr = SpHarmTNew(p,tmpth,tmpph);
 
@@ -48,9 +52,10 @@ Yqv = SpHarmTNew(p,ttq,ppq);
 % Ytrc = SpHarmTNew(p,pi/2,0);
 Ytrc = SpHarmTNew(p,0,0);
 % Time
-ts = .005;
+ts = .01;
 t = zeros(floor(tts/incr),1);
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % aa = size(fs);
 % aa = aa(1)/tts;
 % nttf = sqrt(aa/6);
@@ -66,7 +71,12 @@ t = zeros(floor(tts/incr),1);
 % 
 % [ph,th] = meshgrid(phi,tht);
 % Ytfs = SpHarmTNew(p,th,ph);
-    
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% h = figure(1);
+% axis tight manual % this ensures that getframe() returns a consistent size
+% filename = 'gif2.gif';
+
 disp('Start!')
 % Do timesteps
 for i = 1:incr:tts
@@ -123,9 +133,9 @@ for i = 1:incr:tts
     xq2 = real(SpHReconst(x2c,Yqv,p));
     xq3 = real(SpHReconst(x3c,Yqv,p));
     
-    
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %    fmns(:,:,(i-1)/incr + 1) = reshape(us((i-1)*aa  + 1:i*aa), nttf, nppf);
 %     fmns(:,:,:,(i-1)/incr + 1) = reshape(fs((i-1)*aa  + 1:i*aa), 3, nttf, nppf);
-%     fmns(:,:,(i-1)/incr + 1) = reshape(us((i-1)*aa  + 1:i*aa), nttf, nppf);
 %     clf
 %     plot(fmns(:,1,(i-1)/incr + 1))
 %     plot(fmns(:,1,(i-1)/incr + 1)- fmns(:,1,1))
@@ -135,7 +145,8 @@ for i = 1:incr:tts
 %     xf1 = real(SpHReconst(x1c,Ytfs,p));
 %     xf2 = real(SpHReconst(x2c,Ytfs,p));
 %     xf3 = real(SpHReconst(x3c,Ytfs,p));
-    
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
     clf;
 %   Plot this timestep
     h1 = subplot(2,1,1);
@@ -143,13 +154,13 @@ for i = 1:incr:tts
     set(h1, 'Position', [-.1, 0.5, 1.15, .6]);
 
     
-%     surf(xf1,xf2,xf3,squeeze(fmns(2,:,:,(i-1)/incr + 1)),'edgecolor','none')
+%     surf(xf1,xf2,xf3,squeeze(fmns(1,:,:,(i-1)/incr + 1)),'edgecolor','none')
     surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 0 0], ...
          'FaceAlpha',0.75,'FaceLighting','gouraud')
     lightangle(gca,150,50)
     set(gca,'nextplot','replacechildren','visible','off')
     % Top down
-    % view(0,90);
+%     view(0,90);
     % Side
     view(0,0);
     axis([-2,2,0,2,-2,2])
@@ -172,14 +183,15 @@ for i = 1:incr:tts
     set(gca,'nextplot','replacechildren','visible','off')
     set(gcf, 'color', 'white');
     view(45,45);
-    axis([-2,2,0,2,-2,2])
-    pbaspect([1,.5,1])
+%     view(0,90);
+    axis([-2,2,-2,2,-2,2])
+    pbaspect([1,1,1])
     hold on
     scatter3(real(SpHReconst(x1c,Ytrc)),real(SpHReconst(x2c,Ytrc)),real(SpHReconst(x3c,Ytrc)),75,'go','filled');
     quiver3(reshape(xq1,[1,numel(xq1)]),reshape(xq2,[1,numel(xq2)]),reshape(xq3,[1,numel(xq1)]),reshape(u1,[1,numel(xq1)]),reshape(u2,[1,numel(xq1)]),reshape(u3,[1,numel(xq1)]),'b')
 
 %     clf
-% %     loglog(Ex8(:,(i-1)/incr + 1),'o')
+% %     loglog(Ex8(:,(i-1)/incr +  1),'o')
 % %     hold on
 % %     loglog(Ex10(:,(i-1)/incr + 1),'x')
 % %     loglog(Ex12(:,(i-1)/incr + 1),'p')
@@ -189,6 +201,27 @@ for i = 1:incr:tts
 % %     axis([2,q,1e-10,1e-1])
 % %     ytop((i-1)/incr + 1) = u1(8,1);
 
+[cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10100,1]),reshape(x2,[10100,1]),reshape(x3,[100*101,1])]);
+% Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
+
+elx = vertcat(x1(:,1),x1(:,51));
+elz = vertcat(x3(:,1),x3(:,51));
+elxa((i-1)/incr + 1,:) = elx;
+elza((i-1)/incr + 1,:) = elz;
+rs = sqrt(elx.^2 + elz.^2);
+Dij((i-1)/incr + 1) = (max(rs)-min(rs))/(max(rs) + min(rs));
+incl((i-1)/incr + 1) = atan2(abs(angs(3,1)),abs(angs(1,1)))/4;
+incl(1) = 1/4;
+
     drawnow
-    
+% % Capture the plot as an image 
+% frame = getframe(h); 
+% im = frame2im(frame); 
+% [imind,cm] = rgb2ind(frame.cdata,256,'nodither');
+% % Write to the GIF File 
+% if i == 1 
+%   imwrite(imind,cm,filename,'gif', 'Loopcount',inf,'DelayTime',0); 
+% else 
+%   imwrite(imind,cm,filename,'gif','WriteMode','append','DelayTime',0); 
+% end
 end

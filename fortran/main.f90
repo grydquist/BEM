@@ -2,65 +2,36 @@ PROGRAM MAIN
 USE UTILMOD
 USE SHAPEMOD
 IMPLICIT NONE
-REAL(KIND = 8) :: x(4),w(4), xv(4,8), a(8), b(8), tmp(3,3),lams(3), ev(3,3),t2(3), &
-        tmp2(3,3), pivot(2), aa(3,3), bb(3), cc(102), tic, toc
-
-COMPLEX(KIND = 8) :: A2(3,3), b2(3), ut(3)
-COMPLEX :: swrk(9)
-REAL(KIND = 8), ALLOCATABLE :: rwrk(:), wrk(:)
-COMPLEX(kind = 8), ALLOCATABLE :: fwrk(:), umnt(:,:), xmnt(:,:)
-INTEGER :: IPIV(3), iter, info
+REAL(KIND = 8) :: tic, toc, gradline(3,3), t
+COMPLEX(kind = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:)
 TYPE(cellType) :: cell
 CHARACTER(:), ALLOCATABLE :: filein
-! REAL(KIND = 8), ALLOCATABLE :: tmp(:)
-! COMPLEX(KIND = 8) :: x1mn(3,16)
-
-INTEGER ::  iserr, i, rc, argl, stat, n
-
-!================================================================================!
-!================================= DECLARATIONS =================================!
-!================================================================================!
-
-!-----------------------Material properties/parameters-----------------------!
-! REAL(KIND = 8) :: mu, lam, B, C, Eb
-! INTEGER, PARAMETER :: nsd = 3, nsb = 4
-
-! !-----------------------Simulation items-----------------------!
-INTEGER :: NT
-
-! A2 = 0D0
-! A2(1,1) = ii
-! A2(2,2) = 1D0
-! A2(3,3) = 1D0
-! b2 = 1D0
-! CALL zcgesv(3, 1, A2, 3, IPIV, b2, 3, ut, 3, wrk, swrk, rwrk, iter, info)
-! print *, ut
-! print *, MATMUL(A2, ut)
-! stop
-
-
-! n = 5
-! ALLOCATE(rwrk(2*n + INT(LOG(REAL(n))) + 4), fwrk(n), wrk(2*n))
-! fwrk = (/0D0, 1d0, 2d0, 3d0, 4D0/)
-
-! CALL ZFFT1I(n, rwrk, 2*n + INT(LOG(REAL(n))) + 4, iserr)
-! CALL ZFFT1F(n, 1, fwrk, n, rwrk, 2*n + INT(LOG(REAL(n))) + 4, wrk, 2*n, iserr)
-! print *, fwrk*n
-! stop
+INTEGER ::  i, argl, stat
 
 ! Read in input file
 CALL get_command_argument(number=1, length=argl)
 ALLOCATE(character(argl) :: filein)
 CALL get_command_argument(number=1, value=filein, status=stat)
 
-! Initialize
+! Initialize & allocate
 CALL cpu_time(tic)
 cell = cellType(filein)
-print*, 'Initialized'
 ALLOCATE(xmnt(3,(cell%p+1)*(cell%p+1)), umnt(3,(cell%p+1)*(cell%p+1)))
 
+! Read velocity gradient file
+! OPEN(unit = 13, file = cell%gradfile, status = 'old', action = 'read', iostat=stat)
+
+print*, 'Initialized'
+t = 0D0
 ! Time step loop
 DO i = 1,cell%NT
+!       The time distance between successive rows is 0.1 of the Kolmogorov time scale.
+!       To normalize these gradients, you could multiply them by the Kolmogorov time scale, which is 2e-6
+
+!       Get velocity gradient of time step and normalize
+        ! READ(13, *) cell%dU
+        ! cell%dU = cell%dU*2D-6
+
 !       Get surface derivatives, then stress froom deformation, then motion from fluid
         CALL cell%derivs()
         CALL cell%stress()
@@ -87,8 +58,8 @@ DO i = 1,cell%NT
 !         cell%xmn = xmnt + umnt*cell%dt
 
         CALL cell%write()
-        print *, i, MAXVAL((ABS(cell%ff))), MAXVAL((ABS(cell%umn)))
-
+        t = t + cell%dt
+        write(*,'(I,X,F8.4,X,X,F8.4,X,F8.4)'), i, t, MAXVAL((ABS(cell%ff))), MAXVAL((ABS(cell%umn)))
 ENDDO
 
 CALL cpu_time(toc)

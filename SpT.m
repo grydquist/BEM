@@ -24,14 +24,12 @@ dphi = phi(1,2) - phi(1,1);
 
 fnm = zeros((n+1)^2,sz);
 it = 0;
-ih = 0;
 % Hacky but gets the job done
 if(sz == 1)
     
     for i = 0:n
         Y = Ynm{i+1};
         for m = -i:i
-            ih = ih+1;
             ind = m + i + 1;
             Yt = squeeze(Y(ind,:,:));
             it = it+1;
@@ -48,7 +46,6 @@ else
     for i = 0:n
         Y = Ynm{i+1};
         for m = -i:i
-            ih = ih+1;
             ind = m + i + 1;
             Yt = squeeze(Y(ind,:,:));
             it = it+1;

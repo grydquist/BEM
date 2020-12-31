@@ -1,0 +1,11 @@
+Viscosity 1 
+Viscosity_ratio 1
+Shear_Modulus 1.33333333
+Dilatation_Modulus 1.3333333
+Bending_Modulus 0   .0669
+Max_time_steps 1000
+Time_step 0.005
+Output x15.txt
+Harmonic_order 9
+Refinement_factor 4
+Gradient_file vel_grad.txt

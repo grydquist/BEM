@@ -12,11 +12,11 @@ mu = 1;
 lam = 1;%/5;
 
 % Deformation resistance constants
-B = 12.4;
+B = 40;
 % C = 0;
 % C = 200;
 % B = .005;
-C = 100;
+C = 40;
 % B = 0;
 % C = 10;
 
@@ -41,7 +41,7 @@ dU = [0,0,1;0,0,0;.0,0,0];
 p = 6;
 
 % To de-alias the force, we need to get a finer grid. The factor is fali
-fali = 10;
+fali = 4;
 
 % Order of SpH for the fine grid
 q = p*fali;
@@ -90,6 +90,7 @@ for i = 1:nt
 end
 % Associated legendre polynomials at values of theta
 mylegs = myleg(q,cos(thtf));
+mylegsc= myleg(p,cos(tht));
 
 % Harmonics evaluated at the given thetas/phis
 Yt = SpHarmTNew(p,th,ph);
@@ -109,23 +110,20 @@ x2 = rrr.*sin(th).*sin(ph);
 x3 = rrr.*cos(th);
 
 % For the RBC, fully defined at p = 5
-[x1mn,x2mn,x3mn] = RBCcoeffs(Yt,th,ph);
+% [x1mn,x2mn,x3mn] = RBCcoeffs(Yt,th,ph);
+[x1mn,x2mn,x3mn] = CubeCoeff(Yt,tht,phi);
 xmns = zeros((p+1)^2,3,NT);
 xmns(:,1,1) = x1mn;
 xmns(:,2,1) = x2mn;
 xmns(:,3,1) = x3mn;
 
+x1mn = SpT(Yt,x1,th,ph);%0.5*SpT(Yt,x1,th,ph);
+x2mn = SpT(Yt,x2,th,ph);%0.5*SpT(Yt,x2,th,ph);
+x3mn = SpT(Yt,x3,th,ph);
+
 x1mn(abs(x1mn)<1e-12) = 0;
 x2mn(abs(x2mn)<1e-12) = 0;
 x3mn(abs(x3mn)<1e-12) = 0;
-
-% x1mn = xx11;
-% x2mn = xx22;
-% x3mn = xx33;
-
-% x1mn = SpT(Yt,x1,th,ph);
-% x2mn = SpT(Yt,x2,th,ph);
-% x3mn = SpT(Yt,x3,th,ph);
 
 ix3mn = x3mn;
 J = zeros(ntf,npf);
@@ -177,6 +175,7 @@ bm = dtau;
 bn = bm;
 
 myf = zeros(3,ntf,npf);
+ffs = myf;
 Nmyf = zeros(3,nt,np);
 fab = myf;
 
@@ -198,6 +197,9 @@ c2pR= c1R;
 kR = zeros(ntf,npf);
 kdR = zeros(2,ntf,npf);
 kd2R = zeros(3,ntf,npf);
+
+gnR = zeros(2,2,ntf,npf);
+dgtR = gnR;
 
 % Get all the derivatives of the Spherical Harmonics up front
 Ytd1 = zeros(ntf,npf,(p+1)^2);
@@ -580,6 +582,9 @@ for i = 1:ntf
             c1pR(:,i,j) = c1p;
             c2tR(:,i,j) = c2t;
             c2pR(:,i,j) = c2p;
+            
+            gnR(:,:,i,j) = gn;
+            dgtR(:,:,i,j) = dgt;
         end
         
 %       Christoffels (Page 156-157 in Mollman if you want to check, but seem to be right)
@@ -723,8 +728,8 @@ for i = 1:ntf
               + 0.5*es(1)*es(2)*(I2-B)*dPp;
           
 %       Now put into dtau matrix
-        dtauab = [c1'*dtaut*c1, c1'*dtaut*c2;
-                  c2'*dtaup*c1, c2'*dtaup*c2];
+        dtauab = [c1t'*tau*c1 + c1'*dtaut*c1 + c1'*tau*c1t, c1t'*tau*c2 + c1'*dtaut*c2 + c1'*tau*c2t 
+                  c2p'*tau*c1 + c2'*dtaup*c1 + c2'*tau*c1p, c2p'*tau*c2 + c2'*dtaup*c2 + c2'*tau*c2p];
         
 %       Covariant curvature tensor
         bv = [L,M;M,N];
@@ -750,43 +755,35 @@ for i = 1:ntf
 %       These are in terms of (contravariant) surface vectors, put them into Cartesian
         myf(:,i,j) = fab(1,i,j)*dxt(:,i,j) + fab(2,i,j)*dxp(:,i,j) + fab(3,i,j)*-nk(:,i,j);
         
-        if(i==2)
-            gesus = 1;
-        end
-        
         tauders(1,:,:) = dtaut*c1(1) + dtaup*c2(1);
         tauders(2,:,:) = dtaut*c1(2) + dtaup*c2(2);
         tauders(3,:,:) = dtaut*c1(3) + dtaup*c2(3);
         
-        ffs(1,i,j) = P(1,1)*tauders(1,1,1) + P(1,2)*tauders(2,1,1) + P(1,3)*tauders(3,1,1) ...
-                   + P(2,1)*tauders(1,2,1) + P(1,2)*tauders(2,2,1) + P(1,3)*tauders(3,2,1) ...
-                   + P(3,1)*tauders(1,3,1) + P(1,2)*tauders(2,3,1) + P(1,3)*tauders(3,3,1);
-        ffs(2,i,j) = P(1,1)*tauders(1,1,2) + P(1,2)*tauders(2,1,2) + P(1,3)*tauders(3,1,2) ...
-                   + P(2,1)*tauders(1,2,2) + P(1,2)*tauders(2,2,2) + P(1,3)*tauders(3,2,2) ...
-                   + P(3,1)*tauders(1,3,2) + P(1,2)*tauders(2,3,2) + P(1,3)*tauders(3,3,2);
-        ffs(3,i,j) = P(1,1)*tauders(1,1,3) + P(1,2)*tauders(2,1,3) + P(1,3)*tauders(3,1,3) ...
-                   + P(2,1)*tauders(1,2,3) + P(1,2)*tauders(2,2,3) + P(1,3)*tauders(3,2,3) ...
-                   + P(3,1)*tauders(1,3,3) + P(1,2)*tauders(2,3,3) + P(1,3)*tauders(3,3,3);
+        ffs(1,i,j) = -sum(sum(P.*tauders(:,:,1)));
+        ffs(2,i,j) = -sum(sum(P.*tauders(:,:,2)));
+        ffs(3,i,j) = -sum(sum(P.*tauders(:,:,3)));
+
         
-        ffs(:,i,j) = 0;
-        ffs(1,i,j) = tauders(1,1,1) + tauders(2,2,1) + tauders(3,3,1)  ...
-                   + nmat(1,1)*tauders(1,1,1) + nmat(1,2)*tauders(2,1,1) ...
-                   + nmat(1,3)*tauders(3,1,1) + nmat(2,1)*tauders(1,2,1) ...
-                   + nmat(2,2)*tauders(2,2,1) + nmat(2,3)*tauders(3,2,1) ...
-                   + nmat(3,1)*tauders(1,3,1) + nmat(3,2)*tauders(2,3,1) ...
-                   + nmat(3,3)*tauders(3,3,1);
-        ffs(2,i,j) = tauders(1,1,2) + tauders(2,2,2) + tauders(3,3,2)  ...
-                   + nmat(1,1)*tauders(1,1,2) + nmat(1,2)*tauders(2,1,2) ...
-                   + nmat(1,3)*tauders(3,1,2) + nmat(2,1)*tauders(1,2,2) ...
-                   + nmat(2,2)*tauders(2,2,2) + nmat(2,3)*tauders(3,2,2) ...
-                   + nmat(3,1)*tauders(1,3,2) + nmat(3,2)*tauders(2,3,2) ...
-                   + nmat(3,3)*tauders(3,3,2);
-        ffs(3,i,j) = tauders(1,1,3) + tauders(2,2,3) + tauders(3,3,3)  ...
-                   + nmat(1,1)*tauders(1,1,3) + nmat(1,2)*tauders(2,1,3) ...
-                   + nmat(1,3)*tauders(3,1,3) + nmat(2,1)*tauders(1,2,3) ...
-                   + nmat(2,2)*tauders(2,2,3) + nmat(2,3)*tauders(3,2,3) ...
-                   + nmat(3,1)*tauders(1,3,3) + nmat(3,2)*tauders(2,3,3) ...
-                   + nmat(3,3)*tauders(3,3,3);
+%         nmat = nk(:,i,j)*nk(:,i,j)';
+%         ffs(:,i,j) = 0;
+%         ffs(1,i,j) = tauders(1,1,1) + tauders(2,2,1) + tauders(3,3,1)  ...
+%                    + nmat(1,1)*tauders(1,1,1) + nmat(1,2)*tauders(2,1,1) ...
+%                    + nmat(1,3)*tauders(3,1,1) + nmat(2,1)*tauders(1,2,1) ...
+%                    + nmat(2,2)*tauders(2,2,1) + nmat(2,3)*tauders(3,2,1) ...
+%                    + nmat(3,1)*tauders(1,3,1) + nmat(3,2)*tauders(2,3,1) ...
+%                    + nmat(3,3)*tauders(3,3,1);
+%         ffs(2,i,j) = tauders(1,1,2) + tauders(2,2,2) + tauders(3,3,2)  ...
+%                    + nmat(1,1)*tauders(1,1,2) + nmat(1,2)*tauders(2,1,2) ...
+%                    + nmat(1,3)*tauders(3,1,2) + nmat(2,1)*tauders(1,2,2) ...
+%                    + nmat(2,2)*tauders(2,2,2) + nmat(2,3)*tauders(3,2,2) ...
+%                    + nmat(3,1)*tauders(1,3,2) + nmat(3,2)*tauders(2,3,2) ...
+%                    + nmat(3,3)*tauders(3,3,2);
+%         ffs(3,i,j) = tauders(1,1,3) + tauders(2,2,3) + tauders(3,3,3)  ...
+%                    + nmat(1,1)*tauders(1,1,3) + nmat(1,2)*tauders(2,1,3) ...
+%                    + nmat(1,3)*tauders(3,1,3) + nmat(2,1)*tauders(1,2,3) ...
+%                    + nmat(2,2)*tauders(2,2,3) + nmat(2,3)*tauders(3,2,3) ...
+%                    + nmat(3,1)*tauders(1,3,3) + nmat(3,2)*tauders(2,3,3) ...
+%                    + nmat(3,3)*tauders(3,3,3);
                
         nders(1,:) = -dnt*c1(1) - dnp*c2(1);
         nders(2,:) = -dnt*c1(2) - dnp*c2(2);
@@ -804,19 +801,29 @@ for i = 1:ntf
            
         myf(:,i,j) = -ffs(:,i,j);
         
+%         mab = (-B/(2*es(1)^2*es(2))*(I1+1)*gnR(:,:,i,j) + es(2)/2*(C*I2-B)*gn)*des1t ...
+%               + (-B/(2*es(1)*es(2)^2)*(I1+1)*gnR(:,:,i,j) + es(1)/2*(C*I2-B)*gn)*des2t ...
+%               + 0.5*B/(es(1)*es(2))*gnR(:,:,i,j)*dI1t ... % Invariants
+%               + 0.5*es(1)*es(2)*C*gn*dI2t ...
+%               + 0.5*B/(es(1)*es(2))*(I1+1)*dgtR(:,:,i,j) ...% Tensors
+%               + 0.5*es(1)*es(2)*(I2-B)*dgt;
+%         dmabt = 0.5*(B/(es(1)*es(2))*(I1 + 1)*gnR(:,:,i,j) ... % Numerical instability here: C increases I2 when it's at ~1e-16 to ~1e-14
+%             +  es(1)*es(2)*(C*I2-B)*gn);
+        
 %       Just to check if derivs are ok
-        ggg(i,j) = c111;
-        dggg(i,j) = tau11;
-        ddgg(:,:,i,j) = dtauab;
-        dddg(i,j) = tauders(1,2,3);%cvt;
-        dddd(i,j) = tauders(2,3,1);%c221;
-        gddd(i,j) = tauders(3,1,1);%tau21;
-        ggdd(i,j) = tau(2,3);%tau12;
-        gggd(i,j) = tau(3,1);%tau22;
-        gggg(i,j) = tau(1,1);%c112;
+        ggg(i,j) = mab(1);
+        dggg(i,j) = dtauab(1);
+%         plot((thtf(1:end-1) + thtf(2:end))/2, (ddgg(2:end,1) - ddgg(1:end-1,1))/(thtf(2)-thtf(1)))
+        ddgg(i,j) = tau11;
+        dddg(i,j) = tauders(1,1,2) + tauders(2,2,2) + tauders(3,3,2);%cvt;
+        dddd(i,j) = dmabt(1,1);%c221;
+        gddd(i,j) = tau(2,2);%tau21;
+        ggdd(i,j) = nk(1);%tau12;
+        gggd(i,j) = dnt(1);%tau22;
+        gggg(i,j) =dI2t;%c112;
         gg(i,j) = norm(tau);
-        g_g(i,j) = c122;
-        gugu(:,i,j) = c1;
+        g_g(i,j) = I2;
+        gugu(i,j) = tauders(3,3,2);
     end
 end
 

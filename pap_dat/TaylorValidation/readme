@@ -1,0 +1,27 @@
+all timesteps are .005 and should go out to 5 s, except 0.01. it has .0025,
+and I stopped it because it was done.
+
+The Lac paper uses a value called 2*Gs, equivalent to B. Interestingly,
+the value of C they use is equal to my B*C. All values for their C here are 1,
+meaning B = C in my sims
+
+At low Ca, there's some instability that degrafes accuracy, but is fixed with smaller time step
+
+These are for Ca in Lac: Ca = 2a mu gam/B, because  2Gs = B !!!!!!!!! Check this to make sure
+
+The Capillary numbers I used (B & C values they correspond to) are:
+0.01   200
+0.05   40
+0.1    20
+0.15   13.333333
+0.25   8
+0.5    4
+0.75   2.666667
+1      2
+1.25   1.6
+1.5    1.33333
+2      1
+2.5    0.8
+
+Same Cas were done at a viscosity ratio of 5, but I bumped the timestep to 0.01 for some because I needed to run them out further
+The timesteps are all over the place and not labeled.

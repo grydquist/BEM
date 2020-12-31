@@ -31,14 +31,16 @@ TYPE cellType
 !   Reference state variables
     REAL(KIND = 8), ALLOCATABLE :: kR(:,:), kdR(:,:,:), kd2R(:,:,:), &
     c1R(:,:,:), c2R(:,:,:), c1tR(:,:,:), c1pR(:,:,:), c2tR(:,:,:), &
-    c2pR(:,:,:)
+    c2pR(:,:,:)!, &
+    !gnR(:,:,:,:), dgtR(:,:,:,:), dgpR(:,:,:,:)
 
 !   Force variables
     REAL(KIND = 8), ALLOCATABLE :: fab(:,:,:), ff(:,:,:), fc(:,:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:), fabmn(:,:)
 
-!   Velocity gradient
+!   Velocity gradient & its file location
     REAL(KIND = 8) :: dU(3,3)
+    CHARACTER(len = 15) gradfile
 
 !   Cell velocity constants
     COMPLEX(KIND = 8), ALLOCATABLE :: umn(:,:)    
@@ -90,6 +92,9 @@ FUNCTION newcell(filein) RESULT(cell)
     fali   = READ_GRINT_INT(filein, 'Refinement_factor')
     cell%q = cell%p*fali
 
+!   Gradient file location
+    cell%gradfile = READ_GRINT_CHAR(filein, 'Gradient_file')
+
     cell%Y = YType(p, 1)
     cell%Yf = YType(p*fali, 4)
     print *, 'Harmonics made'
@@ -103,6 +108,7 @@ FUNCTION newcell(filein) RESULT(cell)
     cell%dU = 0D0
     cell%dU(1,3) = 1D0
     ! cell%dU(1,1) = -.5D0
+    ! cell%dU(1,1) = -1D0
     ! cell%dU(2,2) = -.5D0
     ! cell%dU(3,3) = 1D0
 
@@ -117,7 +123,8 @@ FUNCTION newcell(filein) RESULT(cell)
 !   Reference items
     ALLOCATE(cell%kR(ntf,npf), cell%kdR(2,ntf,npf), cell%kd2R(3,ntf,npf), &
              cell%c1R(3,ntf,npf), cell%c2R(3,ntf,npf), cell%c1tR(3,ntf,npf), &
-             cell%c1pR(3,ntf,npf), cell%c2tR(3,ntf,npf), cell%c2pR(3,ntf,npf))
+             cell%c1pR(3,ntf,npf), cell%c2tR(3,ntf,npf), cell%c2pR(3,ntf,npf))!, &
+            !  cell%gnR(2,2,ntf,npf), cell%dgtR(2,2,ntf,npf), cell%dgpR(2,2,ntf,npf))
 
 !   Force items
     ALLOCATE(cell%fab(3,ntf,npf), cell%ff(3,ntf,npf), cell%fc(3,nt,np), &
@@ -128,6 +135,7 @@ FUNCTION newcell(filein) RESULT(cell)
 
 !   Get the harmonic constants to start out
     ! cell%xmn = RBCcoeff(cell%Y)
+    ! cell%xmn = Cubecoeff(cell%Y)
     cell%xmn = Spherecoeff(cell%Y)
     
 !   Initial positions
@@ -208,7 +216,8 @@ SUBROUTINE Derivscell(cell)
     ALLOCATE(vcur(Y%nt, Y%np), td1(Y%nt, Y%np), td2(Y%nt, Y%np), &
     td3(Y%nt, Y%np), td4(Y%nt, Y%np))
 
-!   Initialize variables    
+!   Initialize variables
+    cell%xf     = 0D0
     cell%dxt    = 0D0
     cell%dxp    = 0D0
     cell%dxt2   = 0D0
@@ -359,14 +368,6 @@ SUBROUTINE Stresscell(cell)
                       lam2dV2(3,3), es1t, es1p, es2t, es2p, I1t, I1p, I2t, I2p, &
                       Prjt(3,3), Prjp(3,3), taut(3,3), taup(3,3), dtauab(2,2), &
                       bv(2,2), bm(2,2), cvt, cvp, cq, normev1, normev2
-
-
-
-    REAL(KIND = 8) :: tauders(3,3,3), nkm(3,3)
-                      
-
-
-                      COMPLEX(KIND = 8), allocatable :: tmp(:), tmp2(:,:)
     
     B = cell%B
     C = cell%C
@@ -568,6 +569,10 @@ SUBROUTINE Stresscell(cell)
                 cell%c1pR(:,i,j) = c1p;
                 cell%c2tR(:,i,j) = c2t;
                 cell%c2pR(:,i,j) = c2p;
+
+                ! cell%gnR(:,:,i,j)  = gn
+                ! cell%dgtR(:,:,i,j) = dgt
+                ! cell%dgpR(:,:,i,j) = dgp
                 CYCLE inner
             ENDIF
 
@@ -709,11 +714,11 @@ SUBROUTINE Stresscell(cell)
                  + 0.5D0*es(1)*es(2)*(I2 - B)*Prjp
                  
 !           Put into local surface coordinates, keeping only needed derivs
-            dtauab(1,1) = DOT(INNER3_33(c1,taut), c1)
-            dtauab(1,2) = DOT(INNER3_33(c1,taut), c2)
-            dtauab(2,1) = DOT(INNER3_33(c2,taup), c1)
-            dtauab(2,2) = DOT(INNER3_33(c2,taup), c2)
-
+            dtauab(1,1) = DOT(INNER3_33(c1t,tau), c1) + DOT(INNER3_33(c1,taut), c1) + DOT(INNER3_33(c1,tau), c1t)
+            dtauab(1,2) = DOT(INNER3_33(c1t,tau), c2) + DOT(INNER3_33(c1,taut), c2) + DOT(INNER3_33(c1,tau), c2t)
+            dtauab(2,1) = DOT(INNER3_33(c2p,tau), c1) + DOT(INNER3_33(c2,taup), c1) + DOT(INNER3_33(c2,tau), c1p)
+            dtauab(2,2) = DOT(INNER3_33(c2p,tau), c2) + DOT(INNER3_33(c2,taup), c2) + DOT(INNER3_33(c2,tau), c2p)
+                 
 !           Covariant curvature tensor
             bv(1,:) = (/L,M/)
             bv(2,:) = (/M,N/)
@@ -743,34 +748,39 @@ SUBROUTINE Stresscell(cell)
             cell%ff(:, i, j) = cell%fab(1, i, j)*cell%dxt(:,i,j) &
                               + cell%fab(2, i, j)*cell%dxp(:,i,j) &
                               + cell%fab(3, i, j)*(-nk)
-!           Alternate way, staying in Cartesian
-!           First get cartesian derivatives of tau via chain rule
-            tauders(1,:,:) = taut*c1(1) + taup*c2(1)
-            tauders(2,:,:) = taut*c1(2) + taup*c2(2)
-            tauders(3,:,:) = taut*c1(3) + taup*c2(3)
 
-            nkm = outer(nk,nk)
-!           Surface divergence
-            cell%ff(1,i,j) = -(tauders(1,1,1) + tauders(2,2,1) + tauders(3,3,1) &
-            + nkm(1,1)*tauders(1,1,1) + nkm(1,2)*tauders(2,1,1) &
-            + nkm(1,3)*tauders(3,1,1) + nkm(2,1)*tauders(1,2,1) &
-            + nkm(2,2)*tauders(2,2,1) + nkm(2,3)*tauders(3,2,1) &
-            + nkm(3,1)*tauders(1,3,1) + nkm(3,2)*tauders(2,3,1) &
-            + nkm(3,3)*tauders(3,3,1))
-            
-            cell%ff(2,i,j) = -(tauders(1,1,2) + tauders(2,2,2) + tauders(3,3,2) &
-            + nkm(1,1)*tauders(1,1,2) + nkm(1,2)*tauders(2,1,2) &
-            + nkm(1,3)*tauders(3,1,2) + nkm(2,1)*tauders(1,2,2) &
-            + nkm(2,2)*tauders(2,2,2) + nkm(2,3)*tauders(3,2,2) &
-            + nkm(3,1)*tauders(1,3,2) + nkm(3,2)*tauders(2,3,2) &
-            + nkm(3,3)*tauders(3,3,2))
-            
-            cell%ff(3,i,j) = -(tauders(1,1,3) + tauders(2,2,3) + tauders(3,3,3) &
-            + nkm(1,1)*tauders(1,1,3) + nkm(1,2)*tauders(2,1,3) &
-            + nkm(1,3)*tauders(3,1,3) + nkm(2,1)*tauders(1,2,3) &
-            + nkm(2,2)*tauders(2,2,3) + nkm(2,3)*tauders(3,2,3) &
-            + nkm(3,1)*tauders(1,3,3) + nkm(3,2)*tauders(2,3,3) &
-            + nkm(3,3)*tauders(3,3,3))
+! !           Alternate way, staying in Cartesian
+! !           First get cartesian derivatives of tau via chain rule
+!             tauders(1,:,:) = taut*c1(1) + taup*c2(1)
+!             tauders(2,:,:) = taut*c1(2) + taup*c2(2)
+!             tauders(3,:,:) = taut*c1(3) + taup*c2(3)
+
+! !           Surface divergence
+!             cell%ff(1,i,j) = -SUM(Prj*tauders(:,:,1))
+!             cell%ff(2,i,j) = -SUM(Prj*tauders(:,:,2))
+!             cell%ff(3,i,j) = -SUM(Prj*tauders(:,:,3))
+
+
+! !           This is a way to just get the tensions directly in coontravariant form. The tensions
+! !           work fine, but for some reason the derivatives are incorrect. I also didn't try that hard
+! !           to get it to work. Might be nice to have, but not essential (Walter 2010 Eq. 13)
+
+!             tauab = 0.5D0*(B/(es(1)*es(2))*(I1 + 1)*cell%gnR(:,:,i,j) &
+!             + es(1)*es(2)*(C*I2 - B)*gn)
+
+!          dtauabt = (-B/(2D0*es(1)*es(1)*es(2))*(I1 + 1D0)*cell%gnR(:,:,i,j) + 0.5D0*es(2)*(C*I2 - B)*gn)*es1t & 
+!                  + (-B/(2D0*es(1)*es(2)*es(2))*(I1 + 1D0)*cell%gnR(:,:,i,j) + 0.5D0*es(1)*(C*I2 - B)*gn)*es2t &
+!                  + 0.5D0*B/(es(1)*es(2))*cell%gnR(:,:,i,j)*I1t & ! Strain invariants
+!                  + 0.5D0*es(1)*es(2)*C*gn*I2t &
+!                  + 0.5D0*B/(es(1)*es(2))*(I1 + 1D0)*cell%dgtR(:,:,i,j) & ! Tensors
+!                  + 0.5D0*es(1)*es(2)*(I2 - B)*dgt
+!          dtauabp = (-B/(2D0*es(1)*es(1)*es(2))*(I1 + 1D0)*cell%gnR(:,:,i,j) + 0.5D0*es(2)*(C*I2 - B)*gn)*es1p & 
+!                  + (-B/(2D0*es(1)*es(2)*es(2))*(I1 + 1D0)*cell%gnR(:,:,i,j) + 0.5D0*es(1)*(C*I2 - B)*gn)*es2p &
+!                  + 0.5D0*B/(es(1)*es(2))*cell%gnR(:,:,i,j)*I1p & ! Strain invariants
+!                  + 0.5D0*es(1)*es(2)*C*gn*I2p &
+!                  + 0.5D0*B/(es(1)*es(2))*(I1 + 1D0)*cell%dgpR(:,:,i,j) & ! Tensors
+!                  + 0.5D0*es(1)*es(2)*(I2 - B)*dgp
+
 
         ENDDO inner
     ENDDO
@@ -786,6 +796,7 @@ SUBROUTINE Stresscell(cell)
         cell%fmn(1,:) = cell%Yf%forward(cell%ff(1,:,:), cell%q)
         cell%fmn(2,:) = cell%Yf%forward(cell%ff(2,:,:), cell%q)
         cell%fmn(3,:) = cell%Yf%forward(cell%ff(3,:,:), cell%q)
+        ! WHERE(ABS(cell%fmn) .lt. 1E-12) cell%fmn = 0D0
         
         cell%fabmn(1,:) = cell%Yf%forward(cell%fab(1,:,:), cell%q)
         cell%fabmn(2,:) = cell%Yf%forward(cell%fab(2,:,:), cell%q)
@@ -919,7 +930,7 @@ SUBROUTINE Fluidcell(cell)
                            SIN(Y%tht(i2))*SIN(Y%phi(j2)), &
                            COS(Y%tht(i2))/)
 
-!                   Rotate this Gauss point to nonrotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! check this is right
+!                   Rotate this Gauss point to nonrotated parameter space  
                     gp = INNER3_33(gp, Tx)
 !                   Sometimes precision can be an issue...!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Don't need to do this everytime (calcs same spot always)
                     IF(gp(3).gt.1)  gp(3) =  1D0

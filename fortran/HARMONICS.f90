@@ -35,7 +35,7 @@ TYPE YType
     
 
     CONTAINS
-    PROCEDURE :: forward  => forwardY
+    PROCEDURE :: forward  => forwardYDirect
     PROCEDURE :: backward => backwardY
     PROCEDURE :: rotate   => rotateY
 
@@ -110,7 +110,7 @@ FUNCTION newY(p, dero) RESULT(Y)
     ENDDO
 
 !   Initialize for FFT (np values in each transform)
-    Y%LENSAV = 2*Y%np + INT(LOG(REAL(Y%np))) + 4
+    Y%LENSAV =  2 * Y%np + int ( log ( real ( Y%np, kind = 8 ) ) ) + 4 !2*Y%np + INT(LOG(REAL(Y%np))) + 4
     ALLOCATE(Y%WSAVE(Y%LENSAV))
     CALL zfft1i(Y%np, Y%WSAVE, Y%LENSAV, i)
 
@@ -281,6 +281,13 @@ FUNCTION forwardY(Y, f, p) RESULT(fmn)
         c = f(it,:)
         CALL ZFFT1F(Y%np, 1, c, Y%np, Y%WSAVE, Y%LENSAV, wrk, 2*Y%np, iserr)
         gm(it,:) = c*dphi*Y%np
+!       Sometimes FFTpack just fails. Check here        
+        CALL ZFFT1B(Y%np, 1, c, Y%np, Y%WSAVE, Y%LENSAV, wrk, 2*Y%np, iserr)
+        IF(MAXVAL(real(c) - f(it,:)) .gt. 1e-10) THEN
+            print *, 'FFT Failure! Max difference between values:'
+            print *, MAXVAL(real(c) - f(it,:))
+            STOP
+        endif
     ENDDO
 
 !   Now do the integrals across the thetas
@@ -308,6 +315,42 @@ FUNCTION forwardY(Y, f, p) RESULT(fmn)
 END FUNCTION forwardY
 
 !------------------------------------------------------------------!
+! Takes a collection of points in physical space and gets the spectral domain
+! by directly integrating instead of with FFTs
+FUNCTION forwardYDirect(Y, f, p) RESULT(fmn)
+    REAL(KIND = 8), INTENT(IN) :: f(:,:)
+    CLASS(Ytype), TARGET, INTENT(IN) :: Y
+    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:)
+    INTEGER, OPTIONAL, INTENT(IN) :: p
+    INTEGER :: i, n, m, im, it, j
+    TYPE(nmType), POINTER :: nm
+
+    ALLOCATE(fmn((Y%p + 1)*(Y%p + 1)))
+    fmn = 0D0
+
+    IF(PRESENT(p)) THEN
+        n = p
+    ELSE
+        n = Y%p
+    ENDIF
+
+    im = 0
+    it = 0
+!   Just loop through and perform the sums
+    DO i = 0,n
+        nm => Y%nm(i + 1)
+        im = 0
+        DO m = -i,i
+            it = it + 1
+            im = im + 1
+            DO j = 1,Y%np
+                fmn(it) = fmn(it) + SUM(CONJG(nm%v(im,:,j))*f(:,j)*Y%wg*Y%dphi)
+            ENDDO
+        ENDDO
+    ENDDO
+
+END FUNCTION forwardYDirect
+!------------------------------------------------------------------!
 ! Takes a collection of points in spectral space and gets the physical domain
 FUNCTION backwardY(Y, fmn, p) RESULT(f)
     COMPLEX(KIND = 8), INTENT(IN) :: fmn(:)
@@ -315,7 +358,7 @@ FUNCTION backwardY(Y, fmn, p) RESULT(f)
     REAL(KIND = 8), ALLOCATABLE :: f(:,:)
     INTEGER, OPTIONAL, INTENT(IN) :: p
 
-    INTEGER pp, ih, it, n, m, im
+    INTEGER pp, it, n, m, im
     TYPE(nmType), POINTER :: nm
 
 !   You can choose the order, but if you don't it'll just do max order
@@ -328,13 +371,11 @@ FUNCTION backwardY(Y, fmn, p) RESULT(f)
 !   Performed at all theta and phi in Y
     ALLOCATE(f(Y%nt,Y%np))
     f = 0
-    ih = 0
     it = 0
 
 !   Just loop through and perform the sums
     DO n = 0,pp
-        ih = ih + 1
-        nm => Y%nm(ih)
+        nm => Y%nm(n+1)
         im = 0
 !       If f is real-valued we really only need to go m = 0,n
         DO m = -n,n
@@ -474,13 +515,82 @@ FUNCTION Spherecoeff(Y, ord) RESULT(xmn)
         p = Y%p
     ENDIF
 
-    x1 = 0.5D0*COS(Y%ph)*SIN(Y%th)
-    x2 = 0.5D0*SIN(Y%ph)*SIN(Y%th)
+    ! x1 = 0.5D0*COS(Y%ph)*SIN(Y%th)
+    ! x2 = 0.5D0*SIN(Y%ph)*SIN(Y%th)
+    x1 = COS(Y%ph)*SIN(Y%th)
+    x2 = SIN(Y%ph)*SIN(Y%th)
     x3 = COS(Y%th)
 
     ! x1(1:10,1:10) = x1(1:10,1:10) + .05D0
     ! x2(1:10,1:10) = x2(1:10,1:10) + .08D0
     ! x3(1:3,1:3) = x3(1:3,1:3) + .05D0
+
+    xmn(1,:) = Y%forward(x1)
+    xmn(2,:) = Y%forward(x2)
+    xmn(3,:) = Y%forward(x3)
+
+    xmn(:,1) = 0D0
+    xmn(:,5:(Y%p + 1)*(Y%p + 1)) = 0D0
+
+!   Gotta get that max precision
+    DO i = 1,INT(size(xmn)/3)
+        if(abs(xmn(1,i)).lt.1E-12) xmn(1,i) = 0D0
+        if(abs(xmn(2,i)).lt.1E-12) xmn(2,i) = 0D0
+        if(abs(xmn(3,i)).lt.1E-12) xmn(3,i) = 0D0
+    ENDDO
+END FUNCTION Spherecoeff
+
+! -------------------------------------------------------------------------!
+! Calculate spherical harmonic coefficients for a cube
+FUNCTION Cubecoeff(Y, ord) RESULT(xmn)
+    TYPE(YType),INTENT(IN) :: Y
+    COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:)
+    INTEGER, OPTIONAL :: ord
+
+    REAL(KIND = 8), ALLOCATABLE :: x1(:,:), x2(:,:), x3(:,:)
+    REAL(KIND = 8) thtmp
+    INTEGER :: p, i, j
+
+    ALLOCATE(x1(Y%nt,Y%np), x2(Y%nt,Y%np), x3(Y%nt,Y%np), &
+        xmn(3,(Y%p + 1)*(Y%p + 1)))
+
+
+    IF(PRESENT(ord)) THEN
+        p = ord
+    ELSE
+        p = Y%p
+    ENDIF
+
+!   If statements for the six faces
+
+!   Cylinder for now
+    DO i = 1,Y%nt
+        DO j = 1,Y%np
+!           First top/bottom faces
+            IF(Y%tht(i) .lt. pi/4D0) THEN
+                x1(i,j) = TAN(Y%tht(i))*COS(Y%phi(j))
+                x2(i,j) = TAN(Y%tht(i))*SIN(Y%phi(j))
+                x3(i,j) = 1D0
+            ELSEIF (Y%tht(i) .gt.3D0*pi/4D0) THEN
+                x1(i,j) = TAN(ABS(Y%tht(i) - pi))*COS(Y%phi(j))!-SQRT(2D0)*ATAN2(Y%tht(i) - pi,1D0)*COS(Y%phi(j))
+                x2(i,j) = TAN(ABS(Y%tht(i) - pi))*SIN(Y%phi(j))!-SQRT(2D0)*ATAN2(Y%tht(i) - pi,1D0)*SIN(Y%phi(j))
+                x3(i,j) = -1D0
+            ELSE
+                ! IF(Y%tht(i) .gt. pi/2D0) THEN
+                !     thtmp = pi/2D0 - ABS(Y%tht(i) - pi)
+                !     x3(i,j) = -TAN(thtmp)
+                ! ELSE
+                !     thtmp = pi/2D0 - Y%tht(i)
+                !     x3(i,j) = TAN(thtmp)
+                ! ENDIF
+                ! x1(i,j) = COS(Y%phi(j))
+                ! x2(i,j) = SIN(Y%phi(j))
+                x1(i,j) = sqrt(2D0)*SIN(Y%tht(i))*COS(Y%phi(j))
+                x2(i,j) = sqrt(2D0)*SIN(Y%tht(i))*SIN(Y%phi(j))
+                x3(i,j) = sqrt(2D0)*COS(Y%tht(i))
+            ENDIF
+        ENDDO
+    ENDDO
 
     xmn(1,:) = Y%forward(x1)
     xmn(2,:) = Y%forward(x2)
@@ -494,6 +604,6 @@ FUNCTION Spherecoeff(Y, ord) RESULT(xmn)
         if(abs(xmn(2,i)).lt.1E-12) xmn(2,i) = 0D0
         if(abs(xmn(3,i)).lt.1E-12) xmn(3,i) = 0D0
     ENDDO
-END FUNCTION Spherecoeff
+END FUNCTION Cubecoeff
 
 END MODULE HARMMOD
