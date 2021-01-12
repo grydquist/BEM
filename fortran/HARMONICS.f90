@@ -439,7 +439,8 @@ FUNCTION rotateY(Y, fmn, a, b, c) RESULT(f)
         ENDDO
     ENDDO
     
-!   Rotate back in last angle    
+!   Rotate back in last angle (if nonzero)
+    IF(c .ne. 0) THEN
     it = 0
     DO n = 0,Y%p
         DO m = -n,n
@@ -447,10 +448,11 @@ FUNCTION rotateY(Y, fmn, a, b, c) RESULT(f)
             f(it) = f(it)*EXP(ii*m*c)
         ENDDO
     ENDDO
+    ENDIF
 END FUNCTION rotateY
 
 ! -------------------------------------------------------------------------!
-! Calculate spherical harmonic coefficients for an RBC
+! Calculate spherical harmonic coefficients for an RBC (Poz 2003)
 FUNCTION RBCcoeff(Y, ord) RESULT(xmn)
     TYPE(YType),INTENT(IN) :: Y
     COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:)
@@ -519,11 +521,7 @@ FUNCTION Spherecoeff(Y, ord) RESULT(xmn)
     ! x2 = 0.5D0*SIN(Y%ph)*SIN(Y%th)
     x1 = COS(Y%ph)*SIN(Y%th)
     x2 = SIN(Y%ph)*SIN(Y%th)
-    x3 = COS(Y%th)
-
-    ! x1(1:10,1:10) = x1(1:10,1:10) + .05D0
-    ! x2(1:10,1:10) = x2(1:10,1:10) + .08D0
-    ! x3(1:3,1:3) = x3(1:3,1:3) + .05D0
+    x3 = .9D0*COS(Y%th)!0.918D0
 
     xmn(1,:) = Y%forward(x1)
     xmn(2,:) = Y%forward(x2)
@@ -541,14 +539,13 @@ FUNCTION Spherecoeff(Y, ord) RESULT(xmn)
 END FUNCTION Spherecoeff
 
 ! -------------------------------------------------------------------------!
-! Calculate spherical harmonic coefficients for a cube
+! Calculate spherical harmonic coefficients for a cubish thing (gives flattish surface p = 8)
 FUNCTION Cubecoeff(Y, ord) RESULT(xmn)
     TYPE(YType),INTENT(IN) :: Y
     COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:)
     INTEGER, OPTIONAL :: ord
 
     REAL(KIND = 8), ALLOCATABLE :: x1(:,:), x2(:,:), x3(:,:)
-    REAL(KIND = 8) thtmp
     INTEGER :: p, i, j
 
     ALLOCATE(x1(Y%nt,Y%np), x2(Y%nt,Y%np), x3(Y%nt,Y%np), &
@@ -605,5 +602,58 @@ FUNCTION Cubecoeff(Y, ord) RESULT(xmn)
         if(abs(xmn(3,i)).lt.1E-12) xmn(3,i) = 0D0
     ENDDO
 END FUNCTION Cubecoeff
+
+! -------------------------------------------------------------------------!
+! Takes a list of coefficients that go real(x1mn), imag(x1mn), real(x2mn)...
+! and outputs them properly
+FUNCTION Readcoeff(filen, ord) RESULT(xmn)
+    COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:), xmnbg(:,:)
+    REAL(KIND = 8) :: xmnrawind
+    REAL(KIND = 8), ALLOCATABLE :: xmnraw(:)
+    CHARACTER (len=*) filen
+    INTEGER, INTENT(IN) :: ord
+    INTEGER stat, p, i, jmp
+
+    ALLOCATE(xmn(3, (ord+1)*(ord+1)))
+    p = 0
+
+!   Read once to find file size. Not efficient but probably not a big deal
+    OPEN(unit = 13, file = filen, action = 'read')
+    DO 
+        READ(13, *, iostat = stat) xmnrawind
+        IF(stat .ne. 0) EXIT
+        p = p+1
+    ENDDO
+    CLOSE(13)
+    
+!   Now we know the file size, so we can allocate properly
+    ALLOCATE(xmnraw(p))
+
+!   And loop through again to get the values into this big array
+    OPEN(unit = 13, file = filen, action = 'read')
+    DO i = 1,p
+        READ(13, *, iostat = stat) xmnraw(i)
+    ENDDO
+    CLOSE(13)
+
+    xmnrawind = p/6
+    p = int(sqrt(xmnrawind)) - 1
+    jmp = (p+1)*(p+1)
+    
+    IF(ord>p) THEN
+        print *, 'ERROR: when reading coeffs, desired order higher than supplied by input'
+        STOP
+    ENDIF
+
+!   Fill out complex coefficient matrix!
+    xmn(1,:) = xmnraw(1:(ord+1)*(ord+1))
+    xmn(1,:) = xmn(1,:) + xmnraw(jmp + 1 : jmp + (ord+1)*(ord+1))*ii 
+
+    xmn(2,:) = xmnraw(2*jmp + 1 : 2*jmp + (ord+1)*(ord+1))
+    xmn(2,:) = xmn(2,:) + xmnraw(3*jmp + 1 : 3*jmp + (ord+1)*(ord+1))*ii 
+
+    xmn(3,:) = xmnraw(4*jmp + 1 : 4*jmp + (ord+1)*(ord+1))
+    xmn(3,:) = xmn(3,:) + xmnraw(5*jmp + 1 : 5*jmp + (ord+1)*(ord+1))*ii
+END FUNCTION Readcoeff
 
 END MODULE HARMMOD

@@ -1,2 +1,0 @@
--ffree-line-length-none -O3 -ftree-vectorize -ffast-math -funroll-loops -fomit-frame-pointer -pipe -o harms UTIL.f90 Fast_Fourier.f90 HARMONICS.f90 SHAPE.f90 main.f90 -L./lib/lapack-3.9.0/ -llapack -lrefblas
--ffree-line-length-none -O3 -ftree-vectorize -ffast-math -funroll-loops -fomit-frame-pointer -pipe -o harms UTIL.f90 Fast_Fourier.f90 HARMONICS.f90 SHAPE.f90 main.f90 -L./lib/lapack-3.9.0/ -llapack -lrefblas

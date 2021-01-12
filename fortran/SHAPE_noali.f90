@@ -14,7 +14,7 @@ TYPE cellType
     REAL(KIND = 8) :: dt
 
 !   Material Properties
-    REAL(KIND = 8) :: mu, lam, B, C, Eb
+    REAL(KIND = 8) :: mu, lam, B, C, Eb, c0
 
 !   Harmonics info
     INTEGER :: p, q, ftot
@@ -36,7 +36,7 @@ TYPE cellType
 
 !   Force variables
     REAL(KIND = 8), ALLOCATABLE :: fab(:,:,:), ff(:,:,:), fc(:,:,:)
-    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:), fabmn(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:), nkmn(:,:)
 
 !   Velocity gradient & its file location
     REAL(KIND = 8) :: dU(3,3)
@@ -57,6 +57,9 @@ TYPE cellType
     PROCEDURE :: Stress  => Stresscell
     PROCEDURE :: Fluid   => Fluidcell
     PROCEDURE :: Dealias => Dealiascell
+    PROCEDURE :: Vol     => Volcell
+    PROCEDURE :: SA      => SAcell
+    PROCEDURE :: Intg    => Intgcell
 END TYPE cellType
 
 INTERFACE cellType
@@ -72,6 +75,8 @@ CONTAINS
 FUNCTION newcell(filein) RESULT(cell)
     CHARACTER(len = *), INTENT(IN) :: filein
     TYPE(cellType) :: cell
+    CHARACTER(len = 3) :: restart
+    CHARACTER(len = 30) :: restfile
 
     INTEGER :: nt, np, ntf, npf, fali,p
 
@@ -79,8 +84,11 @@ FUNCTION newcell(filein) RESULT(cell)
     cell%mu = READ_GRINT_DOUB(filein, 'Viscosity')
     cell%lam = READ_GRINT_DOUB(filein, 'Viscosity_ratio')
     cell%B = READ_GRINT_DOUB(filein, 'Shear_Modulus')
-    cell%C = READ_GRINT_DOUB(filein, 'Dilatation_Modulus')
+!   A note on the dilation modulus: many papers use (B*C) in the spot where
+!   I use C, so I just make that correction here
+    cell%C = READ_GRINT_DOUB(filein, 'Dilatation_Modulus')*cell%B
     cell%Eb = READ_GRINT_DOUB(filein, 'Bending_Modulus')
+    cell%c0 = READ_GRINT_DOUB(filein, 'Spont_Curvature')
     cell%NT = READ_GRINT_INT(filein, 'Max_time_steps')
     cell%dt = READ_GRINT_DOUB(filein, 'Time_step')
     cell%fileout = READ_GRINT_CHAR(filein, 'Output')
@@ -128,7 +136,7 @@ FUNCTION newcell(filein) RESULT(cell)
 
 !   Force items
     ALLOCATE(cell%fab(3,ntf,npf), cell%ff(3,ntf,npf), cell%fc(3,nt,np), &
-             cell%fmn(3,(cell%q+1)*(cell%q+1)), cell%fabmn(3,(cell%q+1)*(cell%q+1)))
+             cell%fmn(3,(cell%q+1)*(cell%q+1)), cell%nkmn(3,(cell%q+1)*(cell%q+1)))
     cell%ff = 0D0  
     cell%fmn = 0D0
     cell%umn = 0D0
@@ -150,9 +158,27 @@ FUNCTION newcell(filein) RESULT(cell)
 !   the important function of getting reference state variables
     CALL cell%Stress()
 
-!   Write initial configuration
-    CALL cell%write()    
+!   This gives us the right surface area (equivalnt to cell with equiv radius = 1).
+    cell%xmn = cell%xmn*sqrt(16.8447913187040D0/cell%SA())
+    cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
+    cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
+    cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+    CALL cell%Derivs()
+    CALL cell%stress()
+
+!   Now with a reference shape, should we choose an intermediate point
+!   to restart from?
+    restart = READ_GRINT_CHAR(filein, 'Restart')
+    IF (restart .eq. "Yes") THEN
+!       Choose file to restart from
+        restfile = READ_GRINT_CHAR(filein, 'Restart_Loc')
+!       And just set the constants equal!
+        cell%xmn = Readcoeff(restfile, cell%Y%p)
+    ENDIF
     
+!   Write initial configuration
+    CALL cell%write()
+
     cell%init = .true.
 END FUNCTION
 
@@ -178,8 +204,8 @@ SUBROUTINE Writecell(cell)
     ELSE
         OPEN (UNIT = 88, FILE = 'u_'//cell%fileout)
     ENDIF
-    WRITE(88,*) REAL(cell%umn)
-    WRITE(88,*) AIMAG(cell%umn)
+    WRITE(88,*) REAL(cell%umn)!REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1)))) !
+    WRITE(88,*) AIMAG(cell%umn)!AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))!
     WRITE(88,*) cell%cts
     CLOSE(88)
 
@@ -193,8 +219,7 @@ SUBROUTINE Writecell(cell)
     ! WRITE(88,*) AIMAG(cell%fmn)
     ! WRITE(88,*) REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
     ! WRITE(88,*) AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
-    WRITE(88,*) cell%ff
-
+    WRITE(88,*) cell%fab
     CLOSE(88)
 
 END SUBROUTINE Writecell
@@ -367,11 +392,13 @@ SUBROUTINE Stresscell(cell)
     REAL(KIND = 8) :: Fdt(3,3), Fdp(3,3), V2t(3,3), V2p(3,3), lam1dV2(3,3), &
                       lam2dV2(3,3), es1t, es1p, es2t, es2p, I1t, I1p, I2t, I2p, &
                       Prjt(3,3), Prjp(3,3), taut(3,3), taup(3,3), dtauab(2,2), &
-                      bv(2,2), bm(2,2), cvt, cvp, cq, normev1, normev2
+                      bv(2,2), bm(2,2), cvt, cvp, cq, normev1, normev2, &
+                      fb, LBk, kG, c0, fbt(3)
     
     B = cell%B
     C = cell%C
     Eb = cell%Eb
+    c0 = cell%c0
     
 !   Big loop over all points in grid
     DO i = 1, cell%Yf%nt
@@ -393,6 +420,8 @@ SUBROUTINE Stresscell(cell)
 !           Curvature numerator
             D = E*N - 2D0*F*M + G*L
             k = 0.5D0*D/(cell%J(i,j)*cell%J(i,j))
+!           Gaussian curvature
+            kG = (L*N - M*M)/(cell%J(i,j)*cell%J(i,j))
 
 !           We need several cross products in the below equations
 !           so I do them all here
@@ -553,6 +582,12 @@ SUBROUTINE Stresscell(cell)
             c2p = cell%dxtp(:,i,j)*gn(1,2) + cell%dxp2(:,i,j)*gn(2,2) &
                 + cell%dxt(:,i,j)*dgp(1,2) + cell%dxp(:,i,j)*dgp(2,2)
 
+!           Laplace-Beltrami of mean curvature. Three chain rules with 4 things to sum each
+!           First: deriv of J
+            LBk = 1D0/cell%J(i,j)*(Jt*gn(1,1)*kt + Jt*gn(1,2)*kp + Jp*gn(2,1)*kt + Jp*gn(2,2)*kp) &
+                + dgt(1,1)*kt + dgt(1,2)*kp + dgp(2,1)*kt + dgp(2,2)*kp &
+                + gn(1,1)*kt2 + gn(1,2)*ktp + gn(2,1)*ktp + gn(2,2)*kp2
+
 !           We can finally get the reference shapes. Cycle loop if we're getting them
             IF(.not. cell%init) THEN
                 cell%c1R(:,i,j) = c1
@@ -597,45 +632,28 @@ SUBROUTINE Stresscell(cell)
             c221p = dot(cell%dxtp2(:,i,j),c2) + dot(cell%dxtp(:,i,j),c2p)
             c222p = dot(cell%dxp3(:,i,j) ,c2) + dot(cell%dxp2(:,i,j),c2p)
 
-!           Now finally some mechanics, starting with bending moments/derivs
-            mab = -(k - cell%kR(i,j))*gn
-            mabt = -(kt - cell%kdR(1,i,j))*gn - (k - cell%kR(i,j))*dgt
-            mabp = -(kp - cell%kdR(2,i,j))*gn - (k - cell%kR(i,j))*dgp
-            
-            dmab2(1,1) =-(kt2 - cell%kd2R(1,i,j))*gn(1,1) - 2D0*(kt - cell%kdR(1,i,j))*dgt(1,1) &
-                       - (k - cell%kR(i,j))*dgt2(1,1)
-            dmab2(1,2) =-(ktp - cell%kd2R(3,i,j))*gn(1,2) - (kt - cell%kdR(1,i,j))*dgp(1,2) &
-                       - (kp  - cell%kdR(2,i,j))*dgt(1,2) - (k  - cell%kR(i,j))*dgtp(1,2)
-            dmab2(2,1) =-(ktp - cell%kd2R(3,i,j))*gn(2,1) - (kt - cell%kdR(1,i,j))*dgp(2,1) &
-                       - (kp  - cell%kdR(2,i,j))*dgt(2,1) - (k  - cell%kR(i,j))*dgtp(2,1)
-            dmab2(2,2) =-(kp2 - cell%kd2R(2,i,j))*gn(2,2) - 2D0*(kp - cell%kdR(2,i,j))*dgp(2,2) &
-                       - (k - cell%kR(i,j))*dgp2(2,2)
-
-!           Transverse shears and partials
-            q1 = Eb*(mabt(1,1) + mabp(2,1) + mab(1,1)*(2D0*c111 + c221) &
-               + mab(2,1)*(2D0*c112 + c222) + mab(1,2)*c112 + mab(2,2)*c122)
-            q2 = Eb*(mabt(1,2) + mabp(2,2) + mab(1,2)*(c111 + 2D0*c221) &
-               + mab(2,2)*(c112 + 2D0*c222) + mab(1,1)*c211 + mab(2,1)*c221)
-            
-!           Partials of q
-            dq(1) = Eb*(dmab2(1,1) + dmab2(2,1) &
-                  + mabt(1,1)*(2D0*c111 + c221) + mab(1,1)*(2D0*c111t + c221t) &
-                  + mabt(2,1)*(2D0*c112 + c222) + mab(2,1)*(2D0*c112t + c222t) &
-                  + mabt(1,2)*c112 + mab(1,2)*c112t + mabt(2,2)*c122 + mab(2,2)*c122t)
-            
-            dq(2) = Eb*(dmab2(1,2) + dmab2(2,2) &
-                  + mabp(1,2)*(c111 + 2D0*c221) + mab(1,2)*(c111p + 2D0*c221p) &
-                  + mabp(2,2)*(c112 + 2D0*c222) + mab(2,2)*(c112p + 2D0*c222p) &
-                  + mabp(1,1)*c211 + mab(1,1)*c211p + mabp(2,1)*c221 + mab(2,1)*c221p)
-
-!           In plane tension and derivatives
-!           Deformation gradient tensor                  
-            Fd = outer(cell%dxt(:,i,j), cell%c1R(:,i,j)) + outer(cell%dxp(:,i,j), cell%c2R(:,i,j))
-
 !           Surface projection operator
             Prj = 0D0
             FORALL(q = 1:3) Prj(q,q) = 1D0
             Prj = Prj - outer(nk,nk)
+
+!           Now finally some mechanics
+!           New Bending: Helfrich
+!           Normal component (commented part assumes homogeneous spontaneous curvature)
+            fb = Eb*(2D0*LBk + (2D0*k + c0)*(2D0*k*k - 2D0*kG  - c0*k)) ! + Eb*cell%LBc0(i,j)
+
+!           Tangential component (in Cartesian). Just surface gradient of curvature.
+!           Start w/ just gradient, Prjt is just temp storage
+!           Most people ignore, really doesn't do  much
+            fbt(1) = 4D0*k*(kt*c1(1) + kp*c2(1))
+            fbt(2) = 4D0*k*(kt*c1(2) + kp*c2(2))
+            fbt(3) = 4D0*k*(kt*c1(3) + kp*c2(3))
+            Prjt = TRANSPOSE(Prj)
+            fbt = INNER3_33(fbt, Prjt)
+            
+!           In plane tension and derivatives
+!           Deformation gradient tensor                  
+            Fd = outer(cell%dxt(:,i,j), cell%c1R(:,i,j)) + outer(cell%dxp(:,i,j), cell%c2R(:,i,j))
 
 !           Left Cauchy-Green
             V2 = MATMUL(Fd, TRANSPOSE(Fd))
@@ -735,19 +753,24 @@ SUBROUTINE Stresscell(cell)
             cvp = dtauab(1,2) + dtauab(2,2) + tauab(1,2)*(c111 + 2D0*c221) &
                 + tauab(2,2)*(c112 + 2D0*c222) + tauab(1,1)*c211 + tauab(2,1)*c221
 
-!           Covariant divergence of q 
-            cq = dq(1) + dq(2) + c111*q1 + c112*q2 + c221*q1 + c222*q2
 
 !           Forces in surface coordinates
-            cell%fab(1, i, j) = bm(1,1)*q1 + bm(2,1)*q2 - cvt
-            cell%fab(2, i, j) = bm(1,2)*q1 + bm(2,2)*q2 - cvp
-            cell%fab(3, i, j) = -cq - tauab(1,1)*bv(1,1) - tauab(1,2)*bv(1,2) &
-                                    - tauab(2,1)*bv(2,1) - tauab(2,2)*bv(2,2)
+            cell%fab(1, i, j) = -cvt !   + bm(1,1)*q1 + bm(2,1)*q2
+            cell%fab(2, i, j) = -cvp !   + bm(1,2)*q1 + bm(2,2)*q2
+            cell%fab(3, i, j) =     - tauab(1,1)*bv(1,1) - tauab(1,2)*bv(1,2) &
+                                    - tauab(2,1)*bv(2,1) - tauab(2,2)*bv(2,2) &
+                                    + fb
+                                    !  - cq
 
 !           Forces in Cartesian, on fine grid
             cell%ff(:, i, j) = cell%fab(1, i, j)*cell%dxt(:,i,j) &
                               + cell%fab(2, i, j)*cell%dxp(:,i,j) &
-                              + cell%fab(3, i, j)*(-nk)
+                              + cell%fab(3, i, j)*(-nk) &
+                              + 0D0 !fbt
+            
+!           This is pretty lazy, but I need to save the normal vector and not the
+!           surface forces, when it was opposite at one time, so I just swap them
+            cell%fab(:,i,j) = -nk
 
 ! !           Alternate way, staying in Cartesian
 ! !           First get cartesian derivatives of tau via chain rule
@@ -782,6 +805,48 @@ SUBROUTINE Stresscell(cell)
 !                  + 0.5D0*es(1)*es(2)*(I2 - B)*dgp
 
 
+
+!           This is the old way I did bending. It was mostly just a qualitative measure
+!           of bending, where the moment varied linearly with the difference in curvature
+!           between the current and reference state. I don't use it, and the bending model
+!           that I do use below is better I believe. The only catch is that the bending model
+!           below requires the use of a "spontaneous curvature", a material property that says
+!           how much a lipid bilayer bends without any forces. This is a material property,
+!           but one person uses it as a varying property so there is no stress in the biconcave
+!           resting shape.
+!             mab = -(k - cell%kR(i,j))*gn
+!             mabt = -(kt - cell%kdR(1,i,j))*gn - (k - cell%kR(i,j))*dgt
+!             mabp = -(kp - cell%kdR(2,i,j))*gn - (k - cell%kR(i,j))*dgp
+            
+!             dmab2(1,1) =-(kt2 - cell%kd2R(1,i,j))*gn(1,1) - 2D0*(kt - cell%kdR(1,i,j))*dgt(1,1) &
+!                        - (k - cell%kR(i,j))*dgt2(1,1)
+!             dmab2(1,2) =-(ktp - cell%kd2R(3,i,j))*gn(1,2) - (kt - cell%kdR(1,i,j))*dgp(1,2) &
+!                        - (kp  - cell%kdR(2,i,j))*dgt(1,2) - (k  - cell%kR(i,j))*dgtp(1,2)
+!             dmab2(2,1) =-(ktp - cell%kd2R(3,i,j))*gn(2,1) - (kt - cell%kdR(1,i,j))*dgp(2,1) &
+!                        - (kp  - cell%kdR(2,i,j))*dgt(2,1) - (k  - cell%kR(i,j))*dgtp(2,1)
+!             dmab2(2,2) =-(kp2 - cell%kd2R(2,i,j))*gn(2,2) - 2D0*(kp - cell%kdR(2,i,j))*dgp(2,2) &
+!                        - (k - cell%kR(i,j))*dgp2(2,2)
+
+! !           Transverse shears and partials
+!             q1 = Eb*(mabt(1,1) + mabp(2,1) + mab(1,1)*(2D0*c111 + c221) &
+!                + mab(2,1)*(2D0*c112 + c222) + mab(1,2)*c112 + mab(2,2)*c122)
+!             q2 = Eb*(mabt(1,2) + mabp(2,2) + mab(1,2)*(c111 + 2D0*c221) &
+!                + mab(2,2)*(c112 + 2D0*c222) + mab(1,1)*c211 + mab(2,1)*c221)
+            
+! !           Partials of q
+!             dq(1) = Eb*(dmab2(1,1) + dmab2(2,1) &
+!                   + mabt(1,1)*(2D0*c111 + c221) + mab(1,1)*(2D0*c111t + c221t) &
+!                   + mabt(2,1)*(2D0*c112 + c222) + mab(2,1)*(2D0*c112t + c222t) &
+!                   + mabt(1,2)*c112 + mab(1,2)*c112t + mabt(2,2)*c122 + mab(2,2)*c122t)
+            
+!             dq(2) = Eb*(dmab2(1,2) + dmab2(2,2) &
+!                   + mabp(1,2)*(c111 + 2D0*c221) + mab(1,2)*(c111p + 2D0*c221p) &
+!                   + mabp(2,2)*(c112 + 2D0*c222) + mab(2,2)*(c112p + 2D0*c222p) &
+!                   + mabp(1,1)*c211 + mab(1,1)*c211p + mabp(2,1)*c221 + mab(2,1)*c221p)
+!
+! !           Covariant divergence of q 
+!             cq = dq(1) + dq(2) + c111*q1 + c112*q2 + c221*q1 + c222*q2
+
         ENDDO inner
     ENDDO
 
@@ -796,19 +861,15 @@ SUBROUTINE Stresscell(cell)
         cell%fmn(1,:) = cell%Yf%forward(cell%ff(1,:,:), cell%q)
         cell%fmn(2,:) = cell%Yf%forward(cell%ff(2,:,:), cell%q)
         cell%fmn(3,:) = cell%Yf%forward(cell%ff(3,:,:), cell%q)
-        ! WHERE(ABS(cell%fmn) .lt. 1E-12) cell%fmn = 0D0
         
-        cell%fabmn(1,:) = cell%Yf%forward(cell%fab(1,:,:), cell%q)
-        cell%fabmn(2,:) = cell%Yf%forward(cell%fab(2,:,:), cell%q)
-        cell%fabmn(3,:) = cell%Yf%forward(cell%fab(3,:,:), cell%q)
+!       Normal vector for volume correction
+        cell%nkmn(1,:) = cell%Yf%forward(cell%fab(1,:,:), cell%q) 
+        cell%nkmn(2,:) = cell%Yf%forward(cell%fab(2,:,:), cell%q)
+        cell%nkmn(3,:) = cell%Yf%forward(cell%fab(3,:,:), cell%q)
 
         cell%fc(1,:,:) = cell%Y%backward(cell%fmn(1,:), cell%p)
         cell%fc(2,:,:) = cell%Y%backward(cell%fmn(2,:), cell%p)
         cell%fc(3,:,:) = cell%Y%backward(cell%fmn(3,:), cell%p)
-
-        ! tmp = cell%fmn(1,:)
-        ! tmp2 = cell%ff(1,:,:)
-        ! print *, tmp !!!!!!! precision dips: from cvt=>tauab,dtauab, I2t,es1t, FROM C=100!
     ENDIF
 END SUBROUTINE Stresscell
 
@@ -1115,6 +1176,72 @@ FUNCTION DealiasCell(cell, f) RESULT(fc)
     fmn = cell%Yf%forward(f, cell%q)
     fc = cell%Yf%backward(fmn, cell%p)
 END FUNCTION
+
+! -------------------------------------------------------------------------!
+! Calculate the surface area of a cell
+FUNCTION SAcell(cell) RESULT(SA)
+    CLASS(cellType), INTENT(IN) :: cell
+    REAL(KIND = 8) :: SA
+    INTEGER :: i, j
+    SA = 0D0
+
+!   Basically the integrand is just the infinitesimal area element
+    DO i = 1,cell%Yf%nt
+        DO j = 1,cell%Yf%np
+!           Integrate via Gauss quad
+            SA = SA + cell%Yf%wg(i)*cell%J(i,j)*cell%Yf%dphi/sin(cell%Yf%tht(i))
+        ENDDO
+    ENDDO
+END FUNCTION SAcell
+
+! -------------------------------------------------------------------------!
+! Calculate volume of the cell
+! https://math.stackexchange.com/questions/709566/compute-the-volume-bounded-by-a-parametric-surface
+FUNCTION Volcell(cell) RESULT(V)
+    CLASS(cellType), INTENT(IN), TARGET :: cell
+    REAL(KIND = 8):: V, intgd
+    REAL(KIND = 8), POINTER :: x(:,:,:), xt(:,:,:), xp(:,:,:)
+    INTEGER :: i, j
+
+!   Integral we need is int_0^2pi int_0^pi r(theta)^3/3 sin(theta) d theta d phi.
+!   Calculate r at int points
+    V = 0D0
+
+    x  => cell%xf
+    xt => cell%dxt
+    xp => cell%dxp
+
+    DO i = 1,cell%Yf%nt
+        DO j = 1,cell%Yf%np
+!           Integrand
+            intgd = x(3,i,j)*(xt(1,i,j)*xp(2,i,j) - xp(1,i,j)*xt(2,i,j))
+
+!           Integrate via Gauss quad
+            V = V + intgd* &
+            cell%Yf%wg(i)*cell%Yf%dphi/sin(cell%Yf%tht(i))
+        ENDDO
+    ENDDO
+END FUNCTION Volcell
+
+! -------------------------------------------------------------------------!
+! Integrates quantity over the surface of the cell (fine grid)
+FUNCTION Intgcell(cell, x) RESULT(intg)
+    CLASS(cellType), INTENT(IN), TARGET :: cell
+    REAL(KIND = 8), INTENT(IN) :: x(:,:)
+    TYPE(YType), POINTER :: Y
+    REAL(KIND = 8) :: intg
+    INTEGER :: i, j
+    Y => cell%Yf
+    intg = 0D0
+
+!   Basically the integrand is just the infinitesimal area element
+    DO i = 1,Y%nt
+        DO j = 1,Y%np
+!           Integrate via Gauss quad
+            intg = intg + x(i,j)*Y%wg(i)*cell%J(i,j)*Y%dphi/sin(Y%tht(i))
+        ENDDO
+    ENDDO
+END FUNCTION Intgcell
 
 ! -------------------------------------------------------------------------!
 ! Functions to calculate the kernels

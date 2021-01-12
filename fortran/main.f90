@@ -8,28 +8,36 @@ TYPE(cellType) :: cell
 CHARACTER(:), ALLOCATABLE :: filein
 INTEGER ::  i, argl, stat
 
+! For a = 1, V = 4.18904795321178, SA = 16.8447913187040, sphere 6.50088174342271
+
 ! Read in input file
 CALL get_command_argument(number=1, length=argl)
 ALLOCATE(character(argl) :: filein)
 CALL get_command_argument(number=1, value=filein, status=stat)
 
 ! Initialize & allocate
-CALL cpu_time(tic)
 cell = cellType(filein)
+CALL cpu_time(tic)
+
 ALLOCATE(xmnt(3,(cell%p+1)*(cell%p+1)), umnt(3,(cell%p+1)*(cell%p+1)))
 
 ! Read velocity gradient file
-! OPEN(unit = 13, file = cell%gradfile, status = 'old', action = 'read', iostat=stat)
+! OPEN(unit = 7, file = cell%gradfile, status = 'old', action = 'read', iostat=stat)
 
 print*, 'Initialized'
 t = 0D0
 ! Time step loop
 DO i = 1,cell%NT
+        IF(i.lt.300) THEN
+                cell%dU = 0d0
+        ELSE
+                cell%dU(1,3) = 1d0
+        ENDIF
 !       The time distance between successive rows is 0.1 of the Kolmogorov time scale.
 !       To normalize these gradients, you could multiply them by the Kolmogorov time scale, which is 2e-6
 
 !       Get velocity gradient of time step and normalize
-        ! READ(13, *) cell%dU
+        ! READ(7, *) cell%dU
         ! cell%dU = cell%dU*2D-6
 
 !       Get surface derivatives, then stress froom deformation, then motion from fluid
@@ -40,6 +48,8 @@ DO i = 1,cell%NT
 
         umnt = cell%umn
         xmnt = cell%xmn
+
+        ! IF(cell%vol().gt.4.18904795321178 .and. i.lt.2500) umnt = umnt - 0.1D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
 
 !       Update and output
         cell%cts = cell%cts + 1
@@ -59,7 +69,9 @@ DO i = 1,cell%NT
 
         CALL cell%write()
         t = t + cell%dt
-        write(*,'(I,X,F8.4,X,X,F8.4,X,F8.4)'), i, t, MAXVAL((ABS(cell%ff))), MAXVAL((ABS(cell%umn)))
+        write(*,'(I,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)'), &
+        i, t, MAXVAL((ABS(cell%ff))), MAXVAL((ABS(cell%umn))), cell%vol(), &
+        cell%SA(), cell%Eb*cell%intg((2*cell%fab(1,:,:) - cell%C0)*(2*cell%fab(1,:,:) - cell%C0))/2D0
 ENDDO
 
 CALL cpu_time(toc)
