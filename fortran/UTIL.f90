@@ -328,6 +328,28 @@ PURE FUNCTION RREF3(U) RESULT(V)
 END FUNCTION RREF3
 
 ! -------------------------------------------------------------------------!
+! Takes three points and does quadratic interpolation
+PURE FUNCTION QInterp(x, y, xo) RESULT(yo)
+    REAL(KIND = 8), INTENT(IN) :: x(3), xo
+    REAL(KIND = 8), INTENT(IN), ALLOCATABLE :: y(:,:,:)
+    REAL(KIND = 8), ALLOCATABLE :: yo(:,:)
+    yo = y(1,:,:)*(xo - x(2))*(xo - x(3))/((x(1) - x(2))*(x(1) - x(3))) &
+       + y(2,:,:)*(xo - x(1))*(xo - x(3))/((x(2) - x(1))*(x(2) - x(3))) &
+       + y(3,:,:)*(xo - x(1))*(xo - x(2))/((x(3) - x(1))*(x(3) - x(2)))
+END FUNCTION QInterp
+
+! -------------------------------------------------------------------------!
+! Takes the velocity gradient file and gets it all setup
+PURE FUNCTION VGradSetup(x, y, xo) RESULT(yo)
+    REAL(KIND = 8), INTENT(IN) :: x(3), xo
+    REAL(KIND = 8), INTENT(IN), ALLOCATABLE :: y(:,:,:)
+    REAL(KIND = 8), ALLOCATABLE :: yo(:,:)
+    yo = y(1,:,:)*(xo - x(2))*(xo - x(3))/((x(1) - x(2))*(x(1) - x(3))) &
+       + y(2,:,:)*(xo - x(1))*(xo - x(3))/((x(2) - x(1))*(x(2) - x(3))) &
+       + y(3,:,:)*(xo - x(1))*(xo - x(2))/((x(3) - x(1))*(x(3) - x(2)))
+END FUNCTION VGradSetup
+
+! -------------------------------------------------------------------------!
 ! Gets values after specified input
 ! GENERIC, PUBLIC :: READ_GRINT => READ_GRINT_DOUB, READ_GRINT_INT, READ_GRINT_CHAR
 

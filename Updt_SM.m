@@ -1,6 +1,8 @@
 % Differences: get the deformed state info first. With that, calculate the
 % velocity. Only need to get material constants once.
 
+% NO VOLUME CORRECTION!
+
 %% Material Constants
 
 %notes: lam=1 corresponds to A = 4pi identity which falls out from the
@@ -11,37 +13,41 @@ mu = 1;
 % Viscosity ratio
 lam = 1;%/5;
 
-% Deformation resistance constants
-B = 40;
-% C = 0;
-% C = 200;
-% B = .005;
-C = 40;
-% B = 0;
-% C = 10;
+% Non-dim numbers assume characteristic flow vel = 1 and radius =1
 
-% Bending modulus
-% Eb = 0.0669;
-Eb = 0;
-% Eb = 0.01;
+% Capillary number
+Ca = 1/6;
+
+% Dilatation ratio
+Ed = 20;
+
+% Bending ratio
+Ebs = .015;
+
+% Deformation resistance constants
+B = 2/Ca;
+C = Ed*B;
+Eb = 2*B*Ebs;
+
+% Spontaneous Curvature
+c0 = 0;
 
 % Total time steps
 NT = 20;
 dt = 0.005;
 
 % Velocity and gradient
-U = [0;0;0];
-
-shft = [cos(pi/4),0,sin(pi/4);0,1,0;-sin(pi/4),0,cos(pi/4)];
 dU = [0,0,1;0,0,0;.0,0,0];
-% dU = shft'*[0,0,1;0,0,0;1,0,0]*shft;%/4/pi*shft;
 %% Reference Shape Definition
 
+% Flag for later...
+refflag = true;
+
 % Order of the force and velocity transforms
-p = 12;
+p = 6;
 
 % To de-alias the force, we need to get a finer grid. The factor is fali
-fali = 1;
+fali = 4;
 
 % Order of SpH for the fine grid
 q = p*fali;
@@ -119,7 +125,7 @@ xmns(:,3,1) = x3mn;
 
 % x1mn = SpT(Yt,x1,th,ph);%0.5*SpT(Yt,x1,th,ph);
 % x2mn = SpT(Yt,x2,th,ph);%0.5*SpT(Yt,x2,th,ph);
-% x3mn = SpT(Yt,x3,th,ph);
+% x3mn = SpT(Yt,x3,th,ph)*0.9;
 
 x1mn(abs(x1mn)<1e-12) = 0;
 x2mn(abs(x2mn)<1e-12) = 0;
@@ -272,7 +278,8 @@ trcvelz = zeros(1,NT);
 Ytrc = SpHarmTNew(p,pi/2,0);
 
 %% Time stepping loop
-for cts = 1:NT
+cts = 1;
+while cts <= NT
 %% Calculation of residual force at convected points
 % After calculation, do SpHarm transform
 % if(cts==25);dU(:)=0;end %!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -423,6 +430,18 @@ dxt2p2 = real(dxt2p2);
 dxt3p = real(dxt3p);
 dxt4 = real(dxt4);
 
+% Scale to get the right equivalent radius, then redo loop
+if(refflag)
+    V = VolHarm(xf,dxt,dxp,wgf,thtf,dphif);
+    x1mn = x1mn/(3*V/4/pi)^(1/3);
+    x2mn = x2mn/(3*V/4/pi)^(1/3);
+    x3mn = x3mn/(3*V/4/pi)^(1/3);
+    refflag = 0;
+    x(1,:,:) = SpHReconst(x1mn,Yt);
+    x(2,:,:) = SpHReconst(x2mn,Yt);
+    x(3,:,:) = SpHReconst(x3mn,Yt);
+    continue
+end
 
 for i = 1:ntf
     for j = 1:npf
@@ -446,6 +465,8 @@ for i = 1:ntf
 %       Curvature numerator
         D = E*N - 2*F*M + G*L;
         k = 0.5*D/J(i,j)^2;
+%       Gaussian curvature
+        kG = (L*N - M*M)/(J(i,j)*J(i,j));
 
 %       First let's do all the cross products we need
         ct2_p = cross(dxt2(:,i,j),dxp(:,i,j));
@@ -567,6 +588,12 @@ for i = 1:ntf
         c2p = dxtp(:,i,j)*gn(1,2) + dxp2(:,i,j)*gn(2,2)...
             + dxt(:,i,j)*dgp(1,2) + dxp(:,i,j)*dgp(2,2);
         
+%       Laplace-Beltrami of mean curvature. Three chain rules with 4 things to sum each
+%       First: deriv of J
+        LBk = 1/J(i,j)*(Jt*gn(1,1)*kt + Jt*gn(1,2)*kp + Jp*gn(2,1)*kt + Jp*gn(2,2)*kp) ...
+            + dgt(1,1)*kt + dgt(1,2)*kp + dgp(2,1)*kt + dgp(2,2)*kp ...
+            + gn(1,1)*kt2 + gn(1,2)*ktp + gn(2,1)*ktp + gn(2,2)*kp2;
+        
 %       !!!!!!!!!! HACKY FIRST TIME STEP
         if(cts == 1)
             c1R(:,i,j) = c1;
@@ -636,6 +663,9 @@ for i = 1:ntf
               + dmabp(1,2)*(c111 + 2*c221) + mab(1,2)*(c111p + 2*c221p) ...
               + dmabp(2,2)*(c112 + 2*c222) + mab(2,2)*(c112p + 2*c222p) ...
               + dmabp(1,1)*c211 + mab(1,1)*c211p + dmabp(2,1)*c221 + mab(2,1)*c221p);
+          
+%       New Helfrich bending
+        fb = Eb*(2*LBk + (2*k + c0)*(2*k*k - 2*kG  - c0*k));
 
 %%      In plane Tension
 %       Deformation gradient tensor
@@ -745,12 +775,13 @@ for i = 1:ntf
         cvp = dtauab(1,2) + dtauab(2,2) + tau12*(c111 + 2*c221) ...
             + tau22*(c112 + 2*c222) + tau11*c211 + tau21*c221;
 %       Covariant divergence of Q        
-        cq = dq(1) + dq(2) + c111*q1 + c112*q2 + c221*q1 + c222*q2;
+%         cq = dq(1) + dq(2) + c111*q1 + c112*q2 + c221*q1 + c222*q2;
         
 %       And finally the equilibrium equations to get the forces
-        fab(1,i,j) = bm(1,1)*q1 + bm(2,1)*q2 - cvt;
-        fab(2,i,j) = bm(1,2)*q1 + bm(2,2)*q2 - cvp;
-        fab(3,i,j) = -cq - tau11*bv(1,1) - tau12*bv(1,2) - tau21*bv(2,1) - tau22*bv(2,2);
+        fab(1,i,j) = -cvt; % bm(1,1)*q1 + bm(2,1)*q2 - cvt;
+        fab(2,i,j) = -cvp; % bm(1,2)*q1 + bm(2,2)*q2 - cvp;
+        fab(3,i,j) = -tau11*bv(1,1) - tau12*bv(1,2) - tau21*bv(2,1) - tau22*bv(2,2)...
+                   + fb;% - cq;
         
 %       These are in terms of (contravariant) surface vectors, put them into Cartesian
         myf(:,i,j) = fab(1,i,j)*dxt(:,i,j) + fab(2,i,j)*dxp(:,i,j) + fab(3,i,j)*-nk(:,i,j);
@@ -799,7 +830,7 @@ for i = 1:ntf
         Bt(3,2) = P(3,1)*nders(1,2) + P(3,2)*nders(2,2) + P(3,3)*nders(3,2);
         Bt(3,3) = P(3,1)*nders(1,3) + P(3,2)*nders(2,3) + P(3,3)*nders(3,3);
            
-        myf(:,i,j) = -ffs(:,i,j);
+%         myf(:,i,j) = -ffs(:,i,j);
         
 %         mab = (-B/(2*es(1)^2*es(2))*(I1+1)*gnR(:,:,i,j) + es(2)/2*(C*I2-B)*gn)*des1t ...
 %               + (-B/(2*es(1)*es(2)^2)*(I1+1)*gnR(:,:,i,j) + es(1)/2*(C*I2-B)*gn)*des2t ...
@@ -817,14 +848,14 @@ for i = 1:ntf
         ddgg(i,j) = tau11;
         dddg(i,j) = tauders(1,1,2) + tauders(2,2,2) + tauders(3,3,2);%cvt;
         dddd(i,j) = dmabt(1,1);%c221;
-        gddd(i,j) = tau(2,2);%tau21;
+        gddd(i,j) = acos(xf(3,i,j)/sqrt(xf(1,i,j)^2 + xf(2,i,j)^2 + xf(3,i,j)^2));%tau21;
         ggdd(i,j) = nk(1);%tau12;
-        gggd(i,j) = dnt(1);%tau22;
+        gggd(i,j) = fb;%tau22;
         gggg(i,j) =k;%c112;
         gg(i,j) = 1/J(i,j)*(Jt*gn(1,1)*kt + Jt*gn(1,2)*kp + Jp*gn(2,1)*kt + Jp*gn(2,2)*kp)+ ...
 1/J(i,j)*(J(i,j)*dgt(1,1)*kt + J(i,j)*dgt(1,2)*kp + J(i,j)*dgp(2,1)*kt + J(i,j)*dgp(2,2)*kp)+ ...
 1/J(i,j)*(J(i,j)*gn(1,1)*kt2 + J(i,j)*gn(1,2)*ktp + J(i,j)*gn(2,1)*ktp + J(i,j)*gn(2,2)*kp2);
-        g_g(i,j) = kt2;
+        g_g(i,j) = LBk;
         gugu(i,j) = kt*c1(3) + kp*c2(3);
     end
 end
@@ -873,7 +904,7 @@ for i = 1:nt
         ic = ic+1;
         
 %       Velocity at colloc point
-        Uc = U + dU*x(:,i,j);
+        Uc = dU*x(:,i,j);
         
 %       Rotation Matrix
         t1 = [cos(phi(j)),-sin(phi(j)),0;sin(phi(j)),cos(phi(j)),0;0,0,1];    
@@ -1238,32 +1269,6 @@ quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:)
 quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua11(1,:,:),[1,numel(x(1,:,:))]),reshape(ua11(2,:,:),[1,numel(x(1,:,:))]),reshape(ua11(3,:,:),[1,numel(x(1,:,:))]),'b')
 
 
-% plot(thtf,dggg(:,1))
-
-% %vel plots
-% res = 10;
-% drs = 4/res;
-% xqv1 = zeros(1,res*res);
-% xqv2 = xqv1;
-% xqv3 = xqv1;
-% vqv1 = xqv1;
-% vqv2 = xqv1;
-% vqv3 = xqv1;
-% ntt=0;
-% for i = 1:res
-%     for j = 1:res
-%         ntt = ntt+1;
-%         xqv1(ntt) = -2 + (i-1)*drs;
-%         xqv3(ntt) = -2 + (j-1)*drs;
-%         vt = U + dU*[xqv1(ntt);xqv2(ntt);xqv3(ntt)];
-%         vqv1(ntt) = vt(1);
-%         vqv2(ntt) = vt(2);
-%         vqv3(ntt) = vt(3);
-%     end
-% end
-% quiver3(xqv1,xqv2,xqv3,vqv1,vqv2,vqv3);
-
-
 % gif maker
 drawnow
 % Capture the plot as an image 
@@ -1278,8 +1283,8 @@ else
 end 
 
 % some output
-disp([max(abs(x3mn-ix3mn)), max(max(squeeze(ua11(1,:,:)))),max(max(max(abs(myf(:,:,:))))),cts]);
-
+disp([max(abs(x3mn-ix3mn)), max(max(squeeze(ua11(1,:,:)))),2*max(max(max(abs(myf(:,:,:)))))/B,cts]);
+cts = cts + 1;
  end
 
 

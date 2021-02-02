@@ -51,6 +51,8 @@ end
 
 
 % Second loop over harmonic order to do last Z rotation.
+if c~=0
+    
 it = 0;
 for n = 0:p
 %   Loop over harmonic degree we're trying to calculate
@@ -58,6 +60,7 @@ for n = 0:p
         it = it+1;
         f(it) = f(it)*exp(1i*m*c);
     end    
+end
 end
 
 end

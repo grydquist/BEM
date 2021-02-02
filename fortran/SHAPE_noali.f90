@@ -47,6 +47,7 @@ TYPE cellType
 
 !   Has this object been initialized?
     LOGICAL :: init = .false.
+    LOGICAL :: writ = .false.
 
 !   Name of output file
     CHARACTER(len = 15) fileout
@@ -77,17 +78,29 @@ FUNCTION newcell(filein) RESULT(cell)
     TYPE(cellType) :: cell
     CHARACTER(len = 3) :: restart
     CHARACTER(len = 30) :: restfile
+    REAL(KIND = 8) Ca
 
     INTEGER :: nt, np, ntf, npf, fali,p
 
+!   To fit dimesnionless parameters, we set a0 = 1, flow timescale = 1, mu = 1
+!   and fit the rest from there
 !   Material properties from input
-    cell%mu = READ_GRINT_DOUB(filein, 'Viscosity')
-    cell%lam = READ_GRINT_DOUB(filein, 'Viscosity_ratio')
-    cell%B = READ_GRINT_DOUB(filein, 'Shear_Modulus')
+    cell%mu = 1D0 !READ_GRINT_DOUB(filein, 'Viscosity')
+    cell%lam = READ_GRINT_DOUB(filein, 'Viscosity_Ratio')
+
+!   Turns out Re doesn't matter at all. What matters is (flow timescale)/(membrance timescale),
+!   which is the Capillary number (tm = (flow ts)*Ca = Ca)
+
+!   Ca = (shear rate)*mu*(cell radius)/(B/2)
+    Ca = READ_GRINT_DOUB(filein, 'Capillary')
+
+    cell%B = 2D0/Ca
 !   A note on the dilation modulus: many papers use (B*C) in the spot where
 !   I use C, so I just make that correction here
-    cell%C = READ_GRINT_DOUB(filein, 'Dilatation_Modulus')*cell%B
-    cell%Eb = READ_GRINT_DOUB(filein, 'Bending_Modulus')
+    cell%C = READ_GRINT_DOUB(filein, 'Dilatation_Ratio')*cell%B
+!   Similar situation for beinding modulus: the input is the non-dim
+!   parameter E*b = Eb/(a_0^2*(B/2))
+    cell%Eb = READ_GRINT_DOUB(filein, 'Bending_Modulus')*2D0*cell%B
     cell%c0 = READ_GRINT_DOUB(filein, 'Spont_Curvature')
     cell%NT = READ_GRINT_INT(filein, 'Max_time_steps')
     cell%dt = READ_GRINT_DOUB(filein, 'Time_step')
@@ -112,14 +125,6 @@ FUNCTION newcell(filein) RESULT(cell)
     ntf = cell%Yf%nt
     npf = cell%Yf%np
 
-!   Velocity gradient (from input eventually)
-    cell%dU = 0D0
-    cell%dU(1,3) = 1D0
-    ! cell%dU(1,1) = -.5D0
-    ! cell%dU(1,1) = -1D0
-    ! cell%dU(2,2) = -.5D0
-    ! cell%dU(3,3) = 1D0
-
 !   Allocating everything, starting with derivatives
     ALLOCATE(cell%dxt(3,ntf,npf), cell%dxp(3,ntf,npf), cell%dxp2(3,ntf,npf), &
              cell%dxt2(3,ntf,npf), cell%dxtp(3,ntf,npf), cell%dxp3(3,ntf,npf), &
@@ -141,43 +146,51 @@ FUNCTION newcell(filein) RESULT(cell)
     cell%fmn = 0D0
     cell%umn = 0D0
 
-!   Get the harmonic constants to start out
+!   First, we need to get the reference shape for the shear stress
     ! cell%xmn = RBCcoeff(cell%Y)
     ! cell%xmn = Cubecoeff(cell%Y)
-    cell%xmn = Spherecoeff(cell%Y)
-    
+    cell%xmn = Spherecoeff(cell%Y, .9D0)
+
+!   Initial surfce derivatives/reference state
+    CALL cell%Derivs()
+    CALL cell%Stress()
+
+!   Now scale to get the equivalent radius we input
+    cell%xmn = cell%xmn/(3D0*cell%vol()/(4D0*pi))**(1D0/3D0)
+
+!   Initialize derivs again... I do this because I need the derivs to get the volume
+    CALL cell%Derivs()
+    CALL cell%Stress()
+
+!   Now with a reference shape made, should we choose an intermediate point
+!   to restart from?
+    restart = READ_GRINT_CHAR(filein, 'Restart')
+    IF (restart .eq. "Yes") THEN
+!       This gives us the right surface area with a blown up volume
+!       The 16.8 is for equiv radius of 1
+        cell%xmn = cell%xmn*sqrt(16.8447913187040D0/cell%SA())
+!       Get referennce state
+        CALL cell%Derivs()
+        CALL cell%Stress()
+
+!       Choose file to restart from (assuming that this is after deflation)
+        restfile = READ_GRINT_CHAR(filein, 'Restart_Loc')
+
+!       Note that the file MUST be in the restart directory!
+        restfile = 'restart/'//trim(restfile)
+
+!       And just set the constants equal, scaling for equiv radius
+!       This assumes the equiv radius in input is 1.
+        cell%xmn = Readcoeff(restfile, cell%Y%p)
+    ENDIF
+    ! print *, (3D0*cell%vol()/(4D0*pi))**(1D0/3D0)
+    ! print *, cell%vol()/(cell%SA()**1.5D0/3d0/sqrt(4d0*pi))
+    ! print *, cell%SA()
+
 !   Initial positions
     cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
     cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
     cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
-
-!   Initial surfce derivatives
-    CALL cell%Derivs()
-
-!   Initial forces. Forces aren't needed and should be zero, but this serves
-!   the important function of getting reference state variables
-    CALL cell%Stress()
-
-!   This gives us the right surface area (equivalnt to cell with equiv radius = 1).
-    cell%xmn = cell%xmn*sqrt(16.8447913187040D0/cell%SA())
-    cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
-    cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
-    cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
-    CALL cell%Derivs()
-    CALL cell%stress()
-
-!   Now with a reference shape, should we choose an intermediate point
-!   to restart from?
-    restart = READ_GRINT_CHAR(filein, 'Restart')
-    IF (restart .eq. "Yes") THEN
-!       Choose file to restart from
-        restfile = READ_GRINT_CHAR(filein, 'Restart_Loc')
-!       And just set the constants equal!
-        cell%xmn = Readcoeff(restfile, cell%Y%p)
-    ENDIF
-    
-!   Write initial configuration
-    CALL cell%write()
 
     cell%init = .true.
 END FUNCTION
@@ -185,10 +198,10 @@ END FUNCTION
 ! -------------------------------------------------------------------------!
 ! Writes xmn to a text file. Could be better
 SUBROUTINE Writecell(cell)
-    CLASS(cellType), INTENT(IN) ::cell
+    CLASS(cellType), INTENT(INOUT) ::cell
 
 !   Write position
-    IF(cell%init) THEN
+    IF(cell%writ) THEN
         OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = cell%fileout)
     ELSE
         OPEN (UNIT = 88, FILE = cell%fileout)
@@ -199,7 +212,7 @@ SUBROUTINE Writecell(cell)
     CLOSE(88)
 
 !   Write velocity
-    IF(cell%init) THEN
+    IF(cell%writ) THEN
         OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'u_'//cell%fileout)
     ELSE
         OPEN (UNIT = 88, FILE = 'u_'//cell%fileout)
@@ -210,7 +223,7 @@ SUBROUTINE Writecell(cell)
     CLOSE(88)
 
 !   Write third thing (usually force)
-    IF(cell%init) THEN
+    IF(cell%writ) THEN
         OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'f_'//cell%fileout)
     ELSE
         OPEN (UNIT = 88, FILE = 'f_'//cell%fileout)
@@ -219,8 +232,12 @@ SUBROUTINE Writecell(cell)
     ! WRITE(88,*) AIMAG(cell%fmn)
     ! WRITE(88,*) REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
     ! WRITE(88,*) AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
+
+!   May not be nondimensionalized!
     WRITE(88,*) cell%fab
     CLOSE(88)
+    
+    IF(.not. cell%writ) cell%writ = .true.
 
 END SUBROUTINE Writecell
 
@@ -894,8 +911,6 @@ SUBROUTINE Fluidcell(cell)
     TYPE(YType), POINTER :: Y, Yf
     TYPE(Ytype), TARGET :: Yt
     TYPE(nmType), POINTER :: nm, nmt
-    
-            COMPLEX(KIND = 8), allocatable :: tmp(:)
 
     Y => cell%Y
     Yf=> cell%Yf
@@ -940,11 +955,6 @@ SUBROUTINE Fluidcell(cell)
 !           Velocity at integration point
             Utmp = TRANSPOSE(cell%dU)
             Uc = INNER3_33(cell%x(:,i,j), Utmp)
-            IF(cell%cts.gt.25) THEN
-                ! Uc = 0D0
-                ! cell%B = 0D0
-                ! cell%C = 100D0
-            ENDIF
 ! !           Pouiseille!
 !             Uc = 0D0
 !             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
@@ -1150,11 +1160,6 @@ SUBROUTINE Fluidcell(cell)
     cell%umn(1,1:Nmat/3) = ut((/(i, i=1,Nmat-2, 3)/))
     cell%umn(2,1:Nmat/3) = ut((/(i, i=2,Nmat-1, 3)/))
     cell%umn(3,1:Nmat/3) = ut((/(i, i=3,Nmat  , 3)/))
-
-    ! tmp = cell%umn(3,:)
-    ! print *, tmp
-
-!   Velocity doesn't match after first time step. Surface derivs are ok though. Could be in SpT
 END SUBROUTINE Fluidcell
 
 

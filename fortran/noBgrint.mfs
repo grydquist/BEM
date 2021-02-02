@@ -1,11 +1,16 @@
-Viscosity 1 
-Viscosity_ratio 5
-Shear_Modulus 0.8
-Dilatation_Modulus 0.8
-Bending_Modulus 0   .0669
-Max_time_steps 2700
-Time_step 0.01
-Output x25W.txt
-Harmonic_order 9
-Refinement_factor 4
-Gradient_file vel_grad.txt
+All properties nondimensional (even time step, based on Kolm time)
+Viscosity_Ratio 5
+Capillary 1 0.166667
+Dilatation_Ratio 100
+Bending_Modulus .015
+Spont_Curvature 0
+Max_time_steps 7000
+Time_step 0.005
+Output xHIT_16_05.txt
+Harmonic_order 16
+Refinement_factor 2
+Gradient_file GU_1.bin vel_grad.txt
+Restart Yes
+Restart_Loc xrest015_100.txt
+Kolm_time 2e-6
+Kolm_frac 0.1

@@ -35,7 +35,7 @@ TYPE YType
     
 
     CONTAINS
-    PROCEDURE :: forward  => forwardYDirect
+    PROCEDURE :: forward  => forwardYDirect! forwardY! 
     PROCEDURE :: backward => backwardY
     PROCEDURE :: rotate   => rotateY
 
@@ -281,10 +281,20 @@ FUNCTION forwardY(Y, f, p) RESULT(fmn)
         c = f(it,:)
         CALL ZFFT1F(Y%np, 1, c, Y%np, Y%WSAVE, Y%LENSAV, wrk, 2*Y%np, iserr)
         gm(it,:) = c*dphi*Y%np
+        IF(iserr.ne.0) THEN
+            print *, 'FFT forward error, code: ', iserr
+            STOP
+        ENDIF
+
 !       Sometimes FFTpack just fails. Check here        
         CALL ZFFT1B(Y%np, 1, c, Y%np, Y%WSAVE, Y%LENSAV, wrk, 2*Y%np, iserr)
+        IF(iserr.ne.0) THEN
+            print *, 'FFT backward error, code: ', iserr
+            STOP
+        ENDIF
+
         IF(MAXVAL(real(c) - f(it,:)) .gt. 1e-10) THEN
-            print *, 'FFT Failure! Max difference between values:'
+            print *, 'FFT failure! Max difference between values:'
             print *, MAXVAL(real(c) - f(it,:))
             STOP
         endif
@@ -499,9 +509,11 @@ END FUNCTION RBCcoeff
 
 ! -------------------------------------------------------------------------!
 ! Calculate spherical harmonic coefficients for a Sphere
-FUNCTION Spherecoeff(Y, ord) RESULT(xmn)
+FUNCTION Spherecoeff(Y, obl, ord) RESULT(xmn)
     TYPE(YType),INTENT(IN) :: Y
     COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:)
+    REAL(KIND = 8), OPTIONAL :: obl
+    REAL(KIND = 8) :: oblt
     INTEGER, OPTIONAL :: ord
 
     REAL(KIND = 8), ALLOCATABLE :: x1(:,:), x2(:,:), x3(:,:)
@@ -510,6 +522,12 @@ FUNCTION Spherecoeff(Y, ord) RESULT(xmn)
     ALLOCATE(x1(Y%nt,Y%np), x2(Y%nt,Y%np), x3(Y%nt,Y%np), &
         xmn(3,(Y%p + 1)*(Y%p + 1)))
 
+!   How oblate is the sphere (Default perfect sphere)
+    IF(PRESENT(obl)) THEN
+        oblt = obl
+    ELSE
+        oblt = 1D0
+    ENDIF
 
     IF(PRESENT(ord)) THEN
         p = ord
@@ -521,7 +539,7 @@ FUNCTION Spherecoeff(Y, ord) RESULT(xmn)
     ! x2 = 0.5D0*SIN(Y%ph)*SIN(Y%th)
     x1 = COS(Y%ph)*SIN(Y%th)
     x2 = SIN(Y%ph)*SIN(Y%th)
-    x3 = .9D0*COS(Y%th)!0.918D0
+    x3 = oblt*COS(Y%th)!0.918D0
 
     xmn(1,:) = Y%forward(x1)
     xmn(2,:) = Y%forward(x2)

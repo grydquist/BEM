@@ -15,6 +15,9 @@ thts = tht(:,1);
 
 xy = a*alph*sin(thts);
 z = a*alph/2*(.207+2.003*sin(thts).^2-1.123*sin(thts).^4).*cos(thts);
+% rho = 1/a*sin(thts);
+% z = a/2*sqrt(1-rho.^2).*(.207+2.003*rho.^2-1.123*rho.^4);
+% z(ceil(t/2):end) = -z(ceil(t/2):end);
 
 x1 = zeros(t,p);
 x2 = x1;
@@ -25,6 +28,9 @@ for i = 1:p
     x1(:,i) = xy*cos(phi(1,i));
     x2(:,i) = xy*sin(phi(1,i));
     x3(:,i) = z;    
+%     x1(:,i) = rho*cos(phi(1,i));
+%     x2(:,i) = rho*sin(phi(1,i));
+%     x3(:,i) = z;    
     
 end
 

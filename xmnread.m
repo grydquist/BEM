@@ -1,18 +1,20 @@
 % Reads the txt file output from the fortran code
 
 % Read in raw data
-fID = fopen('fortran/x25W.txt');
-% fID = fopen('pap_dat/TaylorValidation/x005.txt');
+fID = fopen('fortran/x25W_2.txt');
+% fID = fopen('fortran/x_0_03_997.txt');
+% fID = fopen('pap_dat/TaylorValidation/Lam1/x015.txt');
 a = fscanf(fID,'%f');
 fclose(fID);
-
-fID = fopen('fortran/u_x25W.txt');
-% fID = fopen('pap_dat/TaylorValidation/u_x005.txt');
+    
+fID = fopen('fortran/u_x25W_2.txt');
+% fID = fopen('fortran/f_0_03_997.txt');
+% fID = fopen('pap_dat/TaylorValidation/Lam1/u_x015.txt');
 us = fscanf(fID,'%f');
 fclose(fID);
 
-fID = fopen('fortran/f_x1W.txt');
-% fID = fopen('pap_dat/TaylorValidation/f_x005.txt');
+fID = fopen('fortran/f_x25W_2.txt');
+% fID = fopen('pap_dat/TaylorValidation/Lam1/f_x005.txt');
 fs = fscanf(fID,'%f');
 fclose(fID);
 
@@ -20,7 +22,7 @@ fclose(fID);
 
 % Total time steps, including initialization
 tts = a(end) +                                 0;
-incr = 100;
+incr = 10;
 xtop = zeros(floor(tts/incr),1);
 ytop = zeros(floor(tts/incr),1);
 ztop = zeros(floor(tts/incr),1);
@@ -73,10 +75,7 @@ t = zeros(floor(tts/incr),1);
 % Ytfs = SpHarmTNew(p,th,ph);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% h = figure(1);
-% axis tight manual % this ensures that getframe() returns a consistent size
-% filename = 'gif2.gif';
-
+%% Actual plotting
 disp('Start!')
 % Do timesteps
 for i = 1:incr:tts
@@ -154,7 +153,7 @@ for i = 1:incr:tts
     set(h1, 'Position', [-.1, 0.5, 1.15, .6]);
 
     
-%     surf(xf1,xf2,xf3,squeeze(fmns(1,:,:,(i-1)/incr + 1)),'edgecolor','none')
+%     surf(xf1,xf2,xf3,squeeze(fmns(1,:,:,(i-1)/incr + 1)./fmns(1,:,:,2)),'edgecolor','none')
     surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 0 0], ...
          'FaceAlpha',0.75,'FaceLighting','gouraud')
     lightangle(gca,150,50)
@@ -170,7 +169,7 @@ for i = 1:incr:tts
     ytop((i-1)/incr + 1) = real(SpHReconst(x2c,Ytrc)); 
     ztop((i-1)/incr + 1) = real(SpHReconst(x3c,Ytrc)); 
     scatter3(xtop((i-1)/incr + 1),ytop((i-1)/incr + 1),ztop((i-1)/incr + 1),75,'go','filled');
-    quiver3(reshape(xq1,[1,numel(xq1)]),reshape(xq2,[1,numel(xq2)]),reshape(xq3,[1,numel(xq1)]),reshape(u1*2,[1,numel(xq1)]),reshape(u2*2,[1,numel(xq1)]),reshape(u3*2,[1,numel(xq1)]),'b')%,'AutoScale','off')
+    quiver3(reshape(xq1,[1,numel(xq1)]),reshape(xq2,[1,numel(xq2)]),reshape(xq3,[1,numel(xq1)]),reshape(u1*2,[1,numel(xq1)]),reshape(u2*2,[1,numel(xq1)]),reshape(u3*2,[1,numel(xq1)]),'b','AutoScale','off')
 
     h2 = subplot(2,1,2);
     set(h2, 'Units', 'normalized');
@@ -214,12 +213,14 @@ incl((i-1)/incr + 1) = atan2(abs(angs(3,1)),abs(angs(1,1)))/4;
 incl(1) = 1/4;
 
     drawnow
-% % Capture the plot as an image 
+% Capture the plot as an image 
+% h = figure(1);
 % frame = getframe(h); 
 % im = frame2im(frame); 
 % [imind,cm] = rgb2ind(frame.cdata,256,'nodither');
 % % Write to the GIF File 
-% if i == 1 
+% if i == 1
+%   filename = 'gif2.gif';
 %   imwrite(imind,cm,filename,'gif', 'Loopcount',inf,'DelayTime',0); 
 % else 
 %   imwrite(imind,cm,filename,'gif','WriteMode','append','DelayTime',0); 
