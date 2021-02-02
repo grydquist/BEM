@@ -202,9 +202,9 @@ SUBROUTINE Writecell(cell)
 
 !   Write position
     IF(cell%writ) THEN
-        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = cell%fileout)
+        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'dat/'//cell%fileout)
     ELSE
-        OPEN (UNIT = 88, FILE = cell%fileout)
+        OPEN (UNIT = 88, FILE = 'dat/'//cell%fileout)
     ENDIF
     WRITE(88,*) REAL(cell%xmn)
     WRITE(88,*) AIMAG(cell%xmn)
@@ -213,9 +213,9 @@ SUBROUTINE Writecell(cell)
 
 !   Write velocity
     IF(cell%writ) THEN
-        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'u_'//cell%fileout)
+        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'dat/u_'//cell%fileout)
     ELSE
-        OPEN (UNIT = 88, FILE = 'u_'//cell%fileout)
+        OPEN (UNIT = 88, FILE = 'dat/u_'//cell%fileout)
     ENDIF
     WRITE(88,*) REAL(cell%umn)!REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1)))) !
     WRITE(88,*) AIMAG(cell%umn)!AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))!
@@ -224,9 +224,9 @@ SUBROUTINE Writecell(cell)
 
 !   Write third thing (usually force)
     IF(cell%writ) THEN
-        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'f_'//cell%fileout)
+        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'dat/f_'//cell%fileout)
     ELSE
-        OPEN (UNIT = 88, FILE = 'f_'//cell%fileout)
+        OPEN (UNIT = 88, FILE = 'dat/f_'//cell%fileout)
     ENDIF
     ! WRITE(88,*) REAL(cell%fmn)
     ! WRITE(88,*) AIMAG(cell%fmn)

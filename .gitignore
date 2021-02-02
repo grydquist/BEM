@@ -2,6 +2,8 @@
 *mat
 fortran/lib
 fortran/lapack-3.9.0
+fortran/obj
+fortran/dat
 *mod
 *gif
 /TurbData

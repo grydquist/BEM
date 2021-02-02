@@ -44,16 +44,16 @@ print *,  'Max velocity coefficient (want less than 0.0005): '
 cell%dU = 0D0
 
 !! ============================
-DO WHILE(MAXVAL(ABS(umnt)) .gt. 0.0005)
+DO WHILE(MAXVAL(ABS(umnt)) .gt. 0.005)
         CALL cell%derivs()
-        CALL cell%stress()
+        CALL cell%stress() 
         CALL cell%fluid()
         cell%umn(:,1) = 0D0
         umnt = cell%umn
         xmnt = cell%xmn
         cell%xmn = xmnt + umnt*cell%dt
         cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
-        cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
+        cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:)) 
         cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
         write(*,'(F8.5)'), MAXVAL(ABS(umnt))
 ENDDO

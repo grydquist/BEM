@@ -1,44 +1,68 @@
 FC=ifort
-LDIR=/lib/lapack-3.9.0/
+LDIR=./lib/lapack-3.9.0/
 IDIR=./inc/
 LIBS= -llapack -lrefblas
 OBJDIR=obj/
+MODDIR=mod/
+DATDIR=dat/
+DEPS=$(IDIR)fftpack5.o
+
+SRC=./src/
 MYEXEC=harms
 
+# Can specify debug flags with make dbg=1
 ifeq ($(dbg),1)
-	FFLAGS = -O0 -g -traceback -check all -check bounds -debug all -gen-interfaces -warn interfaces
+	FFLAGS = -O0 -g3 -traceback -check all -check bounds -debug all -gen-interfaces -warn interfaces
 else
-	FFLAGS = -O3 -funroll-loops -fomit-frame-pointer
+	FFLAGS = -O3 -funroll-loops -fomit-frame-pointer -DNDEBUG
 endif
 
-MYFUN = UTIL.o \
-		HARMONICS.o \
-		SHAPE_noali.o \
-		main.o \
+# Functions
+MYFUN = UTIL.o\
+		HARMONICS.o\
+		SHAPE_noali.o\
+		main.o
+
+# Modules
+MYMOD = harmmod.mod\
+		utilmod.mod\
+		shapemod.mod
 
 OBJ = $(patsubst %,$(OBJDIR)%,$(MYFUN))
+MOD = $(patsubst %,$(MODDIR)%,$(MYMOD))
 
-#hw7: $(OBJ)
-	#$(CXX) $(CXXFLAGS) -I$(HEADDIR) -I$(EIGEN) -o $(BINDIR)hw7.exe $(OBJ)
-	# mv hw7.exe $(BINDIR)hw7.exe
+$(OBJDIR)%.o : $(SRC)%.f90 | $(OBJDIR) $(MODDIR) $(DATDIR)
+	$(FC) $(FFLAGS) -I$(MODDIR) -o $@ -c $< -L$(LDIR) $(LIBS)
 
 $(MYEXEC): $(OBJ)
-	$(FC) $(FFLAGS) -I$(IDIR) -o $@ $(OBJ) -L$(LDIR)$(LIBS)
+	$(FC) $(FFLAGS) -I$(MODDIR) -o $@ $^ $(DEPS) -L$(LDIR) $(LIBS)
+	touch useless.mod
+	mv *.mod mod/
 
-UTIL.o : UTIL.f90
-	$(FC) $(FFLAGS) -I$(IDIR) -o $@ $(OBJ) -L$(LDIR)$(LIBS)
+$(OBJDIR):
+	mkdir -p $@
 
+$(MODDIR):
+	mkdir -p $@
 
-# $(OBJDIR)%.o : ./%.f90
-# 	$(FC) $(FFLAGS) -c -I$(IDIR) $(OBJ) $< -o $@ -L$(LDIR)$(LIBS)
+$(DATDIR):
+	mkdir -p $@
 
-# $(OBJDIR)%.o : $(CPPDIR)%.cpp $(HEADDIR)
-# 	$(CXX) -c -I$(HEADDIR) -I$(EIGEN) $(CXXFLAGS) $< -o $@
+# Dependencies
+$(OBJDIR)UTIL.o : $(SRC)UTIL.f90
 
-# $(OBJDIR)hw7.o: $(HWDIR)hw7.cpp
-# 	$(CXX) -c -I$(HEADDIR) -I$(EIGEN) $(CXXFLAGS) $< -o $@
+$(OBJDIR)HARMONICS.o : $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
+
+$(OBJDIR)SHAPE_noali.o : $(SRC)SHAPE_noali.f90 $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
+
+$(OBJDIR)main.o : $(SRC)main.f90 $(SRC)SHAPE_noali.f90 $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
 
 .PHONY : clean
 clean:
-	rm -f $(OBJDIR)*
+	rm -f $(OBJDIR)*.o
+	rm -f $(MODDIR)*.mod
 	rm -f $(MYEXEC)
+
+ech:
+	@echo "OBJ = $(OBJ)"
+	@echo "MOD = $(MOD)"
