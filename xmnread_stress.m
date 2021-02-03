@@ -59,7 +59,8 @@ Eb = 2*B*Ebs;
 % stresses and whatnot
 
 % Read in raw data
-fID = fopen('fortran/xHIT_16_1.txt');
+fID = fopen('fortran/dat/xHIT_16_05.t xt');
+% fID = fopen('fortran/xHIT_16_1.txt');
 % fID = fopen('fortran/x_0_03_997.txt');
 % fID = fopen('pap_dat/TaylorValidation/Lam1/x015.txt');
 a = fscanf(fID,'%f');
@@ -109,6 +110,10 @@ Ytrc = SpHarmTNew(p,0,0);
 % Time
 ts = .005   * 0.1;
 t = zeros(floor(tts/incr),1);
+
+% Max areal strain
+Jmax = t;
+Jmin = t;
 
 % Get all the derivatives of the Spherical Harmonics up front
 Ytd1 = zeros(ntf,npf,(p+1)^2);
@@ -604,7 +609,6 @@ for i2 = 1:ntf
         fab(2,i2,j) = -cvp; % bm(1,2)*q1 + bm(2,2)*q2 - cvp;
         fab(3,i2,j) = -tau11*bv(1,1) - tau12*bv(1,2) - tau21*bv(2,1) - tau22*bv(2,2)...
                    + fb;% - cq;
-         lsa(i2,j) = LBk;
         
 %       These are in terms of (contravariant) surface vectors, put them into Cartesian
         myf(:,i2,j) = fab(1,i2,j)*dxt(:,i2,j) + fab(2,i2,j)*dxp(:,i2,j) + fab(3,i2,j)*-nk(:,i2,j);
@@ -629,7 +633,9 @@ myf = real(myf);
         end
     end
     
-    JJ((i-1)/incr + 1) = max(max(J./JR));
+    Jmax((i-1)/incr + 1) = max(max(J./JR));
+    Jmin((i-1)/incr + 1) = min(min(J./JR));
+    
     clf;
 %   Plot this timestep
     surf(squeeze(xf(1,:,:)),squeeze(xf(2,:,:)),squeeze(xf(3,:,:)), ...
@@ -639,12 +645,12 @@ myf = real(myf);
     colorbar
     % Top down
     % Side
-    view(0,0);
-    axis([-2,2,0,2,-2,2])
-    pbaspect([1,.5,1])
-%     view(45,45);
-%     axis([-2,2,-2,2,-2,2])
-%     pbaspect([1,1,1])
+%     view(0,0);
+%     axis([-2,2,0,2,-2,2])
+%     pbaspect([1,.5,1])
+    view(45,45);
+    axis([-2,2,-2,2,-2,2])
+    pbaspect([1,1,1])
     hold on
     xtop((i-1)/incr + 1) = real(SpHReconst(x1c,Ytrc));
     ytop((i-1)/incr + 1) = real(SpHReconst(x2c,Ytrc)); 

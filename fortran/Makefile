@@ -65,4 +65,3 @@ clean:
 
 ech:
 	@echo "OBJ = $(OBJ)"
-	@echo "MOD = $(MOD)"
