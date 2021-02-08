@@ -1,0 +1,5 @@
+All files run with Ca = 1, Eb = .03, Ed = 100, c0 = -2, timestep = 0.005, gamma dot = 1 (nnormal shear flow), refinment = 2, visc ratio = 5.
+
+Allowed to run until approximately one turnover, but it varies a little.
+
+In the mat files, track top dimple location over time.
