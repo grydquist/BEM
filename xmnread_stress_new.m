@@ -1,4 +1,5 @@
 %% Pre allocation
+fclose(all);
 % Harmonics evaluated at fine grid
 ntf = 40;
 npf = 60;
@@ -49,10 +50,37 @@ gnR = zeros(2,2,ntf,npf);
 dgtR = gnR;
 myf = zeros(3,ntf,npf);
 fab = myf;
-Ca = 1/6;
-Ed = 100;
-Ebs = .015;
-c0 = 0;
+
+% Read Param file to get simulation info
+dir = 'fortran/dat/HITp16Ca05/';
+fid = fopen(strcat(dir,'Params'));
+tline = fgetl(fid);
+while ischar(tline)
+    tline = strtrim(tline);
+    switch tline
+        case 'p'
+            p = str2double(fgetl(fid));
+            p = floor(p);
+        case 'dt'
+            ts = str2double(fgetl(fid));
+        case 'dt_inc'
+            dt_inc = str2double(fgetl(fid));
+            dt_inc = floor(dt_inc);
+        case 'Ed'
+            Ed = str2double(fgetl(fid));
+        case 'Ca'
+            Ca = str2double(fgetl(fid));
+        case 'c0'
+            c0 = str2double(fgetl(fid));
+        case 'lambda'
+            lam = str2double(fgetl(fid));
+        case 'Eb'
+            Ebs = str2double(fgetl(fid));
+    end
+    
+    tline = fgetl(fid);
+end
+fclose(fid);
 
 B = 2/Ca;
 C = Ed*B;
@@ -62,46 +90,38 @@ Eb = 2*B*Ebs;
 % Reads the txt file output from the fortran code for shape and calculates
 % stresses and whatnot
 
-% Read in raw data
-fID = fopen('fortran/dat/cm2v98eb03runs/p16_10_01.txt');
-% fID = fopen('fortran/dat/p13_05_001.txt');
-ts = .01;
-a = fscanf(fID,'%f');
-fclose(fID);
-% Get info about a  
+% Get total timesteps outputted
+fid = fopen(strcat(dir,'maxdt'));
+tts = str2double(fgetl(fid));
+fclose(fid);
+tts = floor(tts);
 
-% Total time steps, including initialization
-tts = a(end) +                                 0;
+% How many timesteps to skip
+incr = dt_inc*1;
 
 
 
-incr =floor(0.25/ts);%250;
-
-
+tsteps = floor(tts/incr) + 1;
 
 % Time
-t = zeros(floor(tts/incr),1);
+t = zeros(tsteps,1);
 
-xtop = zeros(floor(tts/incr),1);
-ytop = zeros(floor(tts/incr),1);
-ztop = zeros(floor(tts/incr),1);
+xtop = zeros(tsteps,1);
+ytop = zeros(tsteps,1);
+ztop = zeros(tsteps,1);
 Dij = ytop;
 incl = Dij;
-elxa = zeros(floor(tts/incr),200);
+elxa = zeros(tsteps,200);
 elza = elxa;
 
-% Number of values without time steps
-lent = length(a) - tts;
-
 % Number total values in a time step
-lent1 = lent/(tts);
+lent1 = 6*(p+1)^2;
 % length of 1 collection in one time step
-tot = lent1/6;
+tot = (p+1)^2;
 
 % Order of spherical harmonics
-p = sqrt(tot) - 1;
-Ex = zeros(p+1,floor(tts/incr));
-Eu = zeros(p+1,floor(tts/incr));
+Ex = zeros(p+1,tsteps);
+Eu = zeros(p+1,tsteps);
 
 % Evaluation of spherical harmonics for interpolation
 tmpt = linspace(0,pi,100);tmpp = linspace(0,2*pi,101);
@@ -147,12 +167,25 @@ end
 %% Actual plotting
 disp('Start!')
 % Do timesteps
-for i = 1:incr:tts
+for i = 1:incr:tts + 1
 % Current time
     t((i-1)/incr + 1) = i*ts - ts;
     
-%   Column vector of all data in timestep
-    raw = a((i-1)*lent1  + i:i*lent1 + i-1);
+%   Read in data file of current timestep, making exception for the first
+    if(i == 1)
+        file = 'x_00001';
+    else
+        file = 'x_';
+        for fl = 1:(4-floor(log10(i-1)))
+            file = strcat(file,'0');
+        end
+        file = strcat(file,num2str(i-1));
+    end
+    
+%   All the data in the ts
+    fID = fopen(strcat(dir,file));
+    raw = fscanf(fID,'%f');
+    fclose(fID);
     
 %   Individual directional coefficients, not distinct between real/imag)
     x1t = raw(1:3:end);

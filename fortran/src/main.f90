@@ -120,7 +120,9 @@ DO i = 1,cell%NT
         xmnt = cell%xmn
 
 !       Volume reduction (add small inward normal vel every timestep)
-        ! IF(cell%vol().gt.4.18904795321178 .and. i.lt.2500) umnt = umnt - 0.1D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+        ! IF(cell%vol().gt. 4.22 .and. i.lt.500) umnt = umnt - 0.1D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+        ! IF(cell%vol().lt.4.185 .and. i.lt.500) umnt = umnt + 0.01D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+        ! IF(cell%vol().gt.4.1894 .and. i.lt.500) umnt = umnt - 0.01D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
 
 !       Update and output
         cell%cts = cell%cts + 1
@@ -144,7 +146,11 @@ DO i = 1,cell%NT
 
         
         cell%fab(1,:,:) = cell%J
-        CALL cell%write()
+
+!       Write some output
+        IF((cell%cts .eq. 1) .or. (MOD(cell%cts,cell%dtinc)) .eq. 0) THEN
+                CALL cell%write()
+        ENDIF
         t = t + cell%dt
         write(*,'(I,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)'), &
         i, t, 2D0*MAXVAL((ABS(cell%ff)))/cell%B, MAXVAL((ABS(cell%umn))), cell%vol(), &

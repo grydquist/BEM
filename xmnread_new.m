@@ -1,49 +1,50 @@
 % Reads the txt file output from the fortran code
+fclose(all);
 
-% Read in raw data
-% fID = fopen('fortran/x25W_2.txt');
-fID = fopen('fortran/dat/cm2v98eb03runs/xp16_1_005.txt');
-% fID = fopen('fortran/x_0_03_997.txt');
-% fID = fopen('pap_dat/TaylorValidation/Lam1/x015.txt');
-a = fscanf(fID,'%f');
-fclose(fID);
-    
-% fID = fopen('fortran/u_x25W_2.txt');
-fID = fopen('fortran/dat/cm2v98eb03runs/u_xp16_1_005.txt');
-% fID = fopen('fortran/f_0_03_997.txt');
-% fID = fopen('pap_dat/TaylorValidation/Lam1/u_x015.txt');
-us = fscanf(fID,'%f');
-fclose(fID);
+% Get total timesteps outputted
+fid = fopen(strcat(dir,'maxdt'));
+tts = str2double(fgetl(fid));
+fclose(fid);
+tts = floor(tts);
 
-% % fID = fopen('fortran/f_x25W_2.txt');
-% fID = fopen('fortran/dat/f_x8Ca1TT.txt');
-% % fID = fopen('pap_dat/TaylorValidation/Lam1/f_x005.txt');
-% fs = fscanf(fID,'%f');
-% fclose(fID);
+% Read Param file to get simulation info
+dir = 'fortran/dat/HITp16Ca05/';
+fid = fopen(strcat(dir,'Params'));
+tline = fgetl(fid);
+while ischar(tline)
+    tline = strtrim(tline);
+    switch tline
+        case 'p'
+            p = str2double(fgetl(fid));
+            p = floor(p);
+        case 'dt'
+            ts = str2double(fgetl(fid));
+        case 'dt_inc'
+            dt_inc = str2double(fgetl(fid));
+            dt_inc = floor(dt_inc);
+    end
+    tline = fgetl(fid);
+end
+fclose(fid);
 
-% Get info about a  
+% How many timesteps to skip
+incr = dt_inc*1;
 
-% Total time steps, including initialization
-tts = a(end) +                                 0;
-incr = 50;
-xtop = zeros(floor(tts/incr),1);
-ytop = zeros(floor(tts/incr),1);
-ztop = zeros(floor(tts/incr),1);
+
+tsteps = floor(tts/incr) + 1;
+xtop = zeros(tsteps,1);
+ytop = zeros(tsteps,1);
+ztop = zeros(tsteps,1);
 Dij = ytop;
 incl = Dij;
 
-% Number of values without time steps
-lent = length(a) - tts;
-
 % Number total values in a time step
-lent1 = lent/(tts);
-% length of 1 collection in one time step
-tot = lent1/6;
+lent1 = 6*(p+1)^2;
 
 % Order of spherical harmonics
-p = sqrt(tot) - 1;
-Ex = zeros(p+1,floor(tts/incr));
-Eu = zeros(p+1,floor(tts/incr));
+tot = (p+1)^2;
+Ex = zeros(p+1,tsteps);
+Eu = zeros(p+1,tsteps);
 
 % Evaluation of spherical harmonics for interpolation
 tmpt = linspace(0,pi,100);tmpp = linspace(0,2*pi,101);
@@ -57,35 +58,30 @@ Yqv = SpHarmTNew(p,ttq,ppq);
 % Ytrc = SpHarmTNew(p,pi/2,0);
 Ytrc = SpHarmTNew(p,0,0);
 % Time
-ts = .005;
-t = zeros(floor(tts/incr),1);
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% aa = size(fs);
-% aa = aa(1)/tts;
-% nttf = sqrt(aa/6);
-% % nttf = sqrt(aa/2);
-% nppf = 2*nttf;
-% fmns = zeros(3,nttf,nppf,floor(tts/incr));
-% % fmns = zeros(nttf,nppf,floor(tts/incr));
-% 
-% [xs,wg] = lgwt(nttf,-1,1);
-% tht = acos(xs);
-% dphi = 2*pi/nppf;
-% phi = 0:dphi:dphi*(nppf-1)';
-% 
-% [ph,th] = meshgrid(phi,tht);
-% Ytfs = SpHarmTNew(p,th,ph);
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+t = zeros(tsteps,1);
 
 %% Actual plotting
 disp('Start!')
 % Do timesteps
-for i = 1:incr:tts
+for i = 1:incr:tts + 1
+% Current time
     t((i-1)/incr + 1) = i*ts - ts;
     
-%   Column vector of all data in timestep
-    raw = a((i-1)*lent1  + i:i*lent1 + i-1);
+%   Read in data file of current timestep, making exception for the first
+    if(i == 1)
+        file = 'x_00001';
+    else
+        file = 'x_';
+        for fl = 1:(4-floor(log10(i-1)))
+            file = strcat(file,'0');
+        end
+        file = strcat(file,num2str(i-1));
+    end
+    
+%   All the data in the ts
+    fID = fopen(strcat(dir,file));
+    raw = fscanf(fID,'%f');
+    fclose(fID);
     
 %   Individual directional coefficients, not distinct between real/imag)
     x1t = raw(1:3:end);
@@ -106,8 +102,21 @@ for i = 1:incr:tts
     x2 = real(SpHReconst(x2c,Yr));
     x3 = real(SpHReconst(x3c,Yr));
 %   Same procedure for velocities
-%   Column vector of all data in timestep
-    raw = us((i-1)*lent1  + i:i*lent1 + i-1);
+%   Read in data file of current timestep, making exception for the first
+    if(i == 1)
+        file = 'u_00001';
+    else
+        file = 'u_';
+        for fl = 1:(4-floor(log10(i-1)))
+            file = strcat(file,'0');
+        end
+        file = strcat(file,num2str(i-1));
+    end
+    
+%   All the data in the ts
+    fID = fopen(strcat(dir,file));
+    raw = fscanf(fID,'%f');
+    fclose(fID);
     
 %   Individual directional coefficients, not distinct between real/imag)
     u1t = raw(1:3:end);
@@ -134,20 +143,6 @@ for i = 1:incr:tts
     xq1 = real(SpHReconst(x1c,Yqv,p));
     xq2 = real(SpHReconst(x2c,Yqv,p));
     xq3 = real(SpHReconst(x3c,Yqv,p));
-    
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% %    fmns(:,:,(i-1)/incr + 1) = reshape(us((i-1)*aa  + 1:i*aa), nttf, nppf);
-%     fmns(:,:,:,(i-1)/incr + 1) = reshape(fs((i-1)*aa  + 1:i*aa), 3, nttf, nppf);
-%     clf
-%     plot(fmns(:,1,(i-1)/incr + 1))
-%     plot(fmns(:,1,(i-1)/incr + 1)- fmns(:,1,1))
-%     axis([0,18,0,3e-2])
-%     hold on
-%     plot(fmns(:,1,1))
-%     xf1 = real(SpHReconst(x1c,Ytfs,p));
-%     xf2 = real(SpHReconst(x2c,Ytfs,p));
-%     xf3 = real(SpHReconst(x3c,Ytfs,p));
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     clf;
 %   Plot this timestep

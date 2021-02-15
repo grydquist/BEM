@@ -10,11 +10,11 @@ IMPLICIT NONE
 TYPE cellType
 
 !   Time
-    INTEGER :: cts, NT
+    INTEGER :: cts, NT, dtinc
     REAL(KIND = 8) :: dt
 
 !   Material Properties
-    REAL(KIND = 8) :: mu, lam, B, C, Eb, c0
+    REAL(KIND = 8) :: mu, lam, B, C, Eb, c0, Ca
 
 !   Harmonics info
     INTEGER :: p, q, ftot
@@ -50,7 +50,7 @@ TYPE cellType
     LOGICAL :: writ = .false.
 
 !   Name of output file
-    CHARACTER(len = 15) fileout
+    CHARACTER(:), ALLOCATABLE :: fileout
     
     CONTAINS
     PROCEDURE :: Write   => Writecell
@@ -78,7 +78,6 @@ FUNCTION newcell(filein) RESULT(cell)
     TYPE(cellType) :: cell
     CHARACTER(len = 3) :: restart
     CHARACTER(len = 30) :: restfile
-    REAL(KIND = 8) Ca
 
     INTEGER :: nt, np, ntf, npf, fali,p
 
@@ -92,9 +91,9 @@ FUNCTION newcell(filein) RESULT(cell)
 !   which is the Capillary number (tm = (flow ts)*Ca = Ca)
 
 !   Ca = (shear rate)*mu*(cell radius)/(B/2)
-    Ca = READ_GRINT_DOUB(filein, 'Capillary')
+    cell%Ca = READ_GRINT_DOUB(filein, 'Capillary')
 
-    cell%B = 2D0/Ca
+    cell%B = 2D0/cell%Ca
 !   A note on the dilation modulus: many papers use (B*C) in the spot where
 !   I use C, so I just make that correction here
     cell%C = READ_GRINT_DOUB(filein, 'Dilatation_Ratio')*cell%B
@@ -104,7 +103,8 @@ FUNCTION newcell(filein) RESULT(cell)
     cell%c0 = READ_GRINT_DOUB(filein, 'Spont_Curvature')
     cell%NT = READ_GRINT_INT(filein, 'Max_time_steps')
     cell%dt = READ_GRINT_DOUB(filein, 'Time_step')
-    cell%fileout = READ_GRINT_CHAR(filein, 'Output')
+    cell%fileout = TRIM(READ_GRINT_CHAR(filein, 'Output'))
+    cell%dtinc = READ_GRINT_INT(filein, 'Time_inc')
 
     cell%cts = 1
 !   Coarse and fine grids    
@@ -149,7 +149,7 @@ FUNCTION newcell(filein) RESULT(cell)
 !   First, we need to get the reference shape for the shear stress
     ! cell%xmn = RBCcoeff(cell%Y)
     ! cell%xmn = Cubecoeff(cell%Y)
-    cell%xmn = Spherecoeff(cell%Y, .9D0)
+    cell%xmn = Spherecoeff(cell%Y, .76D0) ! Reduced volume .997, .98, .95-> .9,.76,.65
 
 !   Initial surfce derivatives/reference state
     CALL cell%Derivs()
@@ -157,6 +157,8 @@ FUNCTION newcell(filein) RESULT(cell)
 
 !   Now scale to get the equivalent radius we input
     cell%xmn = cell%xmn/(3D0*cell%vol()/(4D0*pi))**(1D0/3D0)
+!   If we want to do deflation, comment the above and scale to get right SA
+    ! cell%xmn = cell%xmn*(16.8447913187040D0/cell%SA())**(1D0/2D0) 
 
 !   Initialize derivs again... I do this because I need the derivs to get the volume
     CALL cell%Derivs()
@@ -193,49 +195,79 @@ FUNCTION newcell(filein) RESULT(cell)
     cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
 
     cell%init = .true.
-END FUNCTION
+END FUNCTION newcell
 
 ! -------------------------------------------------------------------------!
 ! Writes xmn to a text file. Could be better
 SUBROUTINE Writecell(cell)
     CLASS(cellType), INTENT(INOUT) ::cell
+    CHARACTER (LEN = 25) ctsst, datdir, filename
+
+!   Formatting pain
+    write(ctsst, "(I0.5)") cell%cts
+    datdir = TRIM('dat/'//cell%fileout//'/')
+    filename = TRIM('x_'//ctsst)
 
 !   Write position
-    IF(cell%writ) THEN
-        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'dat/'//cell%fileout)
-    ELSE
-        OPEN (UNIT = 88, FILE = 'dat/'//cell%fileout)
+    IF(.not. cell%writ) THEN
+        CALL MAKEDIRQQ(datdir)
     ENDIF
+    OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
     WRITE(88,*) REAL(cell%xmn)
     WRITE(88,*) AIMAG(cell%xmn)
-    WRITE(88,*) cell%cts
     CLOSE(88)
 
 !   Write velocity
-    IF(cell%writ) THEN
-        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'dat/u_'//cell%fileout)
-    ELSE
-        OPEN (UNIT = 88, FILE = 'dat/u_'//cell%fileout)
-    ENDIF
+    filename = TRIM('u_'//ctsst)
+    OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
     WRITE(88,*) REAL(cell%umn)!REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1)))) !
     WRITE(88,*) AIMAG(cell%umn)!AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))!
+    CLOSE(88)
+
+!   Another file that just has all the material constants for the simulation
+    IF(.not. cell%writ) THEN
+        filename = 'Params'
+        OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
+        WRITE(88,*) "p"
+        WRITE(88,*) cell%p
+        WRITE(88,*) "dt"
+        WRITE(88,*) cell%dt
+        WRITE(88,*) "dt_inc"
+        WRITE(88,*) cell%dtinc
+        WRITE(88,*) "Ed"
+        WRITE(88,*) cell%C/cell%B
+        WRITE(88,*) "Eb"
+        WRITE(88,*) cell%Eb/2D0/cell%B
+        WRITE(88,*) "Ca"
+        WRITE(88,*) cell%Ca
+        WRITE(88,*) "c0"
+        WRITE(88,*) cell%c0
+        WRITE(88,*) "lambda"
+        WRITE(88,*) cell%lam
+        CLOSE(88)
+    ENDIF
+    
+!   Not optimal, but just a file for the max timestep
+    filename = 'maxdt'
+    OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
     WRITE(88,*) cell%cts
     CLOSE(88)
 
-!   Write third thing (usually force)
-    IF(cell%writ) THEN
-        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'dat/f_'//cell%fileout)
-    ELSE
-        OPEN (UNIT = 88, FILE = 'dat/f_'//cell%fileout)
-    ENDIF
-    ! WRITE(88,*) REAL(cell%fmn)
-    ! WRITE(88,*) AIMAG(cell%fmn)
-    ! WRITE(88,*) REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
-    ! WRITE(88,*) AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
 
-!   May not be nondimensionalized!
-    WRITE(88,*) cell%fab
-    CLOSE(88)
+!   Write third thing (usually force)
+!     IF(cell%writ) THEN
+!         OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'dat/f_'//cell%fileout)
+!     ELSE
+!         OPEN (UNIT = 88, FILE = 'dat/f_'//cell%fileout)
+!     ENDIF
+!     ! WRITE(88,*) REAL(cell%fmn)
+!     ! WRITE(88,*) AIMAG(cell%fmn)
+!     ! WRITE(88,*) REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
+!     ! WRITE(88,*) AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
+
+! !   May not be nondimensionalized!
+!     WRITE(88,*) cell%fab
+!     CLOSE(88)
     
     IF(.not. cell%writ) cell%writ = .true.
 
