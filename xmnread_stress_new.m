@@ -1,5 +1,5 @@
 %% Pre allocation
-fclose(all);
+fclose all;
 % Harmonics evaluated at fine grid
 ntf = 40;
 npf = 60;

@@ -625,7 +625,7 @@ END FUNCTION Cubecoeff
 ! Takes a list of coefficients that go real(x1mn), imag(x1mn), real(x2mn)...
 ! and outputs them properly
 FUNCTION Readcoeff(filen, ord) RESULT(xmn)
-    COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:), xmnbg(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:)
     REAL(KIND = 8) :: xmnrawind
     REAL(KIND = 8), ALLOCATABLE :: xmnraw(:)
     CHARACTER (len=*) filen

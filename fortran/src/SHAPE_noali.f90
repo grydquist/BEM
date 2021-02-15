@@ -23,6 +23,7 @@ TYPE cellType
 
 !   Geometric info
     REAL(KIND = 8), ALLOCATABLE :: J(:,:), x(:,:,:), xf(:,:,:), k(:,:)
+    REAL(KIND = 8) :: V0
 !   Derivatives
     REAL(KIND = 8), ALLOCATABLE :: dxt(:,:,:), dxp(:,:,:), dxp2(:,:,:), &
     dxt2(:,:,:), dxtp(:,:,:), dxp3(:,:,:), dxt3(:,:,:), dxt2p(:,:,:), &
@@ -57,6 +58,7 @@ TYPE cellType
     PROCEDURE :: Derivs  => Derivscell
     PROCEDURE :: Stress  => Stresscell
     PROCEDURE :: Fluid   => Fluidcell
+    PROCEDURE :: Update  => UpdateCell
     PROCEDURE :: Dealias => Dealiascell
     PROCEDURE :: Vol     => Volcell
     PROCEDURE :: SA      => SAcell
@@ -145,6 +147,9 @@ FUNCTION newcell(filein) RESULT(cell)
     cell%ff = 0D0  
     cell%fmn = 0D0
     cell%umn = 0D0
+
+
+!   For a = 1, V = 4.18904795321178, SA = 16.8447913187040, sphere 6.50088174342271
 
 !   First, we need to get the reference shape for the shear stress
     ! cell%xmn = RBCcoeff(cell%Y)
@@ -434,15 +439,17 @@ SUBROUTINE Stresscell(cell)
     REAL(KIND = 8) :: c111,  c112,  c122,  c222,  c221,  c211, &
                       c111t, c112t, c122t, c222t, c221t, &
                       c111p, c112p,        c222p, c221p, c211p
-    REAL(KIND = 8) :: mab(2,2), mabt(2,2), mabp(2,2), dmab2(2,2), &
-                      q1, q2, dq(2), Fd(3,3), Prj(3,3), V2(3,3), &
+    REAL(KIND = 8) :: Fd(3,3), Prj(3,3), V2(3,3), &
                       lams(3), es(2), ev(3,3), ev1(3), ev2(3), I1, I2, &
                       tau(3,3), tauab(2,2), B, C, Eb, wrk(102), tV2(3,3)
     REAL(KIND = 8) :: Fdt(3,3), Fdp(3,3), V2t(3,3), V2p(3,3), lam1dV2(3,3), &
                       lam2dV2(3,3), es1t, es1p, es2t, es2p, I1t, I1p, I2t, I2p, &
                       Prjt(3,3), Prjp(3,3), taut(3,3), taup(3,3), dtauab(2,2), &
-                      bv(2,2), bm(2,2), cvt, cvp, cq, normev1, normev2, &
+                      bv(2,2), bm(2,2), cvt, cvp, &
                       fb, LBk, kG, c0, fbt(3)
+!   Old/unused vaiable
+    ! REAL(KIND = 8) :: cq, normev1, normev2, mab(2,2), mabt(2,2), &
+    !                   mabp(2,2), dmab2(2,2),q1, q2, dq(2)
     
     B = cell%B
     C = cell%C
@@ -899,11 +906,6 @@ SUBROUTINE Stresscell(cell)
         ENDDO inner
     ENDDO
 
-!!!! Either my thetder algorithm or harmonics algorithm appears to be slightly unstable.
-    ! At higher order harmonics, they start to differ by about 1e-14 from matlab, which
-    ! gets exacerbated by the eigenvalue algorithm. Perhaps the problem is in the legendre
-    ! algorithm?
-
 !   Now we need to filter for anti-aliasing. Do the transform of the force into spectral
 !   space, cut the highest modes, and transform back into physical space
     IF(cell%init) THEN
@@ -1194,6 +1196,58 @@ SUBROUTINE Fluidcell(cell)
     cell%umn(3,1:Nmat/3) = ut((/(i, i=3,Nmat  , 3)/))
 END SUBROUTINE Fluidcell
 
+! -------------------------------------------------------------------------!
+! Time advancement
+SUBROUTINE UpdateCell(cell, ord, reduce)
+    CLASS(cellType), INTENT(INOUT) :: cell
+    INTEGER, INTENT(IN) :: ord
+    LOGICAL, INTENT(IN) :: reduce
+    REAL(KIND = 8) :: zm
+    COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:)
+    
+!   Remove rigid body motion
+    cell%umn(:,1) = 0D0
+
+!   Volume correction: small, inward normal velocity based off current volume/SA/time step
+    zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*cell%dt)
+    cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+
+    umnt = cell%umn
+    xmnt = cell%xmn
+
+!   Volume reduction (add small inward normal vel every timestep)
+    IF(reduce) THEN
+        IF(cell%Vol().gt. 4.22  ) umnt = umnt - 0.10D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+        IF(cell%Vol().lt. 4.185 ) umnt = umnt + 0.01D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+        IF(cell%Vol().gt. 4.1894) umnt = umnt - 0.01D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+    ENDIF
+    
+!   Second part for midpoint
+    IF(ord .eq. 2) THEN
+        CALL cell%derivs()
+        CALL cell%stress()
+        CALL cell%fluid()
+        cell%umn(:,1) = 0D0
+        zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*cell%dt)
+        cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+        umnt = 0.5D0*(umnt + cell%umn)
+        cell%xmn = xmnt + umnt*cell%dt
+        cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
+        cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
+        cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+    ELSEIF(ord .gt. 2) THEN
+        print*, "ERROR: time advancement of order >2 not supported"
+        stop
+    ENDIF
+    
+!   Update position and current time step
+    cell%xmn = xmnt + umnt*cell%dt
+    cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
+    cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
+    cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+
+    cell%cts = cell%cts + 1
+END SUBROUTINE UpdateCell
 
 ! -------------------------------------------------------------------------!
 ! Takes an input and cell and de-alises it

@@ -1,5 +1,7 @@
 % Reads the txt file output from the fortran code
-fclose(all);
+fclose all;
+
+dir = 'fortran/dat/TTp16Ca1v98/';
 
 % Get total timesteps outputted
 fid = fopen(strcat(dir,'maxdt'));
@@ -8,7 +10,6 @@ fclose(fid);
 tts = floor(tts);
 
 % Read Param file to get simulation info
-dir = 'fortran/dat/HITp16Ca05/';
 fid = fopen(strcat(dir,'Params'));
 tline = fgetl(fid);
 while ischar(tline)

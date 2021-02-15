@@ -1,6 +1,6 @@
 FC=ifort
 LDIR=./lib/lapack-3.9.0/
-IDIR=./inc/
+IDIR=./FFTs/
 LIBS= -llapack -lrefblas
 OBJDIR=obj/
 MODDIR=mod/
@@ -32,12 +32,10 @@ OBJ = $(patsubst %,$(OBJDIR)%,$(MYFUN))
 MOD = $(patsubst %,$(MODDIR)%,$(MYMOD))
 
 $(OBJDIR)%.o : $(SRC)%.f90 | $(OBJDIR) $(MODDIR) $(DATDIR)
-	$(FC) $(FFLAGS) -I$(MODDIR) -o $@ -c $< -L$(LDIR) $(LIBS)
+	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ -c $< -L$(LDIR) $(LIBS)
 
 $(MYEXEC): $(OBJ)
-	$(FC) $(FFLAGS) -I$(MODDIR) -o $@ $^ $(DEPS) -L$(LDIR) $(LIBS)
-	touch useless.mod
-	mv *.mod mod/
+	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ $^ $(DEPS) -L$(LDIR) $(LIBS)
 
 $(OBJDIR):
 	mkdir -p $@
