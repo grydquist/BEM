@@ -1,7 +1,7 @@
 % Reads the txt file output from the fortran code
 fclose all;
 
-dir = 'fortran/dat/cmplTWZ/TWZp16F100pNL5/';
+dir = 'fortran/dat/TWZp16F75pNL5/';
 
 % Get total timesteps outputted
 fid = fopen(strcat(dir,'maxdt'));
@@ -29,7 +29,7 @@ end
 fclose(fid);
 
 % How many timesteps to skip
-incr = 50;
+incr = 100;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
