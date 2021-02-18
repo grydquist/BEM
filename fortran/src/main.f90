@@ -105,7 +105,7 @@ DO i = 1,cell%NT
         ENDIF
         t = t + cell%dt
         write(*,'(I4,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') &
-        i, t, 2D0*MAXVAL((ABS(cell%ff)))/cell%B, MAXVAL((ABS(cell%umn))), cell%vol(), &
+        i, t, 1D0*2D0*MAXVAL((ABS(cell%ff)))/cell%B, MAXVAL((ABS(cell%umn))), cell%vol(), &
         cell%SA()
 ENDDO
 
