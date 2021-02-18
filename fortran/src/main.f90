@@ -133,6 +133,12 @@ DO i = 1,cell%NT
         i, t, 1D0*2D0*MAXVAL((ABS(cell%ff)))/cell%B, MAXVAL((ABS(cell%umn))), cell%vol(), &
         cell%SA()
 
+!       Check if there's any funny business
+        IF(isNaN(MAXVAL((ABS(cell%umn)))) .or. MAXVAL((ABS(cell%umn))) .gt. HUGE(t)) THEN
+                print *, 'ERROR: inftys or NaNs'
+                stop
+        ENDIF
+
 !       To keep a constant tweezer force, we need to do some fancy non-dimensionalizing
         
 !       Magnitude of tweezer force (note that ff in shape is not non-dimm'd, it's mltiplied by G.
