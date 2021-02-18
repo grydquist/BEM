@@ -52,7 +52,13 @@ TYPE cellType
 
 !   Name of output file
     CHARACTER(:), ALLOCATABLE :: fileout
-    
+
+!   TWEEZER ITEMS !!!!!!!!!!!!!!!!!!!!!!!!!!!
+!   Marker to see if particle is to be stretched, and in what direction
+    INTEGER, ALLOCATABLE :: mark(:,:)
+!   Magnitude of pulling force
+    REAL(KIND = 8) :: frcmag
+
     CONTAINS
     PROCEDURE :: Write   => Writecell
     PROCEDURE :: Derivs  => Derivscell
@@ -148,6 +154,8 @@ FUNCTION newcell(filein) RESULT(cell)
     cell%fmn = 0D0
     cell%umn = 0D0
 
+!   Tweezers stuff
+    ALLOCATE(cell%mark(ntf,npf))
 
 !   For a = 1, V = 4.18904795321178, SA = 16.8447913187040, sphere 6.50088174342271
 
@@ -664,6 +672,16 @@ SUBROUTINE Stresscell(cell)
                 ! cell%gnR(:,:,i,j)  = gn
                 ! cell%dgtR(:,:,i,j) = dgt
                 ! cell%dgpR(:,:,i,j) = dgp
+
+!               Mark points that are within the stretch zone
+                IF(cell%xf(1,i,j).gt.1.235) THEN
+                    cell%mark(i,j) = -1;
+                ELSEIF(cell%xf(1,i,j).lt.-1.235) THEN
+                    cell%mark(i,j) = 1;
+                ELSE
+                    cell%mark(i,j) = 0;
+                ENDIF
+
                 CYCLE inner
             ENDIF
 
@@ -823,6 +841,9 @@ SUBROUTINE Stresscell(cell)
                               + cell%fab(2, i, j)*cell%dxp(:,i,j) &
                               + cell%fab(3, i, j)*(-nk) &
                               + 0D0 !fbt
+            
+!           Add tweezer force in
+            cell%ff(1,i,j) =  cell%mark(i,j)*cell%frcmag + cell%ff(1,i,j)
             
 !           This is pretty lazy, but I need to save the normal vector and not the
 !           surface forces, when it was opposite at one time, so I just swap them

@@ -1,7 +1,7 @@
 % Reads the txt file output from the fortran code
 fclose all;
 
-dir = 'fortran/dat/TTp16Ca1v98/';
+dir = 'fortran/dat/cmplTWZ/TWZp16F100pNL5/';
 
 % Get total timesteps outputted
 fid = fopen(strcat(dir,'maxdt'));
@@ -29,7 +29,13 @@ end
 fclose(fid);
 
 % How many timesteps to skip
-incr = dt_inc*1;
+incr = 50;
+% Round down to fit w/ dt_inc
+incr = incr - mod(incr,dt_inc);
+if(incr == 0); incr = dt_inc; end
+% incr = dt_inc*10;
+
+
 
 
 tsteps = floor(tts/incr) + 1;
@@ -39,7 +45,7 @@ ztop = zeros(tsteps,1);
 Dij = ytop;
 incl = Dij;
 
-% Number total values in a time step
+% Number total values in a time step  
 lent1 = 6*(p+1)^2;
 
 % Order of spherical harmonics
@@ -48,7 +54,7 @@ Ex = zeros(p+1,tsteps);
 Eu = zeros(p+1,tsteps);
 
 % Evaluation of spherical harmonics for interpolation
-tmpt = linspace(0,pi,100);tmpp = linspace(0,2*pi,101);
+tmpt = linspace(0,pi,101);tmpp = linspace(0,2*pi,101);
 [tmpph,tmpth] = meshgrid(tmpp,tmpt);
 Yr = SpHarmTNew(p,tmpth,tmpph);
 
@@ -57,7 +63,7 @@ tq = linspace(0,pi,15);pq = tq;
 Yqv = SpHarmTNew(p,ttq,ppq);
 % Spherical harmonic evaluated at right hand side of sphere
 % Ytrc = SpHarmTNew(p,pi/2,0);
-Ytrc = SpHarmTNew(p,0,0);
+Ytrc = SpHarmTNew(p,pi/2,0);
 % Time
 t = zeros(tsteps,1);
 
@@ -195,11 +201,11 @@ for i = 1:incr:tts + 1
 % %     loglog(Ex12(:,(i-1)/incr + 1),'p')
 % %     loglog(Ex14(:,(i-1)/incr + 1),'s')
 % %     loglog(Ex16(:,(i-1)/incr + 1),'.')
-%     semilogy(Ex(:,(i-1)/incr + 1),'^')
+%     semilogy(Eu(:,(i-1)/incr + 1),'^')
 % %     axis([2,q,1e-10,1e-1])
 % %     ytop((i-1)/incr + 1) = u1(8,1);
 
-[cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10100,1]),reshape(x2,[10100,1]),reshape(x3,[100*101,1])]);
+[cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
 % Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
 
 elx = vertcat(x1(:,1),x1(:,51));
