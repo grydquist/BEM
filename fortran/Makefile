@@ -32,7 +32,7 @@ OBJ = $(patsubst %,$(OBJDIR)%,$(MYFUN))
 MOD = $(patsubst %,$(MODDIR)%,$(MYMOD))
 
 $(OBJDIR)%.o : $(SRC)%.f90 | $(OBJDIR) $(MODDIR) $(DATDIR)
-	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ -c $< -L$(LDIR) $(LIBS)
+	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ -c $<
 
 $(MYEXEC): $(OBJ)
 	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ $^ $(DEPS) -L$(LDIR) $(LIBS)

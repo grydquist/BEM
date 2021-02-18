@@ -97,7 +97,11 @@ fclose(fid);
 tts = floor(tts);
 
 % How many timesteps to skip
-incr = dt_inc*1;
+incr = 10;
+% Round down to fit w/ dt_inc
+incr = incr - mod(incr,dt_inc);
+if(incr == 0); incr = dt_inc; end
+% incr = dt_inc*10;
 
 
 
@@ -111,7 +115,7 @@ ytop = zeros(tsteps,1);
 ztop = zeros(tsteps,1);
 Dij = ytop;
 incl = Dij;
-elxa = zeros(tsteps,200);
+elxa = zeros(tsteps,202);
 elza = elxa;
 
 % Number total values in a time step
@@ -124,7 +128,7 @@ Ex = zeros(p+1,tsteps);
 Eu = zeros(p+1,tsteps);
 
 % Evaluation of spherical harmonics for interpolation
-tmpt = linspace(0,pi,100);tmpp = linspace(0,2*pi,101);
+tmpt = linspace(0,pi,101);tmpp = linspace(0,2*pi,101);
 [tmpph,tmpth] = meshgrid(tmpp,tmpt);
 Yr = SpHarmTNew(p,tmpth,tmpph);
 
@@ -683,6 +687,7 @@ myf = real(myf);
     Jmin((i-1)/incr + 1) = min(min(J./JR));
     pst1((i-1)/incr + 1) = max(max(ps1));
     pst2((i-1)/incr + 1) = min(min(ps2));
+%   Sh = lam1/lam2, which is a measure of shear strain according to Peng
     Shmax((i-1)/incr + 1) = max(max(Sh));
     Shmin((i-1)/incr + 1) = min(min(Sh));
     
@@ -709,7 +714,7 @@ myf = real(myf);
     ztop((i-1)/incr + 1) = real(SpHReconst(x3c,Ytrc)); 
     scatter3(xtop((i-1)/incr + 1),ytop((i-1)/incr + 1),ztop((i-1)/incr + 1),75,'go','filled');
 
-[cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10100,1]),reshape(x2,[10100,1]),reshape(x3,[100*101,1])]);
+[cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
 % Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
 
 elx = vertcat(x1(:,1),x1(:,51));

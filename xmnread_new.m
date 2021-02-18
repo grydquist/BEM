@@ -29,7 +29,11 @@ end
 fclose(fid);
 
 % How many timesteps to skip
-incr = dt_inc*1;
+incr = 50;
+% Round down to fit w/ dt_inc
+incr = incr - mod(incr,dt_inc);
+if(incr == 0); incr = dt_inc; end
+% incr = dt_inc*10;
 
 
 tsteps = floor(tts/incr) + 1;
@@ -48,7 +52,7 @@ Ex = zeros(p+1,tsteps);
 Eu = zeros(p+1,tsteps);
 
 % Evaluation of spherical harmonics for interpolation
-tmpt = linspace(0,pi,100);tmpp = linspace(0,2*pi,101);
+tmpt = linspace(0,pi,101);tmpp = linspace(0,2*pi,101);
 [tmpph,tmpth] = meshgrid(tmpp,tmpt);
 Yr = SpHarmTNew(p,tmpth,tmpph);
 
@@ -57,7 +61,7 @@ tq = linspace(0,pi,15);pq = tq;
 Yqv = SpHarmTNew(p,ttq,ppq);
 % Spherical harmonic evaluated at right hand side of sphere
 % Ytrc = SpHarmTNew(p,pi/2,0);
-Ytrc = SpHarmTNew(p,0,0);
+Ytrc = SpHarmTNew(p,pi/2,0);
 % Time
 t = zeros(tsteps,1);
 
@@ -199,7 +203,7 @@ for i = 1:incr:tts + 1
 % %     axis([2,q,1e-10,1e-1])
 % %     ytop((i-1)/incr + 1) = u1(8,1);
 
-[cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10100,1]),reshape(x2,[10100,1]),reshape(x3,[100*101,1])]);
+[cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
 % Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
 
 elx = vertcat(x1(:,1),x1(:,51));
