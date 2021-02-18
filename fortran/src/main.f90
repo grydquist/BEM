@@ -103,6 +103,13 @@ DO i = 1,cell%NT
         IF((cell%cts .eq. 1) .or. (MOD(cell%cts,cell%dtinc)) .eq. 0) THEN
                 CALL cell%write()
         ENDIF
+
+!       Check if there's any funny business
+        IF(isNaN(MAXVAL((ABS(cell%umn)))) .or. MAXVAL((ABS(cell%umn))) .gt. HUGE(t)) THEN
+                print *, 'ERROR: inftys or NaNs'
+                stop
+        ENDIF
+
         t = t + cell%dt
         write(*,'(I4,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') &
         i, t, 1D0*2D0*MAXVAL((ABS(cell%ff)))/cell%B, MAXVAL((ABS(cell%umn))), cell%vol(), &
