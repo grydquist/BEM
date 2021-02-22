@@ -1,12 +1,12 @@
 All properties nondimensional (even time step, based on Kolm time)
-Viscosity_Ratio 5
+Viscosity_Ratio 2
 Capillary 1 0.166667
 Dilatation_Ratio 100
 Bending_Modulus .03 .015
 Spont_Curvature -2
 Max_time_steps 10000
-Time_step 0.005
-Output ErAZE_ME TWZp16F10pNL5
+Time_step 0.002
+Output tempdcdel TWZp16F10pN
 Time_inc 5
 Harmonic_order 16
 Refinement_factor 2
