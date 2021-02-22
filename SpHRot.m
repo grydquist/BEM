@@ -32,7 +32,7 @@ for n = 0:p
 %             Dmm(im1) = exp(1i*m*a)*dmm*exp(1i*m*c);
             Dmm(im1) = exp(1i*m*a)*dmm;
         end
-        f(it) = f(it) + myf(frng)*Dmm.';
+        f(it) = myf(frng)*Dmm.';
     end
 end
 

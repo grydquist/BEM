@@ -425,12 +425,13 @@ FUNCTION rotateY(Y, fmn, a, b, c) RESULT(f)
     DO n = 0, Y%p
         DEALLOCATE(frng)
         ALLOCATE(frng(2*n + 1))
+        DEALLOCATE(Dmm)
+        ALLOCATE(Dmm(2*n + 1))
         frng = (/(i, i=(it+1),(it+2*n+1), 1)/) 
-        
+        it = it+n
 !       Loop over harmonic degree we're trying to calculate
-        DO mp = -n,n
-            DEALLOCATE(Dmm)
-            ALLOCATE(Dmm(2*n + 1))
+        DO mp = 0,n
+            Dmm = 0D0
             im = 0
             it = it+1
 !           Loop over harmonic degree we're using to calculate
@@ -446,6 +447,9 @@ FUNCTION rotateY(Y, fmn, a, b, c) RESULT(f)
                 Dmm(im) = EXP(ii*m*a)*dmms
             ENDDO
             f(it) = f(it) + SUM(fmn(frng)*Dmm)
+            IF(mp .ne. 0) THEN
+                f(it - mp*2) = (-1D0)**mp*CONJG(f(it))
+            ENDIF
         ENDDO
     ENDDO
     
