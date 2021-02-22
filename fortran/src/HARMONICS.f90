@@ -446,7 +446,7 @@ FUNCTION rotateY(Y, fmn, a, b, c) RESULT(f)
                 dmms = (-1D0)**(mp-m)*(facs(n+mp+1)*facs(n-mp+1)*facs(n+m+1)*facs(n-m+1))**0.5D0*Smm
                 Dmm(im) = EXP(ii*m*a)*dmms
             ENDDO
-            f(it) = f(it) + SUM(fmn(frng)*Dmm)
+            f(it) = SUM(fmn(frng)*Dmm)
             IF(mp .ne. 0) THEN
                 f(it - mp*2) = (-1D0)**mp*CONJG(f(it))
             ENDIF

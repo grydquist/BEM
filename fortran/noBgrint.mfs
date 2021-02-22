@@ -1,5 +1,5 @@
 All properties nondimensional (even time step, based on Kolm time)
-Viscosity_Ratio 5
+Viscosity_Ratio 2
 Capillary 1 0.166667
 Dilatation_Ratio 100
 Bending_Modulus .03 .015

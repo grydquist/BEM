@@ -1,9 +1,8 @@
 % Reads the txt file output from the fortran code
 fclose all;
-
-dir = 'fortran/dat/TTp16Ca1v98/';
-
 % Get total timesteps outputted
+
+dir = 'fortran/dat/TWZp16F340pN/';
 fid = fopen(strcat(dir,'maxdt'));
 tts = str2double(fgetl(fid));
 fclose(fid);
@@ -29,11 +28,13 @@ end
 fclose(fid);
 
 % How many timesteps to skip
-incr = 50;
+incr = 25;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
 % incr = dt_inc*10;
+
+
 
 
 tsteps = floor(tts/incr) + 1;
@@ -43,7 +44,7 @@ ztop = zeros(tsteps,1);
 Dij = ytop;
 incl = Dij;
 
-% Number total values in a time step
+% Number total values in a time step  
 lent1 = 6*(p+1)^2;
 
 % Order of spherical harmonics
@@ -152,6 +153,7 @@ for i = 1:incr:tts + 1
     clf;
 %   Plot this timestep
     h1 = subplot(2,1,1);
+    sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
     set(h1, 'Units', 'normalized');
     set(h1, 'Position', [-.1, 0.5, 1.15, .6]);
 
@@ -199,7 +201,7 @@ for i = 1:incr:tts + 1
 % %     loglog(Ex12(:,(i-1)/incr + 1),'p')
 % %     loglog(Ex14(:,(i-1)/incr + 1),'s')
 % %     loglog(Ex16(:,(i-1)/incr + 1),'.')
-%     semilogy(Ex(:,(i-1)/incr + 1),'^')
+%     semilogy(Eu(:,(i-1)/incr + 1),'^')
 % %     axis([2,q,1e-10,1e-1])
 % %     ytop((i-1)/incr + 1) = u1(8,1);
 

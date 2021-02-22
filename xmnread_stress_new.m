@@ -692,6 +692,7 @@ myf = real(myf);
     Shmin((i-1)/incr + 1) = min(min(Sh));
     
     clf;
+    sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
 %   Plot this timestep
     surf(squeeze(xf(1,:,:)),squeeze(xf(2,:,:)),squeeze(xf(3,:,:)), ...
         Sh,'edgecolor','none', ...
