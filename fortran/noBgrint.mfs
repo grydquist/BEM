@@ -2,15 +2,16 @@ All properties nondimensional (even time step, based on Kolm time)
 Viscosity_Ratio 5
 Capillary 1 0.166667
 Dilatation_Ratio 100
-Bending_Modulus .015
-Spont_Curvature 0
-Max_time_steps 7000
+Bending_Modulus .03 .015
+Spont_Curvature -2
+Max_time_steps 10000
 Time_step 0.005
-Output xHIT_16_05.txt
+Output ErAZE_ME TWZp16F10pNL5
+Time_inc 5
 Harmonic_order 16
 Refinement_factor 2
 Gradient_file GU_1.bin vel_grad.txt
 Restart Yes
-Restart_Loc xrest015_100.txt
+Restart_Loc xrp16v98b03cm2.txt xrest015_100.txt
 Kolm_time 2e-6
 Kolm_frac 0.1
