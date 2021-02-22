@@ -1,13 +1,8 @@
 % Reads the txt file output from the fortran code
 fclose all;
-
-<<<<<<< Updated upstream
-dir = 'fortran/dat/TWZp16F75pNL5/';
-=======
-dir = 'fortran/dat/TWZp16F180pN/';
->>>>>>> Stashed changes
-
 % Get total timesteps outputted
+
+dir = 'fortran/dat/TWZp16F340pN/';
 fid = fopen(strcat(dir,'maxdt'));
 tts = str2double(fgetl(fid));
 fclose(fid);
@@ -33,7 +28,7 @@ end
 fclose(fid);
 
 % How many timesteps to skip
-incr = 100;
+incr = 25;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
@@ -158,6 +153,7 @@ for i = 1:incr:tts + 1
     clf;
 %   Plot this timestep
     h1 = subplot(2,1,1);
+    sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
     set(h1, 'Units', 'normalized');
     set(h1, 'Position', [-.1, 0.5, 1.15, .6]);
 

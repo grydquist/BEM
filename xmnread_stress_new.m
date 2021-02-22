@@ -693,6 +693,7 @@ myf = real(myf);
     
     clf;
 %   Plot this timestep
+    sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
     surf(squeeze(xf(1,:,:)),squeeze(xf(2,:,:)),squeeze(xf(3,:,:)), ...
         Sh,'edgecolor','none', ...
      'FaceAlpha',0.95,'FaceLighting','gouraud')
