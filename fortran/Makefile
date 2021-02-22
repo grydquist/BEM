@@ -10,11 +10,17 @@ DEPS=$(IDIR)fftpack5.o
 SRC=./src/
 MYEXEC=harms
 
+# Normal, opt flags
+FFLAGS = -O3 -funroll-loops -fomit-frame-pointer -DNDEBUG
+
 # Can specify debug flags with make dbg=1
 ifeq ($(dbg),1)
 	FFLAGS = -O0 -g3 -traceback -check all -check bounds -debug all -gen-interfaces -warn interfaces
-else
-	FFLAGS = -O3 -funroll-loops -fomit-frame-pointer -DNDEBUG
+endif
+
+# Profiler flags
+ifeq ($(prof),1)
+	FFLAGS = -profile-functions -profile-loops=all -profile-loops-report=2
 endif
 
 # Functions

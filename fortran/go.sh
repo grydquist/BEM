@@ -11,5 +11,5 @@
 # echo "Compiled"
 # rm -f *.o
 rm -f harms
-make dbg=0
+make prof=0 dbg=0
 ./harms noBgrint.mfs
