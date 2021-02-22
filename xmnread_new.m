@@ -1,7 +1,11 @@
 % Reads the txt file output from the fortran code
 fclose all;
 
+<<<<<<< Updated upstream
 dir = 'fortran/dat/TWZp16F75pNL5/';
+=======
+dir = 'fortran/dat/TWZp16F180pN/';
+>>>>>>> Stashed changes
 
 % Get total timesteps outputted
 fid = fopen(strcat(dir,'maxdt'));

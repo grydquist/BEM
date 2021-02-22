@@ -79,7 +79,11 @@ CALL cell%write()
 print*, 'Initialized'
 
 ! New force parameter, chi:
+<<<<<<< Updated upstream
 chi = 10D0/7.05D0
+=======
+chi = 180D0/7.05D0
+>>>>>>> Stashed changes
 
 ! Time step loop
 DO i = 1,cell%NT
