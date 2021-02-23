@@ -82,8 +82,8 @@ DO i = 1,cell%NT
 !! ============================
         
 !       Hardcoded shear flow
-        cell%dU = 0D0
-        cell%dU(1,3) = 1d0
+        ! cell%dU = 0D0
+        ! cell%dU(1,3) = 1d0
 
 !       Get surface derivatives, then stress froom deformation, then motion from fluid
         CALL cell%derivs()

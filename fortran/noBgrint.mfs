@@ -5,8 +5,8 @@ Dilatation_Ratio 100
 Bending_Modulus .03 .015
 Spont_Curvature -2
 Max_time_steps 10000
-Time_step 0.005
-Output ErAZE_ME TWZp16F10pNL5
+Time_step 0.002
+Output TWZp16F10pN
 Time_inc 5
 Harmonic_order 16
 Refinement_factor 2
