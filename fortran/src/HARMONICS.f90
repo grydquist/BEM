@@ -14,6 +14,13 @@ TYPE nmType
 
 END TYPE nmType
 
+! Object that saves info for rotation
+TYPE rotType
+    INTEGER :: n
+    COMPLEX(KIND = 8), ALLOCATABLE :: Dmm(:,:)
+
+END TYPE rotType
+
 ! Full harmonic object evaluated at all values tht and phi
 TYPE YType
 !   Max order
@@ -32,12 +39,16 @@ TYPE YType
 !   Items to keep for the FFT
     REAL(KIND = 8), ALLOCATABLE :: WSAVE(:)
     INTEGER LENSAV 
-    
+
+!   Save rotation info
+    LOGICAL :: hasrot = .false.
+    TYPE(rotType), ALLOCATABLE :: rot(:,:,:)
 
     CONTAINS
     PROCEDURE :: forward  => forwardYDirect! forwardY! 
     PROCEDURE :: backward => backwardY
     PROCEDURE :: rotate   => rotateY
+    PROCEDURE :: rotcnst   => rotcnstY
 
 END TYPE YType
 
@@ -56,12 +67,15 @@ CONTAINS
 !=============================================================================!
 
 ! Construction routine for whole spheerical harmonic structure
-FUNCTION newY(p, dero) RESULT(Y)
+FUNCTION newY(p, dero, rot) RESULT(Y)
     TYPE(YType) Y
     INTEGER, INTENT(IN) :: p, dero
 
-    INTEGER i, j
+    INTEGER i, j, n
     REAL(KIND = 8) xs(p + 1)
+
+!   Do we want to store rotation info about each point?
+    LOGICAL, INTENT(IN) :: rot
 
 !   Known constants based off p
     Y%p = p
@@ -113,6 +127,20 @@ FUNCTION newY(p, dero) RESULT(Y)
     Y%LENSAV =  2 * Y%np + int ( log ( real ( Y%np, kind = 8 ) ) ) + 4 !2*Y%np + INT(LOG(REAL(Y%np))) + 4
     ALLOCATE(Y%WSAVE(Y%LENSAV))
     CALL zfft1i(Y%np, Y%WSAVE, Y%LENSAV, i)
+
+!   Rotation info
+    Y%hasrot = rot
+    IF(rot) THEN
+        ALLOCATE(Y%rot(Y%nt,Y%np, Y%p+1))
+!       Go to each point and get all the rotation constants at that point
+        DO i = 1,Y%nt
+            DO j = 1,Y%np
+                DO n = 0,Y%p
+                    Y%rot(i,j,n + 1) = Y%rotcnst(Y%phi(j), -Y%tht(i), n)
+                ENDDO
+            ENDDO
+        ENDDO
+    ENDIF
 
 END FUNCTION newY
 
@@ -405,55 +433,74 @@ FUNCTION backwardY(Y, fmn, p) RESULT(f)
     ENDDO
 END FUNCTION backwardY
 
+! -------------------------------------------------------------------------!
+! Get constants for given angles and order
+FUNCTION rotcnstY(Y, a, b, n) RESULT(rot)
+    REAL(KIND = 8) a, b
+    CLASS(YType), TARGET :: Y
+    INTEGER m, mp, n, im, s
+    TYPE(rotType) :: rot
+    REAL(KIND = 8) Smm, dmms
+    REAL(KIND = 8), POINTER :: facs(:)
+
+    facs => Y%facs
+    rot%n = n
+    ALLOCATE(rot%Dmm(2*n + 1, n + 1))
+
+!   Loop over harmonic degree we're trying to calculate
+    DO mp = 0,n
+        im = 0
+!       Loop over harmonic degree we're using to calculate
+        DO m = -n,n
+            Smm = 0D0
+            im = im+1
+            DO s = MAX(0, m-mp), MIN(n+m, n-mp)
+                Smm = Smm + (-1D0)**s*(COS(b/2D0)**(2D0*(n - s) + m - mp) &
+                    * SIN(b/2D0)**(2D0*s - m + mp)) & 
+                    / (facs(n+m-s+1)*facs(s+1)*facs(mp-m+s+1)*facs(n-mp-s+1))
+            ENDDO
+            dmms = (-1D0)**(mp-m)*(facs(n+mp+1)*facs(n-mp+1)*facs(n+m+1)*facs(n-m+1))**0.5D0*Smm
+            rot%Dmm(im,mp+1) = EXP(ii*m*a)*dmms
+        ENDDO
+    ENDDO
+
+END FUNCTION rotcnstY
 
 ! -------------------------------------------------------------------------!
 ! Rotate spherical harmonic constants by given Euler angles
-FUNCTION rotateY(Y, fmn, a, b, c) RESULT(f)
-    REAL(KIND = 8) a, b, c
+FUNCTION rotateY(Y, fmn, ti, pj, c) RESULT(f)
+    REAL(KIND = 8) c
     COMPLEX(KIND = 8) fmn(:)
     CLASS(YType), TARGET :: Y
     COMPLEX(KIND = 8) f(SIZE(fmn))
 
-    INTEGER n, mp, it, m, im, s, i
+    INTEGER n, mp, it, m,  i, ti, pj
     INTEGER, ALLOCATABLE :: frng(:)
-    REAL(KIND = 8) Smm, dmms
-    COMPLEX(KIND = 8), ALLOCATABLE :: Dmm(:)
+    COMPLEX(KIND = 8), POINTER :: Dmm(:,:)
     REAL(KIND = 8), POINTER :: facs(:)
 
-    facs => Y%facs
+!   Need the rotation constants first
+    IF(.not. Y%hasrot) THEN
+        print *, 'ERROR: Need to calc rotation cnsts before rotation'
+    ENDIF
 
+    facs => Y%facs
     f = 0
     it = 0
-
     ALLOCATE(frng(1))
-    ALLOCATE(Dmm(1))
 
 !   Loop over harmonic order
     DO n = 0, Y%p
         DEALLOCATE(frng)
         ALLOCATE(frng(2*n + 1))
-        DEALLOCATE(Dmm)
-        ALLOCATE(Dmm(2*n + 1))
+!       Indices of fmn at a given n
         frng = (/(i, i=(it+1),(it+2*n+1), 1)/) 
         it = it+n
 !       Loop over harmonic degree we're trying to calculate
         DO mp = 0,n
-            Dmm = 0D0
-            im = 0
             it = it+1
-!           Loop over harmonic degree we're using to calculate
-            DO m = -n,n
-                Smm = 0D0
-                im = im+1
-                DO s = MAX(0, m-mp), MIN(n+m, n-mp)
-                    Smm = Smm + (-1D0)**s*(COS(b/2D0)**(2D0*(n - s) + m - mp) &
-                        * SIN(b/2D0)**(2D0*s - m + mp)) & 
-                        / (facs(n+m-s+1)*facs(s+1)*facs(mp-m+s+1)*facs(n-mp-s+1))
-                ENDDO
-                dmms = (-1D0)**(mp-m)*(facs(n+mp+1)*facs(n-mp+1)*facs(n+m+1)*facs(n-m+1))**0.5D0*Smm
-                Dmm(im) = EXP(ii*m*a)*dmms
-            ENDDO
-            f(it) = SUM(fmn(frng)*Dmm)
+            Dmm => Y%rot(ti, pj, n + 1)%Dmm
+            f(it) = SUM(fmn(frng)*Dmm(:,mp + 1))
             IF(mp .ne. 0) THEN
                 f(it - mp*2) = (-1D0)**mp*CONJG(f(it))
             ENDIF

@@ -118,8 +118,9 @@ FUNCTION newcell(filein) RESULT(cell)
 !   Gradient file location
     cell%gradfile = READ_GRINT_CHAR(filein, 'Gradient_file')
 
-    cell%Y = YType(p, 1)
-    cell%Yf = YType(p*fali, 4)
+!   Make harmonics(order, # of derivs, if we'll rotate or not)
+    cell%Y = YType(p, 1, .true.)
+    cell%Yf = YType(p*fali, 4, .false.)
     print *, 'Harmonics made'
 
     nt  = cell%Y%nt
@@ -1015,9 +1016,9 @@ SUBROUTINE Fluidcell(cell)
             Tx = MATMUL(MATMUL(t1,t2),t3)
 
 !           Get the rotated constants
-            cell%xmnR(1,:) = Y%rotate(cell%xmn(1,:), Y%phi(j), -Y%tht(i), -Y%phi(j))
-            cell%xmnR(2,:) = Y%rotate(cell%xmn(2,:), Y%phi(j), -Y%tht(i), -Y%phi(j))
-            cell%xmnR(3,:) = Y%rotate(cell%xmn(3,:), Y%phi(j), -Y%tht(i), -Y%phi(j))
+            cell%xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
+            cell%xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
+            cell%xmnR(3,:) = Y%rotate(cell%xmn(3,:), i, j, -Y%phi(j))
 
 !           Rotated integration points in unrotated frame
             xcg(1,:,:) = Y%backward(cell%xmnR(1,:))

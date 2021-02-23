@@ -17,8 +17,8 @@ CALL get_command_argument(number=1, value=filein, status=stat)
 cell = cellType(filein)
 CALL cpu_time(tic)
 
-print *, 'Reading in velocity gradient'
 !! ============================
+print *, 'Reading in velocity gradient'
 OPEN(1,FILE = cell%gradfile, ACCESS = 'stream', ACTION = 'read')
 READ(1) nts, i
 ALLOCATE(G(nts,3,3,i), ys(3,3,3))

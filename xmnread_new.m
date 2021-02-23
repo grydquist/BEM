@@ -2,7 +2,7 @@
 fclose all;
 % Get total timesteps outputted
 
-dir = 'fortran/dat/TWZp16F386pN/';
+dir = 'fortran/dat/TWZp16F50pN/';
 fid = fopen(strcat(dir,'maxdt'));
 tts = str2double(fgetl(fid));
 fclose(fid);
