@@ -42,6 +42,9 @@ $(OBJDIR)%.o : $(SRC)%.f90 | $(OBJDIR) $(MODDIR) $(DATDIR)
 
 $(MYEXEC): $(OBJ)
 	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ $^ $(DEPS) -L$(LDIR) $(LIBS)
+	@echo "-----------------------"
+	@echo "Compiled successfully!!"
+	@echo "-----------------------"
 
 $(OBJDIR):
 	mkdir -p $@

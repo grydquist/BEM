@@ -6,12 +6,12 @@ Bending_Modulus .03 .015
 Spont_Curvature -2
 Max_time_steps 10000
 Time_step 0.002
-Output TWZp16F10pN
+Output ERAZURE         TWZp16F10pN
 Time_inc 5
 Harmonic_order 16
 Refinement_factor 2
-Gradient_file GU_1.bin vel_grad.txt
+Gradient_file VG.bin
 Restart Yes
-Restart_Loc xrp16v98b03cm2.txt xrest015_100.txt
+Restart_Loc xrp16v98b03cm2.txt
 Kolm_time 2e-6
 Kolm_frac 0.1

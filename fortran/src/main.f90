@@ -2,41 +2,45 @@ PROGRAM MAIN
 USE UTILMOD
 USE SHAPEMOD
 IMPLICIT NONE
-REAL(KIND = 8) :: tic, toc, t = 0D0, xs(3), kdt, kfr
+REAL(KIND = 8) :: tic, toc, t = 0D0, xs(3), kdt, kfr, Gfac
 TYPE(cellType) :: cell
 CHARACTER(:), ALLOCATABLE :: filein
 INTEGER ::  i, argl, stat, kts, nts
-REAL(KIND=8), ALLOCATABLE :: G(:,:,:,:), ys(:,:,:)
+REAL(KIND=8), ALLOCATABLE :: G(:,:,:), ys(:,:,:), Gtmp(:,:,:,:)
 
-! Read in input file
+print *, 'Reading in input file...'
 CALL get_command_argument(number=1, length=argl)
 ALLOCATE(character(argl) :: filein)
 CALL get_command_argument(number=1, value=filein, status=stat)
 
-! Initialize & allocate
+print *, 'Initializing cell/harmonics...'
 cell = cellType(filein)
 CALL cpu_time(tic)
-
-!! ============================
-print *, 'Reading in velocity gradient'
-OPEN(1,FILE = cell%gradfile, ACCESS = 'stream', ACTION = 'read')
-READ(1) nts, i
-ALLOCATE(G(nts,3,3,i), ys(3,3,3))
-READ(1) G
-CLOSE(1)
-!! ============================
 
 ! Info about flow time scales/vel grad file
 kdt = READ_GRINT_DOUB(filein, 'Kolm_time')
 kfr = READ_GRINT_DOUB(filein, 'Kolm_frac')
 
-!! ============================
+print *, 'Reading in velocity gradient...'
+OPEN(1,FILE = cell%gradfile, ACCESS = 'stream', ACTION = 'read')
+READ(1) nts, i
+! Read into a temporary array so we don't hold onto this big one
+ALLOCATE(Gtmp(nts,3,3,i), ys(3,3,3))
+READ(1) Gtmp
+CLOSE(1)
+! How many timesteps from G do we actually need?
+Gfac = nts*kfr/(cell%NT*cell%dt)
+nts = CEILING(nts/Gfac)
+ALLOCATE(G(nts, 3, 3))
+G = Gtmp(1:nts, :, :, 1)
+DEALLOCATE(Gtmp)
+
 ! Let shape equilibrate by running a few time steps with no dU
 print *, 'Getting initial shape -'
-print *,  'Max velocity coefficient w.r.t. membrane time (want less than 0.0005):'
+print *,  'Max velocity coefficient w.r.t. membrane time (want less than 0.0005*Ca):'
 cell%dU = 0D0
 
-! To get the loop started
+!! ============================
 cell%umn(1,1) = 1/cell%Ca
 DO WHILE(MAXVAL(ABS(cell%umn))*cell%Ca .gt. 0.005)
         CALL cell%derivs()
@@ -54,7 +58,7 @@ ENDDO
 !   Write initial configuration
 CALL cell%write()
 
-print*, 'Initialized'
+print*, 'Initialized!'
 
 ! Time step loop
 DO i = 1,cell%NT
@@ -65,16 +69,16 @@ DO i = 1,cell%NT
         kts = FLOOR(t/kfr)
         xs(1) = REAL(kts,8)*kfr
         xs(2) = xs(1) + kfr
-        ys(1,:,:) = G(kts + 1,:,:,1)
-        ys(2,:,:) = G(kts + 2,:,:,1)
+        ys(1,:,:) = G(kts + 1,:,:)
+        ys(2,:,:) = G(kts + 2,:,:)
 
 !       Use two points to right and one left, unless you're at the end
         IF(t + 2D0*kfr .lt. nts*kfr) THEN
                 xs(3) = xs(2) + kfr
-                ys(3,:,:) = G(kts + 3,:,:,1)
+                ys(3,:,:) = G(kts + 3,:,:)
         ELSE
                 xs(3) = xs(1) - kfr
-                ys(3,:,:) = G(kts - 1,:,:,1)
+                ys(3,:,:) = G(kts - 1,:,:)
         ENDIF
 
 !       Do interpolation, then normalize by kolm time
