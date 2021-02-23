@@ -119,14 +119,14 @@ END FUNCTION newY
 !------------------------------------------------------------------!
 ! Makes a new Y, but takes in thts and phis instead of assuming a 
 ! plain ole grid
-FUNCTION newYbare(th, ph, p) RESULT(Y)
+FUNCTION newYbare(th, ph, p, dero) RESULT(Y)
     TYPE(YType) Y
 
     REAL(KIND = 8) :: th(:,:), ph(:,:)
-    INTEGER, OPTIONAL :: p
+    INTEGER, OPTIONAL :: p, dero
     INTEGER i, ntp(2)
 
-    IF(present(p)) THEN
+    IF(PRESENT(p)) THEN
         Y%p = p
     ELSE
         Y%p  = INT(sqrt(REAL(size(th)/2)) - 1)
@@ -144,10 +144,17 @@ FUNCTION newYbare(th, ph, p) RESULT(Y)
         Y%legs(:,i,:) = Alegendre(Y%p, cos(th(:,i)))
     ENDDO
 
+!   Get locations and derivatives if present
     ALLOCATE(Y%nm(Y%p + 1))
-    DO i = 0, Y%p
-        Y%nm(i+1) = nmType(i, 0, Y)
-    ENDDO
+    IF(PRESENT(dero)) THEN
+        DO i = 0, Y%p
+            Y%nm(i+1) = nmType(i, dero, Y)
+        ENDDO
+    ELSE
+        DO i = 0, Y%p
+            Y%nm(i+1) = nmType(i, 0, Y)
+        ENDDO
+    ENDIF
 
 END FUNCTION newYbare
 

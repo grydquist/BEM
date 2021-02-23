@@ -81,7 +81,7 @@ FUNCTION newcell(filein) RESULT(cell)
     CHARACTER(len = 3) :: restart
     CHARACTER(len = 30) :: restfile
 
-    INTEGER :: nt, np, ntf, npf, fali,p
+    INTEGER :: nt, np, ntf, npf, fali, p
 
 !   To fit dimesnionless parameters, we set a0 = 1, flow timescale = 1, mu = 1
 !   and fit the rest from there
@@ -949,7 +949,8 @@ SUBROUTINE Fluidcell(cell)
     Y => cell%Y
     Yf=> cell%Yf
 
-!   Big matrix size    
+!   Big matrix size (we don't calculate the highest order
+!   b/c it has a large error)
     Nmat = 3*(Y%p)*(Y%p)
 
 !   Allocate things
@@ -1083,8 +1084,7 @@ SUBROUTINE Fluidcell(cell)
                 ENDDO
             ENDDO
 !           Harmonics of integration points of rotated frame in nonrotated frame 
-            Yt = Ytype(thet, phit)                  !! could seriously save time by not doing this every time
-            ! Yt = Ytype(thet, phit, cell%q)
+            Yt = Ytype(thet, phit)                  !!! could seriously save time by not doing this every time
 
 !           Forces on rotated grid
             frot(1,:,:) = Yt%backward(cell%fmn(1,:))
@@ -1182,15 +1182,9 @@ SUBROUTINE Fluidcell(cell)
         ENDDO
     ENDDO
 
-!   The highest order coefficients are calculated with large error,
-!   so we need to throw them out
-    ! b2(3*(Y%p)*(Y%p)+1:3*(Y%p+1)*(Y%p+1)) = 0D0 !!!! Incorrect as of now because A2 no longer identity
-
+!   Calculate velocity up to highest order-1, b/c highest order has high error
     CALL zcgesv(Nmat, 1, A2, Nmat, IPIV, b2, Nmat, ut, Nmat, wrk, swrk, rwrk, iter, info)
     cell%umn = 0D0
-    ! cell%umn(1,1:(Y%p)*(Y%p)) = b2((/(i, i=1,3*(Y%p)*(Y%p)-2, 3)/))/(-4D0*pi)
-    ! cell%umn(2,1:(Y%p)*(Y%p)) = b2((/(i, i=2,3*(Y%p)*(Y%p)-1, 3)/))/(-4D0*pi)
-    ! cell%umn(3,1:(Y%p)*(Y%p)) = b2((/(i, i=3,3*(Y%p)*(Y%p)  , 3)/))/(-4D0*pi)
     cell%umn(1,1:Nmat/3) = ut((/(i, i=1,Nmat-2, 3)/))
     cell%umn(2,1:Nmat/3) = ut((/(i, i=2,Nmat-1, 3)/))
     cell%umn(3,1:Nmat/3) = ut((/(i, i=3,Nmat  , 3)/))
