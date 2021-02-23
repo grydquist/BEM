@@ -6,7 +6,7 @@ Bending_Modulus .03 .015
 Spont_Curvature -2
 Max_time_steps 10000
 Time_step 0.002
-Output tempdcdel TWZp16F10pN
+Output TWZp16F386pN
 Time_inc 5
 Harmonic_order 16
 Refinement_factor 2
