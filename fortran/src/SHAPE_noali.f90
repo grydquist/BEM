@@ -319,7 +319,7 @@ SUBROUTINE Derivscell(cell)
 
 !       Values at current order        
         nm =>Y%nm(ih)
-        DO m = -n,n
+        DO m = -n,n !!!! Could exploit symmetry here... but it isn't a big deal since it takes so little time
             it = it + 1
             im = im + 1
 
@@ -848,8 +848,8 @@ SUBROUTINE Fluidcell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, ih, it, im, row, col, im2, n2, m2, &
-               Nmat, iter, info
-    COMPLEX(KIND = 8) :: At(3,3), bt(3), td1, vcur, v(3,3)
+               Nmat, iter, info, colm, rowm
+    COMPLEX(KIND = 8) :: At(3,3), bt(3), td1, vcur, v(3,3), At2(3,3)
     REAL(KIND = 8) :: dxtg(3), dxpg(3), Uc(3), t1(3,3), t2(3,3), t3(3,3), Tx(3,3), &
                       xcr(3), gp(3), Utmp(3,3), nkg(3), r(3), eye(3,3)
     COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), A2(:,:), b(:), b2(:), ut(:), wrk(:)
@@ -901,7 +901,7 @@ SUBROUTINE Fluidcell(cell)
 !   First loop: inner integrals at GPs
     DO i = 1, Y%nt
         DO j = 1,Y%np
-!           Total Galerkin mode count
+!           Total coordinate count
             ic = ic + 1
 
 !           Velocity at integration point
@@ -955,13 +955,13 @@ SUBROUTINE Fluidcell(cell)
 
 !                   Rotate this Gauss point to nonrotated parameter space  
                     gp = INNER3_33(gp, Tx)
-!                   Sometimes precision can be an issue...!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Don't need to do this everytime (calcs same spot always)
+!                   Sometimes precision can be an issue...
                     IF(gp(3).gt.1)  gp(3) =  1D0
                     IF(gp(3).lt.-1) gp(3) = -1D0
                     phit(i2, j2) = ATAN2(gp(2), gp(1))
                     thet(i2, j2) = ACOS(gp(3))
 
-!                   We need the basis vectors in the rotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Perhaps theres a way to speed this up
+!                   We need the basis vectors in the rotated parameter space
 !                   to get the area element
                     it = 0
                     ih = 0
@@ -970,20 +970,32 @@ SUBROUTINE Fluidcell(cell)
                     DO n = 0,Y%p
                         ih = ih + 1
                         nm => Y%nm(ih)
-                        im = 0
-                        DO m = -n,n
+                        im = n
+                        it = it + n
+                        DO m = 0,n
+
                             im = im + 1
                             it = it + 1
-                            
                             td1 = nm%dY(1,im,i2,j2)
-                            dxtg(1) = dxtg(1) + REAL(cell%xmnR(1,it)*td1)
-                            dxtg(2) = dxtg(2) + REAL(cell%xmnR(2,it)*td1)
-                            dxtg(3) = dxtg(3) + REAL(cell%xmnR(3,it)*td1)
-
                             vcur = nm%v(im,i2,j2)
-                            dxpg(1) = dxpg(1) + REAL(cell%xmnR(1,it)*ii*m*vcur)
-                            dxpg(2) = dxpg(2) + REAL(cell%xmnR(2,it)*ii*m*vcur)
-                            dxpg(3) = dxpg(3) + REAL(cell%xmnR(3,it)*ii*m*vcur)
+!                           Exploit symmetry
+                            IF(m .ne. 0) THEN
+                                dxtg(1) = dxtg(1) + REAL(2D0*cell%xmnR(1,it)*td1)
+                                dxtg(2) = dxtg(2) + REAL(2D0*cell%xmnR(2,it)*td1)
+                                dxtg(3) = dxtg(3) + REAL(2D0*cell%xmnR(3,it)*td1)
+
+                                dxpg(1) = dxpg(1) + REAL(2D0*cell%xmnR(1,it)*ii*m*vcur)
+                                dxpg(2) = dxpg(2) + REAL(2D0*cell%xmnR(2,it)*ii*m*vcur)
+                                dxpg(3) = dxpg(3) + REAL(2D0*cell%xmnR(3,it)*ii*m*vcur)
+                            ELSE
+                                dxtg(1) = dxtg(1) + REAL(cell%xmnR(1,it)*td1)
+                                dxtg(2) = dxtg(2) + REAL(cell%xmnR(2,it)*td1)
+                                dxtg(3) = dxtg(3) + REAL(cell%xmnR(3,it)*td1)
+
+                                dxpg(1) = dxpg(1) + REAL(cell%xmnR(1,it)*ii*m*vcur)
+                                dxpg(2) = dxpg(2) + REAL(cell%xmnR(2,it)*ii*m*vcur)
+                                dxpg(3) = dxpg(3) + REAL(cell%xmnR(3,it)*ii*m*vcur)
+                            ENDIF
                         ENDDO
                     ENDDO
 !                   Inward normal                    
@@ -1001,14 +1013,14 @@ SUBROUTINE Fluidcell(cell)
                 ENDDO
             ENDDO
 !           Harmonics of integration points of rotated frame in nonrotated frame 
-            Yt = Ytype(thet, phit)                  !!! could seriously save time by not doing this every time
+            Yt = Ytype(thet, phit)
 
 !           Forces on rotated grid
             frot(1,:,:) = Yt%backward(cell%fmn(1,:))
             frot(2,:,:) = Yt%backward(cell%fmn(2,:))
             frot(3,:,:) = Yt%backward(cell%fmn(3,:))
 
-!           Bookkeeping
+!           Bookkeeping - rows are coordinates and columns are harmonics, in 3x3 ij blocks
             row = 3*(ic - 1)  + 1
             bt = 0
             ih = 0
@@ -1017,11 +1029,13 @@ SUBROUTINE Fluidcell(cell)
             DO n = 0, Y%p - 1
                 nm  => Y%nm(n+1)
                 nmt => Yt%nm(n+1)
-                im = 0
-                DO m = -n,n
+                im = n
+                ih = ih + n
+                DO m = 0,n
                     ih = ih + 1
                     im = im + 1
                     col = 3*(ih-1) + 1
+                    colm= col - 2*m*3
                     vcurn => nm%v(im,:,:)
                     vcurt => nmt%v(im,:,:)
                     At = 0
@@ -1045,6 +1059,11 @@ SUBROUTINE Fluidcell(cell)
 
 !                   LHS at integration point/harmonic combo, put in big matrix
                     A(row:row+2, col:col+2) = A(row:row+2, col:col+2) + At
+
+!                   Exploit symmetry
+                    IF(m .ne. 0) THEN
+                        A(row:row+2, colm:colm+2) = A(row:row+2, colm:colm+2) + (-1D0)**m*CONJG(At)
+                    ENDIF
                 ENDDO
             ENDDO
 !           Put RHS into big vector
@@ -1061,21 +1080,26 @@ SUBROUTINE Fluidcell(cell)
 !   Loop over outer product harmonics
     DO n = 0,Y%p - 1
         nm => cell%Y%nm(n+1)
-        im = 0
-        DO m = -n,n
+        im = n
+        it = it + n
+        DO m = 0,n
             im = im + 1
             it = it + 1
             row = 3*it - 2
+            rowm= row - 2*3*m
             bt(:) = 0D0
             vcurn => nm%v(im,:,:)
-            im2 = 0
             
+            im2 = 0
 !           Loop over inner harmonics (constant value is a column)
             DO n2 = 0,Y%p - 1
-                DO m2 = -n2,n2
+                im2 = im2 + n2
+                DO m2 = 0,n2
                     im2 = im2 + 1
                     col = 3*im2 - 2
+                    colm= col - 2*3*m2
                     At = 0D0
+                    At2 = 0D0
                     ic = 0
 !                   Loop over integration points to calc integral
                     DO i =1,Y%nt
@@ -1085,6 +1109,9 @@ SUBROUTINE Fluidcell(cell)
                             v = A(3*ic-2:3*ic, 3*im2-2:3*im2)
                             At = At + v*CONJG(vcurn(i,j))*cell%Y%wg(i)*cell%Y%dphi
 
+!                           Symmetry to calculate value at -m
+                            At2 = At2 + v*(-1D0)**m*vcurn(i,j)*cell%Y%wg(i)*cell%Y%dphi
+
 !                           Intg. b (essentially forward transform of RHS!)
                             IF(n2 .eq. 0) THEN
                                 bt = bt + b(3*ic-2:3*ic)*CONJG(vcurn(i,j)) &
@@ -1093,9 +1120,17 @@ SUBROUTINE Fluidcell(cell)
                         ENDDO
                     ENDDO
                     A2(row:row+2,col:col+2) = At
+!                   Exploit symmetry (This and the calculation of At2 are a little overkill,
+!                   but it's finnicky to get the right if statements so I'll just leave them)
+                    A2(rowm:rowm+2, col:col+2) = At2
+                    A2(row:row+2, colm:colm+2) = (-1D0)**(m2 - m)*CONJG(At2)
+                    A2(rowm:rowm+2, colm:colm+2) = (-1D0)**(m2 + m)*CONJG(At)
                 ENDDO
             ENDDO
             b2(row:row+2) = bt
+            IF(m.ne.0) THEN
+                b2(rowm:rowm+2)= (-1D0)**m*CONJG(bt)
+            ENDIF
         ENDDO
     ENDDO
 

@@ -31,8 +31,14 @@ CLOSE(1)
 ! How many timesteps from G do we actually need?
 Gfac = nts*kfr/(cell%NT*cell%dt)
 nts = CEILING(nts/Gfac)
-ALLOCATE(G(nts, 3, 3))
-G = Gtmp(1:nts, :, :, 1)
+! To prevent only having 2 timesteps
+if(nts .eq. 1) THEN
+        ALLOCATE(G(3, 3, 3))
+        G = Gtmp(1:3, :, :, 1)
+ELSE
+        ALLOCATE(G(nts+1, 3, 3))
+        G = Gtmp(1:nts+1, :, :, 1)
+ENDIF
 DEALLOCATE(Gtmp)
 
 ! Let shape equilibrate by running a few time steps with no dU
@@ -73,7 +79,8 @@ DO i = 1,cell%NT
         ys(2,:,:) = G(kts + 2,:,:)
 
 !       Use two points to right and one left, unless you're at the end
-        IF(t + 2D0*kfr .lt. nts*kfr) THEN
+!       Exception if there's just 1 timestep needed
+        IF(t + 2D0*kfr .lt. nts*kfr .or. nts .eq. 1) THEN
                 xs(3) = xs(2) + kfr
                 ys(3,:,:) = G(kts + 3,:,:)
         ELSE

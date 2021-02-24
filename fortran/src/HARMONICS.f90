@@ -228,7 +228,7 @@ FUNCTION newnm(n, dero, Y) RESULT(nm)
             ELSE
                 DO k = 1,Y%nt
                     DO l = 1,Y%np
-                        nm%v(im,k,l) = Y%legs(k, l,il)*EXP(ii*m*Y%ph(k,l))
+                        nm%v(im,k,l) = Y%legs(k, l,il)*EXP(ii*m*Y%ph(k,l)) !! Most expensive line
                     ENDDO
                 ENDDO
             ENDIF
@@ -421,14 +421,19 @@ FUNCTION backwardY(Y, fmn, p) RESULT(f)
 !   Just loop through and perform the sums
     DO n = 0,pp
         nm => Y%nm(n+1)
-        im = 0
-!       If f is real-valued we really only need to go m = 0,n
-        DO m = -n,n
+        im = n
+        it = it + n
+!       Exploit symmetry properties
+        DO m = 0,n
             it = it + 1
             im = im + 1
 !           This assumes f is a real-valued function,
 !           and that the imaginary values will have canceled anyway
-            f = f + REAL(fmn(it)*nm%v(im,:,:))
+            IF(m .ne. 0) THEN
+                f = f + REAL(2D0*fmn(it)*nm%v(im,:,:))
+            ELSE
+                f = f + REAL(fmn(it)*nm%v(im,:,:))
+            ENDIF
         ENDDO
     ENDDO
 END FUNCTION backwardY
