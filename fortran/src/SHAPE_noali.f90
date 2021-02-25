@@ -32,8 +32,7 @@ TYPE cellType
 !   Reference state variables
     REAL(KIND = 8), ALLOCATABLE :: kR(:,:), kdR(:,:,:), kd2R(:,:,:), &
     c1R(:,:,:), c2R(:,:,:), c1tR(:,:,:), c1pR(:,:,:), c2tR(:,:,:), &
-    c2pR(:,:,:)!, &
-    !gnR(:,:,:,:), dgtR(:,:,:,:), dgpR(:,:,:,:)
+    c2pR(:,:,:)
 
 !   Force variables
     REAL(KIND = 8), ALLOCATABLE :: fab(:,:,:), ff(:,:,:), fc(:,:,:)
@@ -87,7 +86,7 @@ FUNCTION newcell(filein) RESULT(cell)
     CHARACTER(len = 3) :: restart
     CHARACTER(len = 30) :: restfile
 
-    INTEGER :: nt, np, ntf, npf, fali,p
+    INTEGER :: nt, np, ntf, npf, fali, p
 
 !   To fit dimesnionless parameters, we set a0 = 1, flow timescale = 1, mu = 1
 !   and fit the rest from there
@@ -124,9 +123,9 @@ FUNCTION newcell(filein) RESULT(cell)
 !   Gradient file location
     cell%gradfile = READ_GRINT_CHAR(filein, 'Gradient_file')
 
-    cell%Y = YType(p, 1)
-    cell%Yf = YType(p*fali, 4)
-    print *, 'Harmonics made'
+!   Make harmonics(order, # of derivs, if we'll rotate or not)
+    cell%Y = YType(p, 1, .true.)
+    cell%Yf = YType(p*fali, 4, .false.)
 
     nt  = cell%Y%nt
     np  = cell%Y%np
@@ -144,8 +143,7 @@ FUNCTION newcell(filein) RESULT(cell)
 !   Reference items
     ALLOCATE(cell%kR(ntf,npf), cell%kdR(2,ntf,npf), cell%kd2R(3,ntf,npf), &
              cell%c1R(3,ntf,npf), cell%c2R(3,ntf,npf), cell%c1tR(3,ntf,npf), &
-             cell%c1pR(3,ntf,npf), cell%c2tR(3,ntf,npf), cell%c2pR(3,ntf,npf))!, &
-            !  cell%gnR(2,2,ntf,npf), cell%dgtR(2,2,ntf,npf), cell%dgpR(2,2,ntf,npf))
+             cell%c1pR(3,ntf,npf), cell%c2tR(3,ntf,npf), cell%c2pR(3,ntf,npf))
 
 !   Force items
     ALLOCATE(cell%fab(3,ntf,npf), cell%ff(3,ntf,npf), cell%fc(3,nt,np), &
@@ -329,7 +327,7 @@ SUBROUTINE Derivscell(cell)
 
 !       Values at current order        
         nm =>Y%nm(ih)
-        DO m = -n,n
+        DO m = -n,n !!!! Could exploit symmetry here... but it isn't a big deal since it takes so little time
             it = it + 1
             im = im + 1
 
@@ -455,9 +453,6 @@ SUBROUTINE Stresscell(cell)
                       Prjt(3,3), Prjp(3,3), taut(3,3), taup(3,3), dtauab(2,2), &
                       bv(2,2), bm(2,2), cvt, cvp, &
                       fb, LBk, kG, c0, fbt(3)
-!   Old/unused vaiable
-    ! REAL(KIND = 8) :: cq, normev1, normev2, mab(2,2), mabt(2,2), &
-    !                   mabp(2,2), dmab2(2,2),q1, q2, dq(2)
     
     B = cell%B
     C = cell%C
@@ -669,10 +664,6 @@ SUBROUTINE Stresscell(cell)
                 cell%c2tR(:,i,j) = c2t;
                 cell%c2pR(:,i,j) = c2p;
 
-                ! cell%gnR(:,:,i,j)  = gn
-                ! cell%dgtR(:,:,i,j) = dgt
-                ! cell%dgpR(:,:,i,j) = dgp
-
 !               Mark points that are within the stretch zone
                 IF(cell%xf(1,i,j).gt.1.23) THEN ! OBLATE
                 ! IF(cell%xf(1,i,j).gt.1.33) THEN ! BC - be sure to check
@@ -851,81 +842,6 @@ SUBROUTINE Stresscell(cell)
 !           surface forces, when it was opposite at one time, so I just swap them
             cell%fab(:,i,j) = -nk
 
-! !           Alternate way, staying in Cartesian
-! !           First get cartesian derivatives of tau via chain rule
-!             tauders(1,:,:) = taut*c1(1) + taup*c2(1)
-!             tauders(2,:,:) = taut*c1(2) + taup*c2(2)
-!             tauders(3,:,:) = taut*c1(3) + taup*c2(3)
-
-! !           Surface divergence
-!             cell%ff(1,i,j) = -SUM(Prj*tauders(:,:,1))
-!             cell%ff(2,i,j) = -SUM(Prj*tauders(:,:,2))
-!             cell%ff(3,i,j) = -SUM(Prj*tauders(:,:,3))
-
-
-! !           This is a way to just get the tensions directly in coontravariant form. The tensions
-! !           work fine, but for some reason the derivatives are incorrect. I also didn't try that hard
-! !           to get it to work. Might be nice to have, but not essential (Walter 2010 Eq. 13)
-
-!             tauab = 0.5D0*(B/(es(1)*es(2))*(I1 + 1)*cell%gnR(:,:,i,j) &
-!             + es(1)*es(2)*(C*I2 - B)*gn)
-
-!          dtauabt = (-B/(2D0*es(1)*es(1)*es(2))*(I1 + 1D0)*cell%gnR(:,:,i,j) + 0.5D0*es(2)*(C*I2 - B)*gn)*es1t & 
-!                  + (-B/(2D0*es(1)*es(2)*es(2))*(I1 + 1D0)*cell%gnR(:,:,i,j) + 0.5D0*es(1)*(C*I2 - B)*gn)*es2t &
-!                  + 0.5D0*B/(es(1)*es(2))*cell%gnR(:,:,i,j)*I1t & ! Strain invariants
-!                  + 0.5D0*es(1)*es(2)*C*gn*I2t &
-!                  + 0.5D0*B/(es(1)*es(2))*(I1 + 1D0)*cell%dgtR(:,:,i,j) & ! Tensors
-!                  + 0.5D0*es(1)*es(2)*(I2 - B)*dgt
-!          dtauabp = (-B/(2D0*es(1)*es(1)*es(2))*(I1 + 1D0)*cell%gnR(:,:,i,j) + 0.5D0*es(2)*(C*I2 - B)*gn)*es1p & 
-!                  + (-B/(2D0*es(1)*es(2)*es(2))*(I1 + 1D0)*cell%gnR(:,:,i,j) + 0.5D0*es(1)*(C*I2 - B)*gn)*es2p &
-!                  + 0.5D0*B/(es(1)*es(2))*cell%gnR(:,:,i,j)*I1p & ! Strain invariants
-!                  + 0.5D0*es(1)*es(2)*C*gn*I2p &
-!                  + 0.5D0*B/(es(1)*es(2))*(I1 + 1D0)*cell%dgpR(:,:,i,j) & ! Tensors
-!                  + 0.5D0*es(1)*es(2)*(I2 - B)*dgp
-
-
-
-!           This is the old way I did bending. It was mostly just a qualitative measure
-!           of bending, where the moment varied linearly with the difference in curvature
-!           between the current and reference state. I don't use it, and the bending model
-!           that I do use below is better I believe. The only catch is that the bending model
-!           below requires the use of a "spontaneous curvature", a material property that says
-!           how much a lipid bilayer bends without any forces. This is a material property,
-!           but one person uses it as a varying property so there is no stress in the biconcave
-!           resting shape.
-!             mab = -(k - cell%kR(i,j))*gn
-!             mabt = -(kt - cell%kdR(1,i,j))*gn - (k - cell%kR(i,j))*dgt
-!             mabp = -(kp - cell%kdR(2,i,j))*gn - (k - cell%kR(i,j))*dgp
-            
-!             dmab2(1,1) =-(kt2 - cell%kd2R(1,i,j))*gn(1,1) - 2D0*(kt - cell%kdR(1,i,j))*dgt(1,1) &
-!                        - (k - cell%kR(i,j))*dgt2(1,1)
-!             dmab2(1,2) =-(ktp - cell%kd2R(3,i,j))*gn(1,2) - (kt - cell%kdR(1,i,j))*dgp(1,2) &
-!                        - (kp  - cell%kdR(2,i,j))*dgt(1,2) - (k  - cell%kR(i,j))*dgtp(1,2)
-!             dmab2(2,1) =-(ktp - cell%kd2R(3,i,j))*gn(2,1) - (kt - cell%kdR(1,i,j))*dgp(2,1) &
-!                        - (kp  - cell%kdR(2,i,j))*dgt(2,1) - (k  - cell%kR(i,j))*dgtp(2,1)
-!             dmab2(2,2) =-(kp2 - cell%kd2R(2,i,j))*gn(2,2) - 2D0*(kp - cell%kdR(2,i,j))*dgp(2,2) &
-!                        - (k - cell%kR(i,j))*dgp2(2,2)
-
-! !           Transverse shears and partials
-!             q1 = Eb*(mabt(1,1) + mabp(2,1) + mab(1,1)*(2D0*c111 + c221) &
-!                + mab(2,1)*(2D0*c112 + c222) + mab(1,2)*c112 + mab(2,2)*c122)
-!             q2 = Eb*(mabt(1,2) + mabp(2,2) + mab(1,2)*(c111 + 2D0*c221) &
-!                + mab(2,2)*(c112 + 2D0*c222) + mab(1,1)*c211 + mab(2,1)*c221)
-            
-! !           Partials of q
-!             dq(1) = Eb*(dmab2(1,1) + dmab2(2,1) &
-!                   + mabt(1,1)*(2D0*c111 + c221) + mab(1,1)*(2D0*c111t + c221t) &
-!                   + mabt(2,1)*(2D0*c112 + c222) + mab(2,1)*(2D0*c112t + c222t) &
-!                   + mabt(1,2)*c112 + mab(1,2)*c112t + mabt(2,2)*c122 + mab(2,2)*c122t)
-            
-!             dq(2) = Eb*(dmab2(1,2) + dmab2(2,2) &
-!                   + mabp(1,2)*(c111 + 2D0*c221) + mab(1,2)*(c111p + 2D0*c221p) &
-!                   + mabp(2,2)*(c112 + 2D0*c222) + mab(2,2)*(c112p + 2D0*c222p) &
-!                   + mabp(1,1)*c211 + mab(1,1)*c211p + mabp(2,1)*c221 + mab(2,1)*c221p)
-!
-! !           Covariant divergence of q 
-!             cq = dq(1) + dq(2) + c111*q1 + c112*q2 + c221*q1 + c222*q2
-
         ENDDO inner
     ENDDO
 
@@ -954,8 +870,8 @@ SUBROUTINE Fluidcell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, ih, it, im, row, col, im2, n2, m2, &
-               Nmat, iter, info
-    COMPLEX(KIND = 8) :: At(3,3), bt(3), td1, vcur, v(3,3)
+               Nmat, iter, info, colm, rowm
+    COMPLEX(KIND = 8) :: At(3,3), bt(3), td1, vcur, v(3,3), At2(3,3)
     REAL(KIND = 8) :: dxtg(3), dxpg(3), Uc(3), t1(3,3), t2(3,3), t3(3,3), Tx(3,3), &
                       xcr(3), gp(3), Utmp(3,3), nkg(3), r(3), eye(3,3)
     COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), A2(:,:), b(:), b2(:), ut(:), wrk(:)
@@ -972,7 +888,8 @@ SUBROUTINE Fluidcell(cell)
     Y => cell%Y
     Yf=> cell%Yf
 
-!   Big matrix size    
+!   Big matrix size (we don't calculate the highest order
+!   b/c it has a large error)
     Nmat = 3*(Y%p)*(Y%p)
 
 !   Allocate things
@@ -1006,7 +923,7 @@ SUBROUTINE Fluidcell(cell)
 !   First loop: inner integrals at GPs
     DO i = 1, Y%nt
         DO j = 1,Y%np
-!           Total Galerkin mode count
+!           Total coordinate count
             ic = ic + 1
 
 !           Velocity at integration point
@@ -1037,9 +954,9 @@ SUBROUTINE Fluidcell(cell)
             Tx = MATMUL(MATMUL(t1,t2),t3)
 
 !           Get the rotated constants
-            cell%xmnR(1,:) = Y%rotate(cell%xmn(1,:), Y%phi(j), -Y%tht(i), -Y%phi(j))
-            cell%xmnR(2,:) = Y%rotate(cell%xmn(2,:), Y%phi(j), -Y%tht(i), -Y%phi(j))
-            cell%xmnR(3,:) = Y%rotate(cell%xmn(3,:), Y%phi(j), -Y%tht(i), -Y%phi(j))
+            cell%xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
+            cell%xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
+            cell%xmnR(3,:) = Y%rotate(cell%xmn(3,:), i, j, -Y%phi(j))
 
 !           Rotated integration points in unrotated frame
             xcg(1,:,:) = Y%backward(cell%xmnR(1,:))
@@ -1060,13 +977,13 @@ SUBROUTINE Fluidcell(cell)
 
 !                   Rotate this Gauss point to nonrotated parameter space  
                     gp = INNER3_33(gp, Tx)
-!                   Sometimes precision can be an issue...!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Don't need to do this everytime (calcs same spot always)
+!                   Sometimes precision can be an issue...
                     IF(gp(3).gt.1)  gp(3) =  1D0
                     IF(gp(3).lt.-1) gp(3) = -1D0
                     phit(i2, j2) = ATAN2(gp(2), gp(1))
                     thet(i2, j2) = ACOS(gp(3))
 
-!                   We need the basis vectors in the rotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Perhaps theres a way to speed this up
+!                   We need the basis vectors in the rotated parameter space
 !                   to get the area element
                     it = 0
                     ih = 0
@@ -1075,20 +992,32 @@ SUBROUTINE Fluidcell(cell)
                     DO n = 0,Y%p
                         ih = ih + 1
                         nm => Y%nm(ih)
-                        im = 0
-                        DO m = -n,n
+                        im = n
+                        it = it + n
+                        DO m = 0,n
+
                             im = im + 1
                             it = it + 1
-                            
                             td1 = nm%dY(1,im,i2,j2)
-                            dxtg(1) = dxtg(1) + REAL(cell%xmnR(1,it)*td1)
-                            dxtg(2) = dxtg(2) + REAL(cell%xmnR(2,it)*td1)
-                            dxtg(3) = dxtg(3) + REAL(cell%xmnR(3,it)*td1)
-
                             vcur = nm%v(im,i2,j2)
-                            dxpg(1) = dxpg(1) + REAL(cell%xmnR(1,it)*ii*m*vcur)
-                            dxpg(2) = dxpg(2) + REAL(cell%xmnR(2,it)*ii*m*vcur)
-                            dxpg(3) = dxpg(3) + REAL(cell%xmnR(3,it)*ii*m*vcur)
+!                           Exploit symmetry
+                            IF(m .ne. 0) THEN
+                                dxtg(1) = dxtg(1) + REAL(2D0*cell%xmnR(1,it)*td1)
+                                dxtg(2) = dxtg(2) + REAL(2D0*cell%xmnR(2,it)*td1)
+                                dxtg(3) = dxtg(3) + REAL(2D0*cell%xmnR(3,it)*td1)
+
+                                dxpg(1) = dxpg(1) + REAL(2D0*cell%xmnR(1,it)*ii*m*vcur)
+                                dxpg(2) = dxpg(2) + REAL(2D0*cell%xmnR(2,it)*ii*m*vcur)
+                                dxpg(3) = dxpg(3) + REAL(2D0*cell%xmnR(3,it)*ii*m*vcur)
+                            ELSE
+                                dxtg(1) = dxtg(1) + REAL(cell%xmnR(1,it)*td1)
+                                dxtg(2) = dxtg(2) + REAL(cell%xmnR(2,it)*td1)
+                                dxtg(3) = dxtg(3) + REAL(cell%xmnR(3,it)*td1)
+
+                                dxpg(1) = dxpg(1) + REAL(cell%xmnR(1,it)*ii*m*vcur)
+                                dxpg(2) = dxpg(2) + REAL(cell%xmnR(2,it)*ii*m*vcur)
+                                dxpg(3) = dxpg(3) + REAL(cell%xmnR(3,it)*ii*m*vcur)
+                            ENDIF
                         ENDDO
                     ENDDO
 !                   Inward normal                    
@@ -1106,15 +1035,14 @@ SUBROUTINE Fluidcell(cell)
                 ENDDO
             ENDDO
 !           Harmonics of integration points of rotated frame in nonrotated frame 
-            Yt = Ytype(thet, phit)                  !! could seriously save time by not doing this every time
-            ! Yt = Ytype(thet, phit, cell%q)
+            Yt = Ytype(thet, phit)
 
 !           Forces on rotated grid
             frot(1,:,:) = Yt%backward(cell%fmn(1,:))
             frot(2,:,:) = Yt%backward(cell%fmn(2,:))
             frot(3,:,:) = Yt%backward(cell%fmn(3,:))
 
-!           Bookkeeping
+!           Bookkeeping - rows are coordinates and columns are harmonics, in 3x3 ij blocks
             row = 3*(ic - 1)  + 1
             bt = 0
             ih = 0
@@ -1123,11 +1051,13 @@ SUBROUTINE Fluidcell(cell)
             DO n = 0, Y%p - 1
                 nm  => Y%nm(n+1)
                 nmt => Yt%nm(n+1)
-                im = 0
-                DO m = -n,n
+                im = n
+                ih = ih + n
+                DO m = 0,n
                     ih = ih + 1
                     im = im + 1
                     col = 3*(ih-1) + 1
+                    colm= col - 2*m*3
                     vcurn => nm%v(im,:,:)
                     vcurt => nmt%v(im,:,:)
                     At = 0
@@ -1151,6 +1081,11 @@ SUBROUTINE Fluidcell(cell)
 
 !                   LHS at integration point/harmonic combo, put in big matrix
                     A(row:row+2, col:col+2) = A(row:row+2, col:col+2) + At
+
+!                   Exploit symmetry
+                    IF(m .ne. 0) THEN
+                        A(row:row+2, colm:colm+2) = A(row:row+2, colm:colm+2) + (-1D0)**m*CONJG(At)
+                    ENDIF
                 ENDDO
             ENDDO
 !           Put RHS into big vector
@@ -1167,21 +1102,26 @@ SUBROUTINE Fluidcell(cell)
 !   Loop over outer product harmonics
     DO n = 0,Y%p - 1
         nm => cell%Y%nm(n+1)
-        im = 0
-        DO m = -n,n
+        im = n
+        it = it + n
+        DO m = 0,n
             im = im + 1
             it = it + 1
             row = 3*it - 2
+            rowm= row - 2*3*m
             bt(:) = 0D0
             vcurn => nm%v(im,:,:)
-            im2 = 0
             
+            im2 = 0
 !           Loop over inner harmonics (constant value is a column)
             DO n2 = 0,Y%p - 1
-                DO m2 = -n2,n2
+                im2 = im2 + n2
+                DO m2 = 0,n2
                     im2 = im2 + 1
                     col = 3*im2 - 2
+                    colm= col - 2*3*m2
                     At = 0D0
+                    At2 = 0D0
                     ic = 0
 !                   Loop over integration points to calc integral
                     DO i =1,Y%nt
@@ -1191,6 +1131,9 @@ SUBROUTINE Fluidcell(cell)
                             v = A(3*ic-2:3*ic, 3*im2-2:3*im2)
                             At = At + v*CONJG(vcurn(i,j))*cell%Y%wg(i)*cell%Y%dphi
 
+!                           Symmetry to calculate value at -m
+                            At2 = At2 + v*(-1D0)**m*vcurn(i,j)*cell%Y%wg(i)*cell%Y%dphi
+
 !                           Intg. b (essentially forward transform of RHS!)
                             IF(n2 .eq. 0) THEN
                                 bt = bt + b(3*ic-2:3*ic)*CONJG(vcurn(i,j)) &
@@ -1199,21 +1142,23 @@ SUBROUTINE Fluidcell(cell)
                         ENDDO
                     ENDDO
                     A2(row:row+2,col:col+2) = At
+!                   Exploit symmetry (This and the calculation of At2 are a little overkill,
+!                   but it's finnicky to get the right if statements so I'll just leave them)
+                    A2(rowm:rowm+2, col:col+2) = At2
+                    A2(row:row+2, colm:colm+2) = (-1D0)**(m2 - m)*CONJG(At2)
+                    A2(rowm:rowm+2, colm:colm+2) = (-1D0)**(m2 + m)*CONJG(At)
                 ENDDO
             ENDDO
             b2(row:row+2) = bt
+            IF(m.ne.0) THEN
+                b2(rowm:rowm+2)= (-1D0)**m*CONJG(bt)
+            ENDIF
         ENDDO
     ENDDO
 
-!   The highest order coefficients are calculated with large error,
-!   so we need to throw them out
-    ! b2(3*(Y%p)*(Y%p)+1:3*(Y%p+1)*(Y%p+1)) = 0D0 !!!! Incorrect as of now because A2 no longer identity
-
+!   Calculate velocity up to highest order-1, b/c highest order has high error
     CALL zcgesv(Nmat, 1, A2, Nmat, IPIV, b2, Nmat, ut, Nmat, wrk, swrk, rwrk, iter, info)
     cell%umn = 0D0
-    ! cell%umn(1,1:(Y%p)*(Y%p)) = b2((/(i, i=1,3*(Y%p)*(Y%p)-2, 3)/))/(-4D0*pi)
-    ! cell%umn(2,1:(Y%p)*(Y%p)) = b2((/(i, i=2,3*(Y%p)*(Y%p)-1, 3)/))/(-4D0*pi)
-    ! cell%umn(3,1:(Y%p)*(Y%p)) = b2((/(i, i=3,3*(Y%p)*(Y%p)  , 3)/))/(-4D0*pi)
     cell%umn(1,1:Nmat/3) = ut((/(i, i=1,Nmat-2, 3)/))
     cell%umn(2,1:Nmat/3) = ut((/(i, i=2,Nmat-1, 3)/))
     cell%umn(3,1:Nmat/3) = ut((/(i, i=3,Nmat  , 3)/))

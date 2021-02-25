@@ -79,7 +79,7 @@ CALL cell%write()
 print*, 'Initialized'
 
 ! New force parameter, chi:
-chi = 386D0/7.05D0
+chi = 360D0/7.05D0
 
 ! Time step loop
 DO i = 1,cell%NT
