@@ -2,7 +2,7 @@
 fclose all;
 % Get total timesteps outputted
 
-dir = 'fortran/dat/TWZp16F50pN/';
+dir = 'fortran/dat/HITCa1/';
 fid = fopen(strcat(dir,'maxdt'));
 tts = str2double(fgetl(fid));
 fclose(fid);
@@ -28,7 +28,7 @@ end
 fclose(fid);
 
 % How many timesteps to skip
-incr = 25;
+incr = 75;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
