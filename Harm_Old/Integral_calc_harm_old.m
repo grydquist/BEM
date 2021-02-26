@@ -4,7 +4,8 @@
 mu = 1;
 U = [0;0;0];
 nsd = 3;
-dU = [0,0,0;0,0,0;1,0,0];
+dU = [0,0,0;0,0,0;0,0,0];
+dU = [0,.5,0;.5,0,0;0,0,0];
 %% Actual code - Spherical harmonics creation
 
 % Order of harmonics
@@ -27,10 +28,10 @@ phic = phic(1:end-1);
 
 % Our grid to evaluate integrals over the surface. We use a trapezoidal
 % rule of equidistant points in phi, and Gauss points in theta
-np = 10*(p+1);
+np = 4*(p+1);
 dphi = 2*pi/np;
 phi = 0:dphi:dphi*(np-1)';
-nt = 5*(p+2);
+nt = 2*(p+2);
 [xs,wg] = lgwt(nt,-1,1);
 tht = acos(xs);
 [ph,th] = meshgrid(phi,tht);

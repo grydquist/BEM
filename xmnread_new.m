@@ -3,6 +3,7 @@ fclose all;
 % Get total timesteps outputted
 
 dir = 'fortran/dat/HITCa1/';
+% dir = 'pap_dat/TWZ/cmplTWZ/TWZp16F90pN/';
 fid = fopen(strcat(dir,'maxdt'));
 tts = str2double(fgetl(fid));
 fclose(fid);
@@ -28,7 +29,7 @@ end
 fclose(fid);
 
 % How many timesteps to skip
-incr = 75;
+incr = 100;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
@@ -210,15 +211,15 @@ for i = 1:incr:tts + 1
 
 elx = vertcat(x1(:,1),x1(:,51));
 elz = vertcat(x3(:,1),x3(:,51));
-elxa((i-1)/incr + 1,:) = elx;
-elza((i-1)/incr + 1,:) = elz;
+% elxa((i-1)/incr + 1,:) = elx;
+% elza((i-1)/incr + 1,:) = elz;
 rs = sqrt(elx.^2 + elz.^2);
 Dij((i-1)/incr + 1) = (max(rs)-min(rs))/(max(rs) + min(rs));
 incl((i-1)/incr + 1) = atan2(abs(angs(3,1)),abs(angs(1,1)))/4;
 incl(1) = 1/4;
 
     drawnow
-% Capture the plot as an image 
+% % Capture the plot as an image 
 % h = figure(1);
 % frame = getframe(h); 
 % im = frame2im(frame); 

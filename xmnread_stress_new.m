@@ -52,7 +52,7 @@ myf = zeros(3,ntf,npf);
 fab = myf;
 
 % Read Param file to get simulation info
-dir = 'fortran/dat/HITp16Ca05/';
+dir = 'fortran/dat/HITCa1/';
 fid = fopen(strcat(dir,'Params'));
 tline = fgetl(fid);
 while ischar(tline)
@@ -97,7 +97,7 @@ fclose(fid);
 tts = floor(tts);
 
 % How many timesteps to skip
-incr = 10;
+incr = 50;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
@@ -695,7 +695,7 @@ myf = real(myf);
     sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
 %   Plot this timestep
     surf(squeeze(xf(1,:,:)),squeeze(xf(2,:,:)),squeeze(xf(3,:,:)), ...
-        Sh,'edgecolor','none', ...
+        J./JR - 1,'edgecolor','none', ...
      'FaceAlpha',0.95,'FaceLighting','gouraud')
     %J./JR - 1,'edgecolor','none', ... % NOTE THAT J/JR = es(1)*es(2)!!
     %ps2,'edgecolor','none', ...
