@@ -665,10 +665,11 @@ SUBROUTINE Stresscell(cell)
                 cell%c2pR(:,i,j) = c2p;
 
 !               Mark points that are within the stretch zone
-                IF(cell%xf(1,i,j).gt.1.23) THEN ! OBLATE
+                IF(cell%xf(1,i,j).gt.1.18) THEN ! OBLATE
                 ! IF(cell%xf(1,i,j).gt.1.33) THEN ! BC - be sure to check
                     cell%mark(i,j) = -1;
-                ELSEIF(cell%xf(1,i,j).lt.-1.23) THEN ! OBLATE
+                    ! print *, cell%xf(2,i,j),i,j
+                ELSEIF(cell%xf(1,i,j).lt.-1.18) THEN ! OBLATE
                     ! ELSEIF(cell%xf(1,i,j).lt.-1.3) THEN ! BC  - be sure to check
                     cell%mark(i,j) = 1;
                 ELSE

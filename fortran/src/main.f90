@@ -79,7 +79,7 @@ CALL cell%write()
 print*, 'Initialized'
 
 ! New force parameter, chi:
-chi = 360D0/7.05D0
+chi = 325D0/7.05D0
 
 ! Time step loop
 DO i = 1,cell%NT
@@ -149,12 +149,12 @@ DO i = 1,cell%NT
 
 ! !       If you want to see where the markers are applied
 !         OPEN (UNIT = 88, FILE = 'tmpmark')
-!         WRITE(88,*) cell%mark
+!         WRITE(88,*) cell%mark !cell%Yf%backward(cell%fmn(1,:)) !
 !         CLOSE(88)
 !         OPEN (UNIT = 88, FILE = 'tmpxf')
-!         WRITE(88,*) cell%xf(1,:,:)
-!         WRITE(88,*) cell%xf(2,:,:)
-!         WRITE(88,*) cell%xf(3,:,:)
+!         WRITE(88,*) cell%xf(1,:,:) !cell%x(1,:,:) !
+!         WRITE(88,*) cell%xf(2,:,:) !cell%x(2,:,:) !
+!         WRITE(88,*) cell%xf(3,:,:) !cell%x(3,:,:) !
 !         CLOSE(88)
 
 ! !       If you want to see the percentage of surface area covered by the markers
