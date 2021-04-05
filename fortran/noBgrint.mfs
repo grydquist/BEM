@@ -1,13 +1,13 @@
 All properties nondimensional (even time step, based on Kolm time)
 Viscosity_Ratio 5
-Capillary 0.5 0.166667
+Capillary 0.25 0.166667
 Dilatation_Ratio 100
 Bending_Modulus .03 .015
 Spont_Curvature -2
 Max_time_steps 10000
-Time_step 0.002
-Output HITCa05
-Time_inc 5
+Time_step 0.001
+Output HITCa025_10
+Time_inc 25
 Harmonic_order 16
 Refinement_factor 2
 Gradient_file VG.bin

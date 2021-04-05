@@ -2,7 +2,7 @@
 fclose all;
 % Get total timesteps outputted
 
-dir = 'fortran/dat/HITCa1/';
+dir = 'fortran/dat/HITCa075_8/';
 % dir = 'pap_dat/TWZ/cmplTWZ/TWZp16F90pN/';
 fid = fopen(strcat(dir,'maxdt'));
 tts = str2double(fgetl(fid));
@@ -29,7 +29,7 @@ end
 fclose(fid);
 
 % How many timesteps to skip
-incr = 100;
+incr = 250;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
@@ -209,8 +209,8 @@ for i = 1:incr:tts + 1
 [cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
 % Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
 
-elx = vertcat(x1(:,1),x1(:,51));
-elz = vertcat(x3(:,1),x3(:,51));
+elx = vertcat(x1(:,1),flip(x1(:,51)));
+elz = vertcat(x3(:,1),flip(x3(:,51)));
 % elxa((i-1)/incr + 1,:) = elx;
 % elza((i-1)/incr + 1,:) = elz;
 rs = sqrt(elx.^2 + elz.^2);

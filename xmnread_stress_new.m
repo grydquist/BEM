@@ -52,7 +52,7 @@ myf = zeros(3,ntf,npf);
 fab = myf;
 
 % Read Param file to get simulation info
-dir = 'fortran/dat/HITCa1/';
+dir = 'fortran/dat/HITCa075_8/';
 fid = fopen(strcat(dir,'Params'));
 tline = fgetl(fid);
 while ischar(tline)
@@ -97,7 +97,7 @@ fclose(fid);
 tts = floor(tts);
 
 % How many timesteps to skip
-incr = 50;
+incr = 100;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
@@ -718,8 +718,8 @@ myf = real(myf);
 [cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
 % Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
 
-elx = vertcat(x1(:,1),x1(:,51));
-elz = vertcat(x3(:,1),x3(:,51));
+elx = vertcat(x1(:,1),flip(x1(:,51)));
+elz = vertcat(x3(:,1),flip(x3(:,51)));
 elxa((i-1)/incr + 1,:) = elx;
 elza((i-1)/incr + 1,:) = elz;
 rs = sqrt(elx.^2 + elz.^2);
@@ -730,6 +730,22 @@ incl(1) = 1/4;
 % plot(thtf, taup1(:,1))
 % plot(thtf,J(:,1)./JR(:,1)- J2(:,1)./JR(:,1))
 % axis([0,pi,-5e-4,5e-4])
+
+
+% clf
+% %     surf(squeeze(xf(1,:,:)),squeeze(xf(2,:,:)),squeeze(xf(3,:,:)), ...
+% %         Sh,'edgecolor','none', ...
+% %      'FaceAlpha',1,'FaceLighting','gouraud')
+%     surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 0 0], ...
+%          'FaceAlpha',0.75,'FaceLighting','gouraud')
+%     lightangle(gca,150,50)
+%     set(gca,'nextplot','replacechildren','visible','off')
+%     caxis([.75, 1.5]);
+%     view(90,45);
+%     axis([-2,2,-2,2,-2,2])
+%     pbaspect([1,1,1])
+%     set(gcf, 'color', 'white');
+
     drawnow
 
 % disp(max(max(max(abs(myf))))*2/B);

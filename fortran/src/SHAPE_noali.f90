@@ -1154,7 +1154,7 @@ SUBROUTINE UpdateCell(cell, ord, reduce)
 !   Remove rigid body motion
     cell%umn(:,1) = 0D0
 
-!   Volume correction: small, inward normal velocity based off current volume/SA/time step
+!   Volume correction: small, inward normal velocity based off current volume/SA/time step (remove for deflate/reduce)
     zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*cell%dt)
     cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
 
