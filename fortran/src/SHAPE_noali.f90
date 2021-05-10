@@ -74,8 +74,9 @@ CONTAINS
 !=============================================================================!
 
 ! Constructs cell object, takes in order and alias amount
-FUNCTION newcell(filein) RESULT(cell)
+FUNCTION newcell(filein, reduce) RESULT(cell)
     CHARACTER(len = *), INTENT(IN) :: filein
+    LOGICAL, INTENT(IN) :: reduce
     TYPE(cellType) :: cell
     CHARACTER(len = 3) :: restart
     CHARACTER(len = 30) :: restfile
@@ -158,10 +159,13 @@ FUNCTION newcell(filein) RESULT(cell)
     CALL cell%Derivs()
     CALL cell%Stress()
 
-!   Now scale to get the equivalent radius we input
-    cell%xmn = cell%xmn/(3D0*cell%vol()/(4D0*pi))**(1D0/3D0)
+!   Now scale to get an equivalent radius of 1
+    IF(.not. reduce) THEN
+        cell%xmn = cell%xmn/(3D0*cell%vol()/(4D0*pi))**(1D0/3D0)
 !   If we want to do deflation, comment the above and scale to get right SA
-    ! cell%xmn = cell%xmn*(16.8447913187040D0/cell%SA())**(1D0/2D0) 
+    ELSE
+        cell%xmn = cell%xmn*(16.8447913187040D0/cell%SA())**(1D0/2D0) 
+    ENDIF
 
 !   Initialize derivs again... I do this because I need the derivs to get the volume
     CALL cell%Derivs()
@@ -211,7 +215,7 @@ SUBROUTINE Writecell(cell)
     datdir = TRIM('dat/'//cell%fileout//'/')
     filename = TRIM('x_'//ctsst)
 
-!   Write position
+!   Write position - first half - real, x,y,z groups, second half imag
     IF(.not. cell%writ) THEN
         CALL MAKEDIRQQ(datdir)
     ENDIF
@@ -1016,9 +1020,9 @@ SUBROUTINE Fluidcell(cell)
             Yt = Ytype(thet, phit)
 
 !           Forces on rotated grid
-            frot(1,:,:) = Yt%backward(cell%fmn(1,:))
-            frot(2,:,:) = Yt%backward(cell%fmn(2,:))
-            frot(3,:,:) = Yt%backward(cell%fmn(3,:))
+            frot(1,:,:) = Yt%backward(cell%fmn(1,:))*Jg/SIN(Y%th)
+            frot(2,:,:) = Yt%backward(cell%fmn(2,:))*Jg/SIN(Y%th)
+            frot(3,:,:) = Yt%backward(cell%fmn(3,:))*Jg/SIN(Y%th)
 
 !           Bookkeeping - rows are coordinates and columns are harmonics, in 3x3 ij blocks
             row = 3*(ic - 1)  + 1
@@ -1045,12 +1049,12 @@ SUBROUTINE Fluidcell(cell)
                     DO i2 = 1,Y%nt
                         DO j2 = 1,Y%np
 !                           Add in integral parts
-                            At = At + vT(:,:,i2,j2)*vcurt(i2,j2)*Jg(i2,j2)&
+                            At = At + vT(:,:,i2,j2)*vcurt(i2,j2)*Jg(i2,j2)/SIN(Y%tht(i2))&
                               * cell%Y%ws(i2)*cell%Y%dphi
 !                           RHS part, only need to do once
                             IF(n .eq. 0) THEN
                                 bt = bt + INNER3_33(frot(:,i2,j2),vG(:,:,i2,j2)) &
-                                   * Jg(i2,j2)*cell%Y%ws(i2)
+                                   * cell%Y%ws(i2)
                             ENDIF
                         ENDDO
                     ENDDO
@@ -1154,9 +1158,12 @@ SUBROUTINE UpdateCell(cell, ord, reduce)
 !   Remove rigid body motion
     cell%umn(:,1) = 0D0
 
-!   Volume correction: small, inward normal velocity based off current volume/SA/time step (remove for deflate/reduce)
-    zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*cell%dt)
-    cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+!   Volume correction: small, inward normal velocity based off current volume/SA/time step
+!   Removed for reduce, because that keeps things at constant volume
+    if(.not. reduce) THEN
+        zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*cell%dt)
+        cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+    ENDIF
 
     umnt = cell%umn
     xmnt = cell%xmn

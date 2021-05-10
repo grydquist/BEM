@@ -3,7 +3,7 @@ fclose all;
 % Harmonics evaluated at fine grid
 ntf = 40;
 npf = 60;
-thtf = linspace(.1,pi-.1,ntf);
+thtf = linspace(.001,pi-.001,ntf);
 % [xsf,wgf] = lgwt(ntf,-1,1);
 % thtf = acos(xsf);
 phif = linspace(0,2*pi,npf);
@@ -52,7 +52,7 @@ myf = zeros(3,ntf,npf);
 fab = myf;
 
 % Read Param file to get simulation info
-dir = 'fortran/dat/HITCa075_8/';
+dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
 fid = fopen(strcat(dir,'Params'));
 tline = fgetl(fid);
 while ischar(tline)
@@ -97,7 +97,7 @@ fclose(fid);
 tts = floor(tts);
 
 % How many timesteps to skip
-incr = 100;
+incr = floor(.1/ts);%500;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
@@ -551,19 +551,19 @@ for i2 = 1:ntf
         V2 = Fd*Fd';
         
 %       Principal strains
-        [ev,lams] = eigs(V2);
+        [ev,lams] = eig(V2);
         es = sqrt(diag(lams));
-        ps1(i2,j) = es(1);
+        ps1(i2,j) = es(3);
         ps2(i2,j) = es(2);
-        Ar(i2,j) = es(1)*es(2);
-        Sh(i2,j) = es(1)/es(2);
+        Ar(i2,j) = es(3)*es(2);
+        Sh(i2,j) = es(3)/es(2);
 %       Normalized eigenvectors        
         ev1 = ev(:,1)/norm(ev(:,1));
         ev2 = ev(:,2)/norm(ev(:,2));
         
 %       Strain invariants
-        I1 = es(1)^2 + es(2)^2 - 2;
-        I2 = es(1)^2*es(2)^2 - 1;
+        I1 = es(3)^2 + es(2)^2 - 2;
+        I2 = es(3)^2*es(2)^2 - 1;
         
 %       Covariant in plane deformation gradient tensor !!!! just a check
         Fdv = [dxt(:,i2,j)'*Fd*dxt(:,i2,j),dxt(:,i2,j)'*Fd*dxp(:,i2,j)
@@ -576,12 +576,12 @@ for i2 = 1:ntf
         eps = (Fdn*Fdv' - eye(2))/2;
         
 %       In plane tension
-        tau = 0.5*(B/(es(1)*es(2))*(I1 + 1)*V2 ... % Numerical instability here: C increases I2 when it's at ~1e-16 to ~1e-14
-            +  es(1)*es(2)*(C*I2-B)*P);
+        tau = 0.5*(B/(es(3)*es(2))*(I1 + 1)*V2 ... % Numerical instability here: C increases I2 when it's at ~1e-16 to ~1e-14
+            +  es(3)*es(2)*(C*I2-B)*P);
         
 %       Principal tensions (not really needed, but could be good to check)
-        taup1(i2,j) = es(1)/es(2)*(B/2*(2*I1+1)) + es(1)*es(2)*(-B/2+C/2*I2);
-        taup2(i2,j) = es(2)/es(1)*(B/2*(2*I1+1)) + es(1)*es(2)*(-B/2+C/2*I2);
+        taup1(i2,j) = es(3)/es(2)*(B/2*(2*I1+1)) + es(3)*es(2)*(-B/2+C/2*I2);
+        taup2(i2,j) = es(2)/es(3)*(B/2*(2*I1+1)) + es(3)*es(2)*(-B/2+C/2*I2);
 
 %       Matrix in surface coordinates (contravariant)
         tau11 = c1'*tau*c1;
@@ -609,30 +609,30 @@ for i2 = 1:ntf
         des2p = 0.5/sqrt(lams(2,2))*sum(dot(dlam2dV2,dV2p));
         
 %       Derivatives of strain invariants
-        dI1t = 2*es(1)*des1t + 2*es(2)*des2t;
-        dI1p = 2*es(1)*des1p + 2*es(2)*des2p;
-        dI2t = (2*es(1)*es(2)^2)*des1t + (es(1)^2*2*es(2))*des2t;
-        dI2p = (2*es(1)*es(2)^2)*des1p + (es(1)^2*2*es(2))*des2p;
+        dI1t = 2*es(3)*des1t + 2*es(2)*des2t;
+        dI1p = 2*es(3)*des1p + 2*es(2)*des2p;
+        dI2t = (2*es(3)*es(2)^2)*des1t + (es(3)^2*2*es(2))*des2t;
+        dI2p = (2*es(3)*es(2)^2)*des1p + (es(3)^2*2*es(2))*des2p;
         
 %       Derivatives of projection tensor (double neg in 2nd part)
         dPt = -dnt*-nk(:,i2,j)' + nk(:,i2,j)*dnt';
         dPp = -dnp*-nk(:,i2,j)' + nk(:,i2,j)*dnp';
         
 %       And finally the big one: derivatives of tau, separated via chain
-%       rule, starting with es(1), then es(2)
-        dtaut = (-B/(2*es(1)^2*es(2))*(I1+1)*V2 + es(2)/2*(C*I2-B)*P)*des1t ...
-              + (-B/(2*es(1)*es(2)^2)*(I1+1)*V2 + es(1)/2*(C*I2-B)*P)*des2t ...
-              + 0.5*B/(es(1)*es(2))*V2*dI1t ... % Invariants
-              + 0.5*es(1)*es(2)*C*P*dI2t ...
-              + 0.5*B/(es(1)*es(2))*(I1+1)*dV2t ...% Tensors
-              + 0.5*es(1)*es(2)*(I2-B)*dPt;
+%       rule, starting with es(3), then es(2)
+        dtaut = (-B/(2*es(3)^2*es(2))*(I1+1)*V2 + es(2)/2*(C*I2-B)*P)*des1t ...
+              + (-B/(2*es(3)*es(2)^2)*(I1+1)*V2 + es(3)/2*(C*I2-B)*P)*des2t ...
+              + 0.5*B/(es(3)*es(2))*V2*dI1t ... % Invariants
+              + 0.5*es(3)*es(2)*C*P*dI2t ...
+              + 0.5*B/(es(3)*es(2))*(I1+1)*dV2t ...% Tensors
+              + 0.5*es(3)*es(2)*(I2-B)*dPt;
           
-        dtaup = (-B/(2*es(1)^2*es(2))*(I1+1)*V2 + es(2)/2*(C*I2-B)*P)*des1p ...
-              + (-B/(2*es(1)*es(2)^2)*(I1+1)*V2 + es(1)/2*(C*I2-B)*P)*des2p ...
-              + 0.5*B/(es(1)*es(2))*V2*dI1p ... % Invariants
-              + 0.5*es(1)*es(2)*C*P*dI2p ...
-              + 0.5*B/(es(1)*es(2))*(I1+1)*dV2p ...% Tensors
-              + 0.5*es(1)*es(2)*(I2-B)*dPp;
+        dtaup = (-B/(2*es(3)^2*es(2))*(I1+1)*V2 + es(2)/2*(C*I2-B)*P)*des1p ...
+              + (-B/(2*es(3)*es(2)^2)*(I1+1)*V2 + es(3)/2*(C*I2-B)*P)*des2p ...
+              + 0.5*B/(es(3)*es(2))*V2*dI1p ... % Invariants
+              + 0.5*es(3)*es(2)*C*P*dI2p ...
+              + 0.5*B/(es(3)*es(2))*(I1+1)*dV2p ...% Tensors
+              + 0.5*es(3)*es(2)*(I2-B)*dPp;
           
 %       Now put into dtau matrix
         dtauab = [c1t'*tau*c1 + c1'*dtaut*c1 + c1'*tau*c1t, c1t'*tau*c2 + c1'*dtaut*c2 + c1'*tau*c2t 
@@ -695,12 +695,14 @@ myf = real(myf);
     sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
 %   Plot this timestep
     surf(squeeze(xf(1,:,:)),squeeze(xf(2,:,:)),squeeze(xf(3,:,:)), ...
-        J./JR - 1,'edgecolor','none', ...
+        Sh,'edgecolor','none', ...
      'FaceAlpha',0.95,'FaceLighting','gouraud')
-    %J./JR - 1,'edgecolor','none', ... % NOTE THAT J/JR = es(1)*es(2)!!
+    %J./JR - 1,'edgecolor','none', ... % NOTE THAT J/JR = es(3)*es(2)!!
     %ps2,'edgecolor','none', ...
     set(gca,'nextplot','replacechildren','visible','off')
     colorbar
+    shading interp;
+%     caxis([1,1.6]);
     % Top down
     % Side
 %     view(0,0);
@@ -713,7 +715,7 @@ myf = real(myf);
     xtop((i-1)/incr + 1) = real(SpHReconst(x1c,Ytrc));
     ytop((i-1)/incr + 1) = real(SpHReconst(x2c,Ytrc)); 
     ztop((i-1)/incr + 1) = real(SpHReconst(x3c,Ytrc)); 
-    scatter3(xtop((i-1)/incr + 1),ytop((i-1)/incr + 1),ztop((i-1)/incr + 1),75,'go','filled');
+%     scatter3(xtop((i-1)/incr + 1),ytop((i-1)/incr + 1),ztop((i-1)/incr + 1),75,'go','filled');
 
 [cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
 % Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
@@ -749,7 +751,7 @@ incl(1) = 1/4;
     drawnow
 
 % disp(max(max(max(abs(myf))))*2/B);
-% Capture the plot as an image 
+% % Capture the plot as an image 
 % h = figure(1);
 % frame = getframe(h); 
 % im = frame2im(frame); 
@@ -761,5 +763,4 @@ incl(1) = 1/4;
 % else 
 %   imwrite(imind,cm,filename,'gif','WriteMode','append','DelayTime',0); 
 % end
-
 end

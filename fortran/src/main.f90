@@ -5,7 +5,7 @@ IMPLICIT NONE
 REAL(KIND = 8) :: tic, toc, t = 0D0, xs(3), kdt, kfr, Gfac
 TYPE(cellType) :: cell
 CHARACTER(:), ALLOCATABLE :: filein
-INTEGER ::  i, argl, stat, kts, nts
+INTEGER ::  i, argl, stat, kts, nts, pthline
 REAL(KIND=8), ALLOCATABLE :: G(:,:,:), ys(:,:,:), Gtmp(:,:,:,:)
 
 print *, 'Reading in input file...'
@@ -14,12 +14,13 @@ ALLOCATE(character(argl) :: filein)
 CALL get_command_argument(number=1, value=filein, status=stat)
 
 print *, 'Initializing cell/harmonics...'
-cell = cellType(filein)
+cell = cellType(filein, .false.)
 CALL cpu_time(tic)
 
 ! Info about flow time scales/vel grad file
 kdt = READ_GRINT_DOUB(filein, 'Kolm_time')
 kfr = READ_GRINT_DOUB(filein, 'Kolm_frac')
+pthline = READ_GRINT_INT(filein, 'Path_line')
 
 print *, 'Reading in velocity gradient...'
 OPEN(1,FILE = cell%gradfile, ACCESS = 'stream', ACTION = 'read')
@@ -34,10 +35,10 @@ nts = CEILING(nts/Gfac)
 ! To prevent only having 2 timesteps
 if(nts .eq. 1) THEN
         ALLOCATE(G(3, 3, 3))
-        G = Gtmp(1:3, :, :, 1)
+        G = Gtmp(1:3, :, :, pthline)
 ELSE
         ALLOCATE(G(nts+1, 3, 3))
-        G = Gtmp(1:nts+1, :, :, 1)
+        G = Gtmp(1:nts+1, :, :, pthline)
 ENDIF
 DEALLOCATE(Gtmp)
 
@@ -57,7 +58,7 @@ DO WHILE(MAXVAL(ABS(cell%umn))*cell%Ca .gt. 0.005)
         cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
         cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:)) 
         cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
-        write(*,'(F8.5)') MAXVAL(ABS(cell%umn))*cell%Ca
+        write(*,'(F8.6)') MAXVAL(ABS(cell%umn))*cell%Ca
 ENDDO
 !! ============================
 

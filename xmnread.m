@@ -2,16 +2,16 @@
 
 % Read in raw data
 % fID = fopen('fortran/x25W_2.txt');
-fID = fopen('fortran/dat/cm2v98eb03runs/xp16_1_005.txt');
+% fID = fopen('fortran/dat/cm2v98eb03runs/xp16_1_005.txt');
 % fID = fopen('fortran/x_0_03_997.txt');
-% fID = fopen('pap_dat/TaylorValidation/Lam1/x015.txt');
+fID = fopen('pap_dat/MeshIndv97/x14Ca1TT.txt');
 a = fscanf(fID,'%f');
 fclose(fID);
     
 % fID = fopen('fortran/u_x25W_2.txt');
-fID = fopen('fortran/dat/cm2v98eb03runs/u_xp16_1_005.txt');
+% fID = fopen('fortran/dat/cm2v98eb03runs/u_xp16_1_005.txt');
 % fID = fopen('fortran/f_0_03_997.txt');
-% fID = fopen('pap_dat/TaylorValidation/Lam1/u_x015.txt');
+fID = fopen('pap_dat/MeshIndv97/u_x14Ca1TT.txt');
 us = fscanf(fID,'%f');
 fclose(fID);
 
@@ -150,6 +150,7 @@ for i = 1:incr:tts
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     clf;
+    sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
 %   Plot this timestep
     h1 = subplot(2,1,1);
     set(h1, 'Units', 'normalized');
@@ -208,8 +209,8 @@ for i = 1:incr:tts
 
 elx = vertcat(x1(:,1),x1(:,51));
 elz = vertcat(x3(:,1),x3(:,51));
-elxa((i-1)/incr + 1,:) = elx;
-elza((i-1)/incr + 1,:) = elz;
+% elxa((i-1)/incr + 1,:) = elx;
+% elza((i-1)/incr + 1,:) = elz;
 rs = sqrt(elx.^2 + elz.^2);
 Dij((i-1)/incr + 1) = (max(rs)-min(rs))/(max(rs) + min(rs));
 incl((i-1)/incr + 1) = atan2(abs(angs(3,1)),abs(angs(1,1)))/4;

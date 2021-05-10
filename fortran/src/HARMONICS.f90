@@ -18,6 +18,7 @@ END TYPE nmType
 TYPE rotType
     INTEGER :: n
     COMPLEX(KIND = 8), ALLOCATABLE :: Dmm(:,:)
+    REAL(KIND = 8), ALLOCATABLE :: dmms(:,:)
 
 END TYPE rotType
 
@@ -112,7 +113,7 @@ FUNCTION newY(p, dero, rot) RESULT(Y)
     Y%ws = 0
     DO i = 1,Y%nt
         DO j = 0,p
-            Y%ws(i) = Y%ws(i) + legendre(j, xs(i))/cos(Y%tht(i)/2)
+            Y%ws(i) = Y%ws(i) + legendre(j, xs(i))*sin(Y%tht(i)/2D0)*2D0
         ENDDO
         Y%ws(i) = Y%ws(i)*Y%wg(i)
     ENDDO
@@ -443,7 +444,7 @@ END FUNCTION backwardY
 FUNCTION rotcnstY(Y, a, b, n) RESULT(rot)
     REAL(KIND = 8) a, b
     CLASS(YType), TARGET :: Y
-    INTEGER m, mp, n, im, s
+    INTEGER m, mp, n, im, s, im2
     TYPE(rotType) :: rot
     REAL(KIND = 8) Smm, dmms
     REAL(KIND = 8), POINTER :: facs(:)
@@ -451,6 +452,7 @@ FUNCTION rotcnstY(Y, a, b, n) RESULT(rot)
     facs => Y%facs
     rot%n = n
     ALLOCATE(rot%Dmm(2*n + 1, n + 1))
+    ALLOCATE(rot%dmms(2*n + 1, 2*n + 1))
 
 !   Loop over harmonic degree we're trying to calculate
     DO mp = 0,n
@@ -466,6 +468,26 @@ FUNCTION rotcnstY(Y, a, b, n) RESULT(rot)
             ENDDO
             dmms = (-1D0)**(mp-m)*(facs(n+mp+1)*facs(n-mp+1)*facs(n+m+1)*facs(n-m+1))**0.5D0*Smm
             rot%Dmm(im,mp+1) = EXP(ii*m*a)*dmms
+        ENDDO
+    ENDDO
+
+!!  This is bad, but we need all of the dmms constant
+!   Loop over harmonic degree we're trying to calculate
+    im2 = 0
+    DO mp = -n,n
+        im2 = im2+1
+        im = 0
+!       Loop over harmonic degree we're using to calculate
+        DO m = -n,n
+            Smm = 0D0
+            im = im+1
+            DO s = MAX(0, m-mp), MIN(n+m, n-mp)
+                Smm = Smm + (-1D0)**s*(COS(b/2D0)**(2D0*(n - s) + m - mp) &
+                    * SIN(b/2D0)**(2D0*s - m + mp)) & 
+                    / (facs(n+m-s+1)*facs(s+1)*facs(mp-m+s+1)*facs(n-mp-s+1))
+            ENDDO
+            dmms = (-1D0)**(mp-m)*(facs(n+mp+1)*facs(n-mp+1)*facs(n+m+1)*facs(n-m+1))**0.5D0*Smm
+            rot%dmms(im,im2) = dmms
         ENDDO
     ENDDO
 
@@ -710,6 +732,7 @@ FUNCTION Readcoeff(filen, ord) RESULT(xmn)
 !   Now we know the file size, so we can allocate properly
     ALLOCATE(xmnraw(p))
 
+!   Text file format: all x real, all x imag, all y real, all y imag...
 !   And loop through again to get the values into this big array
     OPEN(unit = 13, file = filen, action = 'read')
     DO i = 1,p

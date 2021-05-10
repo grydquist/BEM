@@ -2,7 +2,10 @@
 fclose all;
 % Get total timesteps outputted
 
-dir = 'fortran/dat/HITCa075_8/';
+% dir = 'pap_dat/MeshIndNew/TT18/';
+% dir = 'pap_dat/TurbRes/Ca3/HITCa3_11/';
+% dir = 'fortran/dat/Rand12/';
+dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
 % dir = 'pap_dat/TWZ/cmplTWZ/TWZp16F90pN/';
 fid = fopen(strcat(dir,'maxdt'));
 tts = str2double(fgetl(fid));
@@ -29,7 +32,7 @@ end
 fclose(fid);
 
 % How many timesteps to skip
-incr = 250;
+incr = floor(.1/ts);%500;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
@@ -63,7 +66,7 @@ tq = linspace(0,pi,15);pq = tq;
 Yqv = SpHarmTNew(p,ttq,ppq);
 % Spherical harmonic evaluated at right hand side of sphere
 % Ytrc = SpHarmTNew(p,pi/2,0);
-Ytrc = SpHarmTNew(p,pi/2,0);
+Ytrc = SpHarmTNew(p,0,0);
 % Time
 t = zeros(tsteps,1);
 
@@ -218,6 +221,23 @@ Dij((i-1)/incr + 1) = (max(rs)-min(rs))/(max(rs) + min(rs));
 incl((i-1)/incr + 1) = atan2(abs(angs(3,1)),abs(angs(1,1)))/4;
 incl(1) = 1/4;
 
+% 
+% clf
+%     surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 0 0], ...
+%          'FaceAlpha',0.75,'FaceLighting','gouraud')
+%     lightangle(gca,150,50)
+%     set(gca,'nextplot','replacechildren','visible','off')
+%     % Top down
+% %     view(0,90);
+%     % Side
+%     view(0,0);
+%     axis([-2,2,-2,2,-2,2])
+%     pbaspect([1,1,1])
+%     
+%     set(gca,'nextplot','replacechildren','visible','off')
+%     set(gcf, 'color', 'white');
+%     view(45,45);
+    
     drawnow
 % % Capture the plot as an image 
 % h = figure(1);
@@ -226,7 +246,7 @@ incl(1) = 1/4;
 % [imind,cm] = rgb2ind(frame.cdata,256,'nodither');
 % % Write to the GIF File 
 % if i == 1
-%   filename = 'gif2.gif';
+%   filename = 'gif3.gif';
 %   imwrite(imind,cm,filename,'gif', 'Loopcount',inf,'DelayTime',0); 
 % else 
 %   imwrite(imind,cm,filename,'gif','WriteMode','append','DelayTime',0); 

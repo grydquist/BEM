@@ -938,9 +938,7 @@ for i = 1:nt
         x1mnr = SpHRot(x1mn,phi(j),-tht(i),0-phi(j), myfacs); % so the phis should maybe be reversed...
         x2mnr = SpHRot(x2mn,phi(j),-tht(i),0-phi(j), myfacs);
         x3mnr = SpHRot(x3mn,phi(j),-tht(i),0-phi(j), myfacs);
-        
- 
-        
+           
 %       Nonrotated locations of rotated grid points.        
         xcg(1,:,:) = SpHReconst(x1mnr,Yt);
         xcg(2,:,:) = SpHReconst(x2mnr,Yt);
@@ -1269,18 +1267,18 @@ quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:)
 quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua11(1,:,:),[1,numel(x(1,:,:))]),reshape(ua11(2,:,:),[1,numel(x(1,:,:))]),reshape(ua11(3,:,:),[1,numel(x(1,:,:))]),'b')
 
 
-% gif maker
+% % gif maker
 drawnow
-% Capture the plot as an image 
-frame = getframe(h); 
-im = frame2im(frame); 
-[imind,cm] = rgb2ind(frame.cdata,256,'nodither');
-% Write to the GIF File 
-if cts == 1 
-  imwrite(imind,cm,filename,'gif', 'Loopcount',inf,'DelayTime',0); 
-else 
-  imwrite(imind,cm,filename,'gif','WriteMode','append','DelayTime',0); 
-end 
+% % Capture the plot as an image 
+% frame = getframe(h); 
+% im = frame2im(frame); 
+% [imind,cm] = rgb2ind(frame.cdata,256,'nodither');
+% % Write to the GIF File 
+% if cts == 1 
+%   imwrite(imind,cm,filename,'gif', 'Loopcount',inf,'DelayTime',0); 
+% else 
+%   imwrite(imind,cm,filename,'gif','WriteMode','append','DelayTime',0); 
+% end 
 
 % some output
 disp([max(abs(x3mn-ix3mn)), max(max(squeeze(ua11(1,:,:)))),2*max(max(max(abs(myf(:,:,:)))))/B,cts]);

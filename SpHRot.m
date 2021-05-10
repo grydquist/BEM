@@ -30,6 +30,7 @@ for n = 0:p
             end 
             dmm = (-1)^(mp-m)*(facs(n+mp+1)*facs(n-mp+1)*facs(n+m+1)*facs(n-m+1))^0.5*Smm;
 %             Dmm(im1) = exp(1i*m*a)*dmm*exp(1i*m*c);
+%             Dmm(im1) = exp(1i*(m-mp)*a)*dmm;
             Dmm(im1) = exp(1i*m*a)*dmm;
         end
         f(it) = f(it) + myf(frng)*Dmm.';
@@ -45,6 +46,7 @@ end
 % f. It worksd doing the first Z and Y rotation together, but not the last
 % one, so that is reflected here. There likely is a better way, but this
 % works for now.
+% I got it to work in the above comment
 
 % Also, the rotations are in the right order, but JUST REMEMBER that the
 % rotations are actually carried out on the vector in the order c->b->a

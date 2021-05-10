@@ -19,8 +19,6 @@ TYPE cellType
 !   Harmonics info
     INTEGER :: p, q, ftot
     TYPE(YType) :: Y, Yf
-    TYPE(YType), ALLOCATABLE :: Ytmp(:,:)
-    COMPLEX(KIND = 8), ALLOCATABLE :: Yr(:,:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:), xmnR(:,:)
 
 !   Geometric info
@@ -80,15 +78,10 @@ FUNCTION newcell(filein, reduce) RESULT(cell)
     CHARACTER(len = *), INTENT(IN) :: filein
     LOGICAL, INTENT(IN) :: reduce
     TYPE(cellType) :: cell
-    TYPE(YType), TARGET :: Ytmp
     CHARACTER(len = 3) :: restart
     CHARACTER(len = 30) :: restfile
-    REAL(KIND = 8) :: t1(3,3), t2(3,3), t3(3,3), Tx(3,3), gp(3)
-    REAL(KIND = 8), ALLOCATABLE :: thet(:,:), phit(:,:)
-    TYPE(nmType) :: nm
-    COMPLEX(KIND = 8), ALLOCATABLE :: vcurn(:,:)
 
-    INTEGER :: nt, np, ntf, npf, fali, p, i, j, i2, j2, n, m, im, it, row, col, ic, itt
+    INTEGER :: nt, np, ntf, npf, fali, p
 
 !   To fit dimesnionless parameters, we set a0 = 1, flow timescale = 1, mu = 1
 !   and fit the rest from there
@@ -149,12 +142,12 @@ FUNCTION newcell(filein, reduce) RESULT(cell)
 
 !   Force items
     ALLOCATE(cell%fab(3,ntf,npf), cell%ff(3,ntf,npf), cell%fc(3,nt,np), &
-             cell%fmn(3,(cell%q+1)*(cell%q+1)), cell%nkmn(3,(cell%q+1)*(cell%q+1)),&
-                          cell%fmnR(3,(cell%q+1)*(cell%q+1)), cell%fmn2(3,(cell%q+1)*(cell%q+1)),cell%nkt(3,(cell%q+1)*(cell%q+1)))
+             cell%fmn(3,(cell%q+1)*(cell%q+1)), cell%nkmn(3,(cell%q+1)*(cell%q+1)), &
+             cell%fmnR(3,(cell%q+1)*(cell%q+1)), cell%fmn2(3,(cell%q+1)*(cell%q+1)), &
+             cell%nkt(3,(cell%q+1)*(cell%q+1)))
     cell%ff = 0D0  
     cell%fmn = 0D0
     cell%umn = 0D0
-
 
 !   For a = 1, V = 4.18904795321178, SA = 16.8447913187040, sphere 6.50088174342271
 
@@ -208,69 +201,6 @@ FUNCTION newcell(filein, reduce) RESULT(cell)
     cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
     cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
     cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
-
-!   All of the rotated angles
-    ALLOCATE(cell%Yr(nt*np, nt*np, p*p), thet(nt,np), phit(nt,np), cell%Ytmp(nt,np))
-    itt = 0
-    DO i = 1,nt
-        DO j = 1,np
-            itt = itt+1
-!           Construct rotation matrix
-            t1(1,:) = (/COS( cell%Y%phi(j)), -SIN( cell%Y%phi(j)), 0D0/)
-            t2(1,:) = (/COS(-cell%Y%tht(i)), 0D0, SIN(-cell%Y%tht(i))/)
-            t3(1,:) = (/COS(-cell%Y%phi(j)), -SIN(-cell%Y%phi(j)), 0D0/)
-
-            t1(2,:) = (/SIN( cell%Y%phi(j)), COS( cell%Y%phi(j)), 0D0/)
-            t2(2,:) = (/0D0, 1D0, 0D0/)
-            t3(2,:) = (/SIN(-cell%Y%phi(j)), COS(-cell%Y%phi(j)), 0D0/)
-
-            t1(3,:) = (/0D0, 0D0, 1D0/)
-            t2(3,:) = (/-SIN(-cell%Y%tht(i)), 0D0, COS(-cell%Y%tht(i))/)
-            t3(3,:) = (/0D0, 0D0, 1D0/)
-
-            Tx = MATMUL(MATMUL(t1,t2),t3)
-            DO i2 = 1,nt
-                DO j2 = 1,np
-!                   Gauss point rotated in parameter space
-                    gp = (/SIN(cell%Y%tht(i2))*COS(cell%Y%phi(j2)), &
-                           SIN(cell%Y%tht(i2))*SIN(cell%Y%phi(j2)), &
-                           COS(cell%Y%tht(i2))/)
-
-!                   Rotate this Gauss point to nonrotated parameter space  
-                    gp = INNER3_33(gp, Tx)
-!                   Sometimes precision can be an issue...
-                    IF(gp(3).gt.1)  gp(3) =  1D0
-                    IF(gp(3).lt.-1) gp(3) = -1D0
-                    phit(i2, j2) = ATAN2(gp(2), gp(1))
-                    thet(i2, j2) = ACOS(gp(3))
-                ENDDO
-            ENDDO
-
-!           Temporary container for all values at given rotation
-            cell%Ytmp(i,j) = Ytype(thet, phit, p)
-            it = 0
-!           Break down this data
-            DO n = 0, p-1
-!!! POINTER
-                nm = cell%Ytmp(i,j)%nm(n+1)
-                im = 0
-                DO m = -n,n
-                    im = im + 1
-                    vcurn = nm%v(im,:,:)
-                    it = it + 1
-                    ic = 0
-                    DO i2 = 1,nt
-                        DO j2 = 1,np
-                            ic = ic + 1
-                            cell%Yr(itt,ic,it) = vcurn(i2,j2)
-                        ENDDO
-                    ENDDO
-                    
-                ENDDO
-            ENDDO
-
-        ENDDO
-    ENDDO
 
     cell%init = .true.
 END FUNCTION newcell
@@ -330,7 +260,6 @@ SUBROUTINE Writecell(cell)
     OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
     WRITE(88,*) cell%cts
     CLOSE(88)
-
 
 !   Write third thing (usually force)
 !     IF(cell%writ) THEN
@@ -930,22 +859,19 @@ END SUBROUTINE Stresscell
 SUBROUTINE Fluidcell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
 
-    INTEGER :: ip, ic, i, j, i2, j2, n, m, ih, it, im, row, col, im2, n2, m2, &
-               Nmat, iter, info, colm, rowm, ind
-    COMPLEX(KIND = 8) :: At(3,3), bt(3), v(3,3), At2(3,3)
-    REAL(KIND = 8) :: Uc(3), &
-                      xcr(3), Utmp(3,3), r(3), eye(3,3),tic,toc
+    INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
+               Nmat, iter, info, colm, rowm, ind, im3
+    COMPLEX(KIND = 8) :: At(3,3), bt(3), v(3,3), At2(3,3), tmpsum(3,3)
+    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3)
     COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), A2(:,:), b(:), b2(:), ut(:), wrk(:), &
-                                      DA(:,:), DAt(:,:)
-    REAL(KIND = 8), ALLOCATABLE :: thet(:,:), phit(:,:), Jg(:,:), frot(:,:,:), &
-                                   vT(:,:,:,:), vG(:,:,:,:), xcg(:,:,:), &
-                                   rwrk(:), nJt(:,:,:), S(:,:), D(:,:),&
-                                   fv(:),ft(:),ft2(:,:)
+                                      Ci(:,:,:,:), Ei(:,:,:,:), es(:,:), Dr(:,:,:)
+    REAL(KIND = 8), ALLOCATABLE :: frot(:,:,:), xcg(:,:,:), rwrk(:), nJt(:,:,:), &
+                                   ft(:),ft2(:,:), Bi(:,:,:,:), cPmn(:,:,:), cPt(:,:)
     COMPLEX, ALLOCATABLE :: swrk(:)
     INTEGER, ALLOCATABLE :: IPIV(:)
-    COMPLEX(KIND = 8), POINTER :: vcurn(:,:), vcurt(:,:)
-    TYPE(YType), POINTER :: Y, Yt
-    TYPE(nmType), POINTER :: nm, nmt
+    COMPLEX(KIND = 8), POINTER :: vcurn(:,:)
+    TYPE(YType), POINTER :: Y
+    TYPE(nmType), POINTER :: nm
 
     Y => cell%Y
 
@@ -958,18 +884,21 @@ SUBROUTINE Fluidcell(cell)
              A2(Nmat, Nmat), &
              b(3*Y%nt*Y%np), &
              b2(Nmat), &
-             thet(Y%nt, Y%np), &
-             phit(Y%nt, Y%np), &
-             Jg(Y%nt, Y%np), &
              frot(3, Y%nt, Y%np), &
-             vT(3,3,Y%nt, Y%np), &
-             vG(3,3,Y%nt, Y%np), &
              xcg(3, Y%nt, Y%np), &
              ut(Nmat), &
-             IPIV(Nmat), wrk(Nmat), swrk(Nmat*(Nmat+1)), rwrk(Nmat), &
+             IPIV(Nmat), wrk(Nmat), &
+             swrk(Nmat*(Nmat+1)), &
+             rwrk(Nmat), &
              nJt(3, Y%nt, Y%np), &
-             S(3*Y%nt*Y%np,3*Y%nt*Y%np), D(3*Y%nt*Y%np,3*Y%nt*Y%np), &
-             fv(3*Y%nt*Y%np),ft(3),ft2(3,3), DA(3*Y%nt*Y%np, Nmat), DAt(3*Y%nt*Y%np, Nmat))
+             ft(3),ft2(3,3), &
+             Bi(3,3,Y%nt,Y%np), &
+             Ci(3,3, 2*(Y%p-1)+1, Y%nt), &
+             Ei(3,3, 2*(Y%p-1)+1, Y%p+1), &
+             Dr(3,3,Y%p*Y%p),  &
+             es(2*(Y%p-1)+1, Y%np), &
+             cPmn(Y%p, 2*(Y%p-1)+1, Y%nt), &
+             cPt(Y%nt, (Y%p)*(Y%p+1)/2))
 
     eye = 0D0
     FORALL(j = 1:3) eye(j,j) = 1D0
@@ -979,13 +908,6 @@ SUBROUTINE Fluidcell(cell)
 !   Galerkin integral over a sphere, using the inner integrals calculated
 !   in the previous step
 
-    ip = 0
-    ic = 0
-    A = 0D0
-    b = 0D0
-    S = 0D0
-    D = 0D0
-
 !   We need to make a matrix with 4 dimensions (3X3) nt x np x n x m
 !   So we will loop over all of these dimensions. We then have three sums 
 !   more we we need to compute, leading to O(p^8). Luckily, we can seperate
@@ -993,170 +915,54 @@ SUBROUTINE Fluidcell(cell)
 !   in temporary arrays, leading down to O(p^5). This matrix is the components of
 !   the spherical harmonic functions evaluated at the Gauss points (rows=>GP,
 !   cols=>Sph fns).
+    
+!!  Can be sped up with symmetry
+!!  Strange precision issues...
+!!  Both of these directly bloew could very easily be stored
 
-!   Pre-allocate stuff
-
-!   First loops: singular integral points
-    DO i = 1,Y%nt
-        DO j = 1,Y%np
-
-!           First matrix: integral components at the i,jth - i2,j2 grid.
-            DO i2 = 1,Y%nt
-                DO j2 = 1,Y%np
-
-
-                ENDDO
-            ENDDO
-
-!           Now we move to populate the i,jth row of the above matrix, which loops through n,m
-            DO n = 0, Y%p - 1
-!               Can be sped up with symmetry
-                DO m = -n,n
-
-!                   First intermediate matrix, over phi's
-                    DO j2 = 1,Y%np
-
-                    ENDDO
-
-!                   Second intermediate matrix, over theta's
-                    DO i2 = 1,Y%nt
-
-                    ENDDO
-
-!                   Third matrix, brings it all together, to rotate and get row
-                    DO m2 = -n,n
-
-                    ENDDO
-
-                ENDDO
-            ENDDO
-
-        ENDDO
+!   Exponential calculation part
+    DO m = -(Y%p-1),(Y%p-1)
+        ind = m + Y%p
+        es(ind,:) = EXP(ii*DBLE(m)*Y%phi)
     ENDDO
 
-
-
-
-    CALL cpu_time(tic)
-!   First loop: inner integrals at GPs
-    DO i = 1, Y%nt
-        DO j = 1,Y%np
-!           Total coordinate count
-            ic = ic + 1
-!           Bookkeeping - rows are coordinates and columns are harmonics, in 3x3 ij blocks
-            row = 3*(ic - 1)  + 1
-            bt = 0
-            ih = 0
-
-!           Velocity at integration point
-            Utmp = TRANSPOSE(cell%dU)
-            Uc = INNER3_33(cell%x(:,i,j), Utmp)
-! !           Pouiseille!
-!             Uc = 0D0
-!             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
-!             Uc(3) = rt*rt - 1D0/3D0
-
-!           Location of north pole in unrotated frame (just current integration point)
-            xcr = cell%x(:,i,j)
-
-!           Harmonics of integration points of rotated frame in nonrotated frame 
-            Yt => cell%Ytmp(i,j)
-
-!           Get the rotated constants
-            cell%xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
-            cell%xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
-            cell%xmnR(3,:) = Y%rotate(cell%xmn(3,:), i, j, -Y%phi(j))
-
-!           Rotated integration points in unrotated frame
-            xcg(1,:,:) = Y%backward(cell%xmnR(1,:))
-            xcg(2,:,:) = Y%backward(cell%xmnR(2,:))
-            xcg(3,:,:) = Y%backward(cell%xmnR(3,:))
-
-!           Forces on rotated grid
-            cell%fmnR(1,:) = Y%rotate(cell%fmn(1,:), i, j, -Y%phi(j))
-            cell%fmnR(2,:) = Y%rotate(cell%fmn(2,:), i, j, -Y%phi(j))
-            cell%fmnR(3,:) = Y%rotate(cell%fmn(3,:), i, j, -Y%phi(j))
-
-            frot(1,:,:) = Y%backward(cell%fmnR(1,:), cell%p)
-            frot(2,:,:) = Y%backward(cell%fmnR(2,:), cell%p)
-            frot(3,:,:) = Y%backward(cell%fmnR(3,:), cell%p)
-            
-!           Rotate the normal vector total constants
-            cell%fmnR(1,:) = Y%rotate(cell%nkt(1,:), i, j, -Y%phi(j))
-            cell%fmnR(2,:) = Y%rotate(cell%nkt(2,:), i, j, -Y%phi(j))
-            cell%fmnR(3,:) = Y%rotate(cell%nkt(3,:), i, j, -Y%phi(j))
-
-            nJt(1,:,:) = -Y%backward(cell%fmnR(1,:), cell%p)
-            nJt(2,:,:) = -Y%backward(cell%fmnR(2,:), cell%p)
-            nJt(3,:,:) = -Y%backward(cell%fmnR(3,:), cell%p)
-
-!           Calculate inner integral matrices
-            ind = 0
-            DO i2 = 1,Y%nt
-                DO j2 = 1,Y%np
-                    ind = ind+1
-                    col = 3*(ind-1) + 1
-                    r = xcr - xcg(:,i2,j2)
-                    S(row:row+2, col:col+2) = Gij(r, eye)*Y%ws(i2)*cell%Y%dphi
-
-                    ft2 = Tij(r, nJt(:,i2,j2))*Y%ws(i2)*cell%Y%dphi
-                    D(row:row+2, col:col+2) = Tij(r, nJt(:,i2,j2))*Y%ws(i2)*cell%Y%dphi
-                ENDDO
-            ENDDO
-
-!           Now loop through Spherical harmonics to get the rest of the sub matrices
-
-!           Calculate multiplying matrices
-!           Get vel and other harm mat in here!
-            ind = 0
-            DO i2 = 1,Y%nt
-                DO j2 = 1,Y%np
-                    ind = ind+1
-                    col = 3*(ind-1) + 1
-                    fv(col:col+2) = frot(:,i2,j2)
-                ENDDO
-            ENDDO
+!   Legendre polynomial calculation part
+    cPt = Alegendre(Y%p-1,COS(Y%tht))
+    it = 0
+    DO n = 0, Y%p-1
+        ind = n+1
+        im = 0
+        DO m = -(Y%p-1),Y%p-1
+            im = im + 1
+            IF(ABS(m) .gt. n) THEN
+                cPmn(ind,im,:) = 0D0
+            ELSEIF(m .le. 0) THEN
+                it = it + 1
+                IF(m.eq.-n) im2 = it
+                cPmn(ind,im,:) = (-1D0)**m*cPt(:, im2 + abs(m))
+            ELSE
+                cPmn(ind,im,:) = (-1D0)**m*cPmn(ind, im - 2*m, :)
+            ENDIF
         ENDDO
     ENDDO
-
-!   Move everything together to get the A matrix, could be cheaper with symmetry
-    Dat = INNER_YY_XYZ(D, cell%Yr, Y%nt*Y%np, Y%np*Y%nt, Nmat)
-    CALL cpu_time(toc)
-    print *, toc-tic
 
     ip = 0
     ic = 0
-    A = 0D0
-    b = 0D0
-    
-
-
-!!!! Old Way !!!!
-    CALL cpu_time(tic)
-!   First loop: inner integrals at GPs
-    DO i = 1, Y%nt
+!   First loops: singular integral points
+    DO i = 1,Y%nt
         DO j = 1,Y%np
-!           Total coordinate count
+!           Bookkeeping
             ic = ic + 1
-!           Bookkeeping - rows are coordinates and columns are harmonics, in 3x3 ij blocks
             row = 3*(ic - 1)  + 1
-            bt = 0
-            ih = 0
 
 !           Velocity at integration point
             Utmp = TRANSPOSE(cell%dU)
             Uc = INNER3_33(cell%x(:,i,j), Utmp)
-! !           Pouiseille!
-!             Uc = 0D0
-!             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
-!             Uc(3) = rt*rt - 1D0/3D0
 
 !           Location of north pole in unrotated frame (just current integration point)
             xcr = cell%x(:,i,j)
-
-!           Harmonics of integration points of rotated frame in nonrotated frame 
-            Yt => cell%Ytmp(i,j)
-
+            
+!           Rotate everything to this grid
 !           Get the rotated constants
             cell%xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
             cell%xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
@@ -1185,66 +991,93 @@ SUBROUTINE Fluidcell(cell)
             nJt(2,:,:) = -Y%backward(cell%fmnR(2,:), cell%p)
             nJt(3,:,:) = -Y%backward(cell%fmnR(3,:), cell%p)
 
-!           Loop over harmonics
-            DO n = 0, Y%p - 1
-                nm  => Y%nm(n+1)
-                nmt => Yt%nm(n+1)
-                im = n
-                ih = ih + n
-                DO m = 0,n
-                    ih = ih + 1
-                    im = im + 1
-                    col = 3*(ih-1) + 1
-                    colm= col - 2*m*3
-                    vcurn => nm%v(im,:,:)
-                    vcurt => nmt%v(im,:,:)
-
-                    At = 0D0
-!                   Here's where the actul integral is performed,
-!                   centered on point i, j
-                    DO i2 = 1,Y%nt
-                        DO j2 = 1,Y%np
-                            r = xcr - xcg(:,i2,j2)
-                            ft = nJt(:,i2,j2)
-!                           Add in integral parts
-                            At = At + Tij(r, ft)*cell%Y%ws(i2)*cell%Y%dphi*vcurt(i2,j2)
-
-!                           RHS part, only need to do once
-                            IF(n .eq. 0) THEN
-                                ft = frot(:,i2,j2)
-                                ft2 = Gij(r, eye)
-                                bt = bt + INNER3_33(ft,ft2)*cell%Y%ws(i2)
-                            ENDIF
-                        ENDDO
-                    ENDDO
-
-!                   Add in the rest of the LHS that isn't an integral
-                    At = At!*(1D0-cell%lam)/(1D0+cell%lam) - vcurn(i,j)*4D0*pi*eye
-
-!                   LHS at integration point/harmonic combo, put in big matrix
-                    A(row:row+2, col:col+2) = A(row:row+2, col:col+2) + At
-
-!                   Exploit symmetry
-                    IF(m .ne. 0) THEN
-                        A(row:row+2, colm:colm+2) = A(row:row+2, colm:colm+2) + (-1D0)**m*CONJG(At)
-                    ENDIF
+!           First matrix: integral components at the i,jth - i2,j2 grid.
+            Bi = 0D0
+            bt = 0D0
+            DO i2 = 1,Y%nt
+                DO j2 = 1,Y%np
+                    r = xcr - xcg(:,i2,j2)
+!                   Matrix of integration grid about i,j-th point 
+                    Bi(1:3,1:3,i2,j2) = Tij(r, nJt(:,i2,j2))
+                    
+!                   RHS vector
+                    ft = frot(:,i2,j2)
+                    ft2 = Gij(r, eye)
+                    bt = bt + INNER3_33(ft,ft2)*cell%Y%ws(i2)
                 ENDDO
             ENDDO
-!           Put RHS into big vector
-            ! print *, 
-            print *, SUM(S(1,:)*fv)
-            print *, bt(1)*cell%Y%dphi
-            stop
-            b(row:row+2) = b(row:row+2) + bt*cell%Y%dphi/cell%mu/(1+cell%lam) &
+            b(row:row+2) = bt*cell%Y%dphi/cell%mu/(1+cell%lam) &
                          - Uc*8D0*pi/(1+cell%lam)
+
+!           Next intermediate matrices: over phi's and theta's
+            im2 = 0
+            DO m2 = -(Y%p-1), Y%p-1
+                im2 = im2 + 1
+                DO i2 = 1, Y%nt
+                    tmpsum = 0D0
+                    DO j2 = 1,Y%np
+                        tmpsum = tmpsum + Bi(1:3, 1:3, i2, j2)*es(im2, j2)*Y%dphi
+                    ENDDO
+                    Ci(1:3,1:3,im2,i2) = tmpsum
+                ENDDO
+            ENDDO
+
+            DO n = 0, Y%p-1
+                ind = n+1
+                im2 = 0
+                DO m2 = -(Y%p-1),(Y%P-1)
+                    im2 = im2+1
+                    tmpsum = 0D0
+                    DO i2 = 1,Y%nt
+                        tmpsum = tmpsum + Ci(1:3,1:3, im2, i2)*cPmn(ind,im2,i2)*Y%ws(i2)
+                    ENDDO
+                    Ei(1:3,1:3, im2, ind) = tmpsum
+                ENDDO
+            ENDDO
+
+!           Last loop to bring it all together and get the row
+            it = 0
+            Dr = 0D0
+            DO n = 0,Y%p-1
+                ind = n + 1
+                im = 0
+                DO m = -n,n
+                    im = im + 1
+                    it = it + 1
+                    tmpsum = 0D0
+                    im3 = 0
+                    DO m2 = -n,n
+                        im2 = Y%p + im3 - n
+                        im3 = im3 + 1
+                        tmpsum = tmpsum &
+                               + Ei(1:3,1:3, im2, ind) &
+                               * Y%rot(i,j,ind)%dmms(im,im3) &
+                               * EXP(ii*(m-m2)*Y%phi(j))
+                    ENDDO
+                    Dr(1:3,1:3,it) = tmpsum
+                ENDDO
+            ENDDO
+
+!           Now let's put this in the matrix
+            it = 0
+            DO n = 0,Y%p-1
+                nm  => Y%nm(n+1)
+                im = 0
+                DO m = -n,n
+                    im = im + 1
+                    vcurn => nm%v(im,:,:)
+                    it = it+1
+                    col = 3*(it-1) + 1
+                    A(row:row+2, col:col+2) = Dr(1:3,1:3, it)*(1D0-cell%lam)/(1D0+cell%lam) &
+                                            - vcurn(i,j)*4D0*pi*eye
+                ENDDO
+            ENDDO
+
         ENDDO
     ENDDO
-    print *, Maxval(REAL(Dat)-REAL(A))
-    CALL cpu_time(toc)
-    print *, toc-tic
-    stop
 
 !   Second integral loop, Galerkin
+!!  We could just lump this into the above loop, by just doing two more loops...
     A2 = 0D0
     b2 = 0D0
     it = 0

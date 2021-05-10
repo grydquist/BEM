@@ -11,7 +11,8 @@ SRC=./src/
 MYEXEC=harms
 
 # Normal, opt flags
-FFLAGS = -O3 -funroll-loops -fomit-frame-pointer -DNDEBUG
+# Removing fast can make the last line of the compilation faster, whereas other way shape is slow
+FFLAGS = -O3 -funroll-loops -fomit-frame-pointer -DNDEBUG -fast
 
 # Can specify debug flags with make dbg=1
 ifeq ($(dbg),1)
@@ -19,14 +20,16 @@ ifeq ($(dbg),1)
 endif
 
 # Profiler flags
+# -profile-functions -profile-loops=all -profile-loops-report=2
 ifeq ($(prof),1)
-	FFLAGS = -profile-functions -profile-loops=all -profile-loops-report=2
+#	FFLAGS = -prof-gen
+	FFLAGS = -prof-use -ipo
 endif
 
 # Functions
 MYFUN = UTIL.o\
 		HARMONICS.o\
-		SHAPE_noali.o\
+		SHAPE_interp.o\
 		main.o
 
 # Modules
@@ -60,9 +63,9 @@ $(OBJDIR)UTIL.o : $(SRC)UTIL.f90
 
 $(OBJDIR)HARMONICS.o : $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
 
-$(OBJDIR)SHAPE_noali.o : $(SRC)SHAPE_noali.f90 $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
+$(OBJDIR)SHAPE_interp.o : $(SRC)SHAPE_interp.f90 $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
 
-$(OBJDIR)main.o : $(SRC)main.f90 $(SRC)SHAPE_noali.f90 $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
+$(OBJDIR)main.o : $(SRC)main.f90 $(SRC)SHAPE_interp.f90 $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
 
 .PHONY : clean
 clean:
