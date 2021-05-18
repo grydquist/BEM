@@ -860,11 +860,12 @@ SUBROUTINE Fluidcell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
-               Nmat, iter, info, colm, rowm, ind, im3
-    COMPLEX(KIND = 8) :: At(3,3), bt(3), v(3,3), At2(3,3), tmpsum(3,3)
-    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3)
-    COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), A2(:,:), b(:), b2(:), ut(:), wrk(:), &
-                                      Ci(:,:,:,:), Ei(:,:,:,:), es(:,:), Dr(:,:,:)
+               Nmat, iter, info, colm, ind, im3
+    COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
+    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3), tic, toc
+    COMPLEX(KIND = 8), ALLOCATABLE :: A2(:,:), b(:), b2(:), ut(:), wrk(:), &
+                                      Ci(:,:,:,:), Ei(:,:,:,:), es(:,:), Dr(:,:,:), &
+                                      Fi(:,:,:,:), Ai(:,:,:,:,:,:)
     REAL(KIND = 8), ALLOCATABLE :: frot(:,:,:), xcg(:,:,:), rwrk(:), nJt(:,:,:), &
                                    ft(:),ft2(:,:), Bi(:,:,:,:), cPmn(:,:,:), cPt(:,:)
     COMPLEX, ALLOCATABLE :: swrk(:)
@@ -880,8 +881,7 @@ SUBROUTINE Fluidcell(cell)
     Nmat = 3*(Y%p)*(Y%p)
 
 !   Allocate things
-    ALLOCATE(A(3*Y%nt*Y%np, Nmat), &
-             A2(Nmat, Nmat), &
+    ALLOCATE(A2(Nmat, Nmat), &
              b(3*Y%nt*Y%np), &
              b2(Nmat), &
              frot(3, Y%nt, Y%np), &
@@ -894,7 +894,9 @@ SUBROUTINE Fluidcell(cell)
              ft(3),ft2(3,3), &
              Bi(3,3,Y%nt,Y%np), &
              Ci(3,3, 2*(Y%p-1)+1, Y%nt), &
-             Ei(3,3, 2*(Y%p-1)+1, Y%p+1), &
+             Ei(3,3, 2*(Y%p-1)+1, Y%p), &
+             Fi(3,3, 2*(Y%p-1)+1, Y%nt), &
+             Ai(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
              Dr(3,3,Y%p*Y%p),  &
              es(2*(Y%p-1)+1, Y%np), &
              cPmn(Y%p, 2*(Y%p-1)+1, Y%nt), &
@@ -948,6 +950,7 @@ SUBROUTINE Fluidcell(cell)
 
     ip = 0
     ic = 0
+    CALL cpu_time(tic)
 !   First loops: singular integral points
     DO i = 1,Y%nt
         DO j = 1,Y%np
@@ -1024,14 +1027,18 @@ SUBROUTINE Fluidcell(cell)
 
             DO n = 0, Y%p-1
                 ind = n+1
-                im2 = 0
-                DO m2 = -(Y%p-1),(Y%P-1)
+                im2 = Y%p-1
+                DO m2 = 0,(Y%p-1)
                     im2 = im2+1
+                    colm = im2 - 2*m2
                     tmpsum = 0D0
                     DO i2 = 1,Y%nt
                         tmpsum = tmpsum + Ci(1:3,1:3, im2, i2)*cPmn(ind,im2,i2)*Y%ws(i2)
                     ENDDO
                     Ei(1:3,1:3, im2, ind) = tmpsum
+                    IF(m2.gt.0) THEN
+                        Ei(1:3,1:3, colm, ind) = CONJG(tmpsum)*(-1D0)**m2
+                    ENDIF
                 ENDDO
             ENDDO
 
@@ -1060,84 +1067,92 @@ SUBROUTINE Fluidcell(cell)
 
 !           Now let's put this in the matrix
             it = 0
+            ind = 0
             DO n = 0,Y%p-1
+                ind = ind+1
                 nm  => Y%nm(n+1)
                 im = 0
                 DO m = -n,n
                     im = im + 1
+                    im2 = m + (Y%p)
                     vcurn => nm%v(im,:,:)
                     it = it+1
                     col = 3*(it-1) + 1
-                    A(row:row+2, col:col+2) = Dr(1:3,1:3, it)*(1D0-cell%lam)/(1D0+cell%lam) &
-                                            - vcurn(i,j)*4D0*pi*eye
+                    Ai(1:3,1:3,im2, ind, i, j) = Dr(1:3,1:3, it)*(1D0-cell%lam)/(1D0+cell%lam) &
+                                               - vcurn(i,j)*4D0*pi*eye
                 ENDDO
             ENDDO
 
         ENDDO
     ENDDO
 
-!   Second integral loop, Galerkin
-!!  We could just lump this into the above loop, by just doing two more loops...
-    A2 = 0D0
-    b2 = 0D0
+!   Second integral: The outer loops go over the order and degree of the previous integrals
     it = 0
-
-!   Loop over outer product harmonics
     DO n = 0,Y%p - 1
         nm => cell%Y%nm(n+1)
-        im = n
-        it = it + n
-        DO m = 0,n
-            im = im + 1
+        ! it = it + n
+        DO m = -n,n
+            im = m + Y%p
             it = it + 1
-            row = 3*it - 2
-            rowm= row - 2*3*m
-            bt(:) = 0D0
-            vcurn => nm%v(im,:,:)
-            
-            im2 = 0
-!           Loop over inner harmonics (constant value is a column)
-            DO n2 = 0,Y%p - 1
-                im2 = im2 + n2
-                DO m2 = 0,n2
-                    im2 = im2 + 1
-                    col = 3*im2 - 2
-                    colm= col - 2*3*m2
-                    At = 0D0
-                    At2 = 0D0
-                    ic = 0
-!                   Loop over integration points to calc integral
-                    DO i =1,Y%nt
-                        DO j = 1,Y%np
-                            ic = ic+1
-!                           Value of inner integral at IP
-                            v = A(3*ic-2:3*ic, 3*im2-2:3*im2)
-                            At = At + v*CONJG(vcurn(i,j))*cell%Y%wg(i)*cell%Y%dphi
+            col = 3*it - 2
+            ! colm= col - 2*3*m
 
-!                           Symmetry to calculate value at -m
-                            At2 = At2 + v*(-1D0)**m*vcurn(i,j)*cell%Y%wg(i)*cell%Y%dphi
-
-!                           Intg. b (essentially forward transform of RHS!)
-                            IF(n2 .eq. 0) THEN
-                                bt = bt + b(3*ic-2:3*ic)*CONJG(vcurn(i,j)) &
-                                   *cell%Y%wg(i)*cell%Y%dphi
-                            ENDIF
-                        ENDDO
+!           First loop: m2 (Galerkin order), theta, sum phi, 
+            DO m2 = -(Y%p-1), Y%p-1
+                im2 = m2 + Y%p
+                DO i2 = 1,Y%nt
+                    tmpsum = 0D0
+                    DO j2 = 1,Y%np
+                        tmpsum = tmpsum + Y%dphi*Ai(1:3,1:3,im, n+1, i2,j2)*CONJG(es(im2,j2))
                     ENDDO
-                    A2(row:row+2,col:col+2) = At
-!                   Exploit symmetry (This and the calculation of At2 are a little overkill,
-!                   but it's finnicky to get the right if statements so I'll just leave them)
-                    A2(rowm:rowm+2, col:col+2) = At2
-                    A2(row:row+2, colm:colm+2) = (-1D0)**(m2 - m)*CONJG(At2)
-                    A2(rowm:rowm+2, colm:colm+2) = (-1D0)**(m2 + m)*CONJG(At)
+                    Fi(1:3,1:3,im2,i2) = tmpsum
                 ENDDO
             ENDDO
-            b2(row:row+2) = bt
-            IF(m.ne.0) THEN
-                b2(rowm:rowm+2)= (-1D0)**m*CONJG(bt)
-            ENDIF
+
+!           Second loop: n2, m2, sum theta
+            im2 = 0
+            DO n2 = 0, Y%p-1
+                DO m2 = -n2, n2
+                    im3 = m2 + Y%p
+                    im2 = im2 + 1
+                    row = 3*im2 - 2
+                    ! rowm= row - 2*3*m2
+                    At = 0D0
+                    ! At2 = 0D0
+                    DO i2 = 1,Y%nt
+                        At  = At  + Fi(1:3,1:3,im3, i2)*cPmn(n2+1,im3,i2)*cell%Y%wg(i2)
+                        ! At2 = At2 + CONJG(Fi(1:3,1:3,im3, i2))*cPmn(n2+1,im3,i2)*cell%Y%wg(i2)*(-1D0)**m2
+                    ENDDO
+                    A2(row:row+2,col:col+2) = At
+
+!                   Can't get symmetry working...
+!                   Exploit symmetry (This and the calculation of At2 are a little overkill,
+!                   but it's finnicky to get the right if statements so I'll just leave them)
+                    ! A2(rowm:rowm+2, col :col +2) = At2
+                    ! A2(row :row +2, colm:colm+2) = (-1D0)**(m - m2)*CONJG(At2)
+                    ! A2(rowm:rowm+2, colm:colm+2) = (-1D0)**(m + m2)*CONJG(At)
+                ENDDO
+            ENDDO
+
+            ic = 0
+!           Loop over integration points to calc integral
+            bt = 0D0
+            vcurn => nm%v(m + n + 1,:,:)
+            DO i =1,Y%nt
+                DO j = 1,Y%np
+                ic = ic+1
+
+!               Intg. b (essentially forward transform of RHS!)
+                bt = bt + b(3*ic-2:3*ic)*CONJG(vcurn(i,j)) &
+                    *cell%Y%wg(i)*cell%Y%dphi
+                ENDDO
+            ENDDO
+            b2(col:col+2) = bt
+
         ENDDO
     ENDDO
+    CALL cpu_time(toc)
+    ! print *, toc-tic
 
 !   Calculate velocity up to highest order-1, b/c highest order has high error
     CALL zcgesv(Nmat, 1, A2, Nmat, IPIV, b2, Nmat, ut, Nmat, wrk, swrk, rwrk, iter, info)

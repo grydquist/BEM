@@ -855,7 +855,7 @@ SUBROUTINE Fluidcell(cell)
                Nmat, iter, info, colm, rowm
     COMPLEX(KIND = 8) :: At(3,3), bt(3), td1, vcur, v(3,3), At2(3,3)
     REAL(KIND = 8) :: dxtg(3), dxpg(3), Uc(3), t1(3,3), t2(3,3), t3(3,3), Tx(3,3), &
-                      xcr(3), gp(3), Utmp(3,3), nkg(3), r(3), eye(3,3)
+                      xcr(3), gp(3), Utmp(3,3), nkg(3), r(3), eye(3,3), tic, toc
     COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), A2(:,:), b(:), b2(:), ut(:), wrk(:)
     REAL(KIND = 8), ALLOCATABLE :: thet(:,:), phit(:,:), Jg(:,:), frot(:,:,:), &
                                    vT(:,:,:,:), vG(:,:,:,:), xcg(:,:,:), Jgf(:,:), &
@@ -902,6 +902,7 @@ SUBROUTINE Fluidcell(cell)
     ic = 0
     A = 0D0
     b = 0D0
+    call cpu_time(tic)
 !   First loop: inner integrals at GPs
     DO i = 1, Y%nt
         DO j = 1,Y%np
@@ -1075,6 +1076,8 @@ SUBROUTINE Fluidcell(cell)
                          - Uc*8D0*pi/(1+cell%lam)
         ENDDO
     ENDDO
+    call cpu_time(toc)
+    ! print *, toc - tic
 
 !   Second integral loop, Galerkin
     A2 = 0D0
