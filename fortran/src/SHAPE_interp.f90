@@ -42,6 +42,10 @@ TYPE cellType
     REAL(KIND = 8) :: dU(3,3)
     CHARACTER(len = 15) gradfile
 
+!   Normalized Legendres/exp's at GPs
+    COMPLEX(KIND =8), ALLOCATABLE :: es(:,:)
+    REAL(KIND = 8), ALLOCATABLE :: cPmn(:,:,:)
+
 !   Cell velocity constants
     COMPLEX(KIND = 8), ALLOCATABLE :: umn(:,:)    
 
@@ -70,7 +74,7 @@ END INTERFACE cellType
 
 CONTAINS
 !=============================================================================!
-!================================= ROUTIUNES =================================!
+!================================= ROUTINES ==================================!
 !=============================================================================!
 
 ! Constructs cell object, takes in order and alias amount
@@ -80,8 +84,9 @@ FUNCTION newcell(filein, reduce) RESULT(cell)
     TYPE(cellType) :: cell
     CHARACTER(len = 3) :: restart
     CHARACTER(len = 30) :: restfile
+    REAL(KIND = 8), ALLOCATABLE :: cPt(:,:)
 
-    INTEGER :: nt, np, ntf, npf, fali, p
+    INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im
 
 !   To fit dimesnionless parameters, we set a0 = 1, flow timescale = 1, mu = 1
 !   and fit the rest from there
@@ -134,7 +139,8 @@ FUNCTION newcell(filein, reduce) RESULT(cell)
              cell%dxp4(3,ntf,npf), cell%dxtp3(3,ntf,npf), cell%dxt2p2(3,ntf,npf), &
              cell%dxt3p(3,ntf,npf), cell%dxt4(3,ntf,npf), &
              cell%J(ntf,npf), cell%x(3,nt,np), cell%xf(3,ntf,npf), &
-             cell%xmn(3,(p+1)*(p+1)), cell%xmnR(3,(p+1)*(p+1)), cell%umn(3,(p+1)*(p+1)))
+             cell%xmn(3,(p+1)*(p+1)), cell%xmnR(3,(p+1)*(p+1)), cell%umn(3,(p+1)*(p+1)), &
+             cell%es(2*(p-1)+1, np), cell%cPmn(p, 2*(p-1)+1, nt), cPt(nt, p*(p+1)/2))
 !   Reference items
     ALLOCATE(cell%kR(ntf,npf), cell%kdR(2,ntf,npf), cell%kd2R(3,ntf,npf), &
              cell%c1R(3,ntf,npf), cell%c2R(3,ntf,npf), cell%c1tR(3,ntf,npf), &
@@ -201,6 +207,32 @@ FUNCTION newcell(filein, reduce) RESULT(cell)
     cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
     cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
     cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+    
+!   Exponential calculation part
+    DO m = -(p-1),(p-1)
+        ind = m + p
+        cell%es(ind,:) = EXP(ii*DBLE(m)*cell%Y%phi)
+    ENDDO
+
+!   Legendre polynomial calculation part
+    cPt = Alegendre(p-1,COS(cell%Y%tht))
+    it = 0
+    DO n = 0, p-1
+        ind = n+1
+        im = 0
+        DO m = -(p-1),p-1
+            im = im + 1
+            IF(ABS(m) .gt. n) THEN
+                cell%cPmn(ind,im,:) = 0D0
+            ELSEIF(m .le. 0) THEN
+                it = it + 1
+                IF(m.eq.-n) im2 = it
+                cell%cPmn(ind,im,:) = (-1D0)**m*cPt(:, im2 + abs(m))
+            ELSE
+                cell%cPmn(ind,im,:) = (-1D0)**m*cell%cPmn(ind, im - 2*m, :)
+            ENDIF
+        ENDDO
+    ENDDO
 
     cell%init = .true.
 END FUNCTION newcell
@@ -260,21 +292,6 @@ SUBROUTINE Writecell(cell)
     OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
     WRITE(88,*) cell%cts
     CLOSE(88)
-
-!   Write third thing (usually force)
-!     IF(cell%writ) THEN
-!         OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'dat/f_'//cell%fileout)
-!     ELSE
-!         OPEN (UNIT = 88, FILE = 'dat/f_'//cell%fileout)
-!     ENDIF
-!     ! WRITE(88,*) REAL(cell%fmn)
-!     ! WRITE(88,*) AIMAG(cell%fmn)
-!     ! WRITE(88,*) REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
-!     ! WRITE(88,*) AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))
-
-! !   May not be nondimensionalized!
-!     WRITE(88,*) cell%fab
-!     CLOSE(88)
     
     IF(.not. cell%writ) cell%writ = .true.
 
@@ -843,6 +860,7 @@ SUBROUTINE Stresscell(cell)
         cell%nkmn(2,:) = cell%Yf%forward(cell%fab(2,:,:), cell%q)
         cell%nkmn(3,:) = cell%Yf%forward(cell%fab(3,:,:), cell%q)
 
+!       Normal and area for fluid
         cell%nkt(1,:) = cell%Yf%forward(cell%fab(1,:,:)*cell%J/SIN(cell%Yf%th), cell%q) 
         cell%nkt(2,:) = cell%Yf%forward(cell%fab(2,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
         cell%nkt(3,:) = cell%Yf%forward(cell%fab(3,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
@@ -864,13 +882,14 @@ SUBROUTINE Fluidcell(cell)
     COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
     REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3), tic, toc
     COMPLEX(KIND = 8), ALLOCATABLE :: A2(:,:), b(:), b2(:), ut(:), wrk(:), &
-                                      Ci(:,:,:,:), Ei(:,:,:,:), es(:,:), Dr(:,:,:), &
+                                      Ci(:,:,:,:), Ei(:,:,:,:), Dr(:,:,:), &
                                       Fi(:,:,:,:), Ai(:,:,:,:,:,:)
     REAL(KIND = 8), ALLOCATABLE :: frot(:,:,:), xcg(:,:,:), rwrk(:), nJt(:,:,:), &
-                                   ft(:),ft2(:,:), Bi(:,:,:,:), cPmn(:,:,:), cPt(:,:)
+                                   ft(:),ft2(:,:), Bi(:,:,:,:)
     COMPLEX, ALLOCATABLE :: swrk(:)
     INTEGER, ALLOCATABLE :: IPIV(:)
-    COMPLEX(KIND = 8), POINTER :: vcurn(:,:)
+    COMPLEX(KIND = 8), POINTER :: vcurn(:,:), es(:,:)
+    REAL(KIND = 8), POINTER :: cPmn(:,:, :)
     TYPE(YType), POINTER :: Y
     TYPE(nmType), POINTER :: nm
 
@@ -899,8 +918,7 @@ SUBROUTINE Fluidcell(cell)
              Ai(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
              Dr(3,3,Y%p*Y%p),  &
              es(2*(Y%p-1)+1, Y%np), &
-             cPmn(Y%p, 2*(Y%p-1)+1, Y%nt), &
-             cPt(Y%nt, (Y%p)*(Y%p+1)/2))
+             cPmn(Y%p, 2*(Y%p-1)+1, Y%nt))
 
     eye = 0D0
     FORALL(j = 1:3) eye(j,j) = 1D0
@@ -910,43 +928,21 @@ SUBROUTINE Fluidcell(cell)
 !   Galerkin integral over a sphere, using the inner integrals calculated
 !   in the previous step
 
-!   We need to make a matrix with 4 dimensions (3X3) nt x np x n x m
-!   So we will loop over all of these dimensions. We then have three sums 
-!   more we we need to compute, leading to O(p^8). Luckily, we can seperate
-!   the components of these sums and do them individually and store them 
-!   in temporary arrays, leading down to O(p^5). This matrix is the components of
+!   Doing the Galerkin projection of the single/double layer integrals could require
+!   O(p^5) operations if we did it all at once (it's a p^4 size matrix), the two
+!   integrals require p^2 sized sums each. However, some of these sums have components
+!   that are independent of each other, so we can do them 1 at a time and store them
+!   in temporary arrays, leading down to O(p^5). The 1st big matrix is the components of
 !   the spherical harmonic functions evaluated at the Gauss points (rows=>GP,
 !   cols=>Sph fns).
     
 !!  Can be sped up with symmetry
-!!  Strange precision issues...
-!!  Both of these directly bloew could very easily be stored
 
-!   Exponential calculation part
-    DO m = -(Y%p-1),(Y%p-1)
-        ind = m + Y%p
-        es(ind,:) = EXP(ii*DBLE(m)*Y%phi)
-    ENDDO
+!   Exponential  part
+    es =>cell%es
 
-!   Legendre polynomial calculation part
-    cPt = Alegendre(Y%p-1,COS(Y%tht))
-    it = 0
-    DO n = 0, Y%p-1
-        ind = n+1
-        im = 0
-        DO m = -(Y%p-1),Y%p-1
-            im = im + 1
-            IF(ABS(m) .gt. n) THEN
-                cPmn(ind,im,:) = 0D0
-            ELSEIF(m .le. 0) THEN
-                it = it + 1
-                IF(m.eq.-n) im2 = it
-                cPmn(ind,im,:) = (-1D0)**m*cPt(:, im2 + abs(m))
-            ELSE
-                cPmn(ind,im,:) = (-1D0)**m*cPmn(ind, im - 2*m, :)
-            ENDIF
-        ENDDO
-    ENDDO
+!   Legendre polynomial part
+    cPmn => cell%cPmn
 
     ip = 0
     ic = 0
@@ -961,6 +957,13 @@ SUBROUTINE Fluidcell(cell)
 !           Velocity at integration point
             Utmp = TRANSPOSE(cell%dU)
             Uc = INNER3_33(cell%x(:,i,j), Utmp)
+
+! !           Pouiseielle
+!             Uc = 0D0
+!             IF(cell%cts .lt. 550) THEN
+!             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
+!             Uc(3) = rt*rt - 1D0/3D0
+!             ENDIF
 
 !           Location of north pole in unrotated frame (just current integration point)
             xcr = cell%x(:,i,j)
@@ -1125,7 +1128,7 @@ SUBROUTINE Fluidcell(cell)
                     ENDDO
                     A2(row:row+2,col:col+2) = At
 
-!                   Can't get symmetry working...
+!                   Can't get symmetry working as before, because I loop over cols, then rows now...
 !                   Exploit symmetry (This and the calculation of At2 are a little overkill,
 !                   but it's finnicky to get the right if statements so I'll just leave them)
                     ! A2(rowm:rowm+2, col :col +2) = At2
