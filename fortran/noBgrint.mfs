@@ -1,17 +1,19 @@
 All properties nondimensional (even time step, based on Kolm time)
-Viscosity_Ratio 5
-Capillary 0.25 0.166667
-Dilatation_Ratio 100
-Bending_Modulus .03 .015
-Spont_Curvature -2
 Max_time_steps 10000
-Time_step 0.001
-Output HITCa025_10
+Number_cells 2
+Time_step 0.005
 Time_inc 25
+Gradient_file VG.bin
+Viscosity_Ratio 5
+Capillary 1
+Dilatation_Ratio 100
+Bending_Modulus .03
+Spont_Curvature -2
+Output ERAZURE
 Harmonic_order 16
 Refinement_factor 2
-Gradient_file VG.bin
 Restart Yes
 Restart_Loc xrp16v98b03cm2.txt
 Kolm_time 2e-6
 Kolm_frac 0.1
+Path_line 1

@@ -9,16 +9,15 @@ IMPLICIT NONE
 ! The actual cell shape object
 TYPE cellType
 
-!   Time
-    INTEGER :: cts, NT, dtinc
-    REAL(KIND = 8) :: dt
+!   Current cell
+    INTEGER :: id
 
 !   Material Properties
     REAL(KIND = 8) :: mu, lam, B, C, Eb, c0, Ca
 
 !   Harmonics info
     INTEGER :: p, q, ftot
-    TYPE(YType) :: Y, Yf
+    TYPE(YType), POINTER :: Y, Yf
     COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:), xmnR(:,:)
 
 !   Geometric info
@@ -37,14 +36,6 @@ TYPE cellType
 !   Force variables
     REAL(KIND = 8), ALLOCATABLE :: fab(:,:,:), ff(:,:,:), fc(:,:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:), nkmn(:,:), fmnR(:,:), fmn2(:,:), nkt(:,:)
-
-!   Velocity gradient & its file location
-    REAL(KIND = 8) :: dU(3,3)
-    CHARACTER(len = 15) gradfile
-
-!   Normalized Legendres/exp's at GPs
-    COMPLEX(KIND =8), ALLOCATABLE :: es(:,:)
-    REAL(KIND = 8), ALLOCATABLE :: cPmn(:,:,:)
 
 !   Cell velocity constants
     COMPLEX(KIND = 8), ALLOCATABLE :: umn(:,:)    
@@ -68,6 +59,23 @@ TYPE cellType
     PROCEDURE :: Intg    => Intgcell
 END TYPE cellType
 
+! Contains all the miscellaneous info about the problem
+TYPE probType
+    INTEGER :: cts, NT, dtinc, NCell
+    REAL(KIND = 8) :: dt
+!   Velocity gradient & its file location
+    REAL(KIND = 8) :: dU(3,3)
+    CHARACTER(len = 15) gradfile
+
+!   Normalized Legendres/exp's at GPs
+    COMPLEX(KIND =8), ALLOCATABLE :: es(:,:)
+    REAL(KIND = 8), ALLOCATABLE :: cPmn(:,:,:)
+
+!   Harmonics info
+    INTEGER :: p, q, ftot
+    TYPE(YType) :: Y, Yf
+END TYPE probType
+
 INTERFACE cellType
     PROCEDURE :: newcell
 END INTERFACE cellType
@@ -78,144 +86,166 @@ CONTAINS
 !=============================================================================!
 
 ! Constructs cell object, takes in order and alias amount
-FUNCTION newcell(filein, reduce) RESULT(cell)
+FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     CHARACTER(len = *), INTENT(IN) :: filein
     LOGICAL, INTENT(IN) :: reduce
-    TYPE(cellType) :: cell
+    TYPE(probType), TARGET, INTENT(INOUT) :: prob
+    TYPE(cellType), ALLOCATABLE :: cell(:)
     CHARACTER(len = 3) :: restart
     CHARACTER(len = 30) :: restfile
+    CHARACTER(:), ALLOCATABLE :: fileout
     REAL(KIND = 8), ALLOCATABLE :: cPt(:,:)
 
-    INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im
+    REAL(KIND = 8) lam, Ca, C, Eb, c0
 
-!   To fit dimesnionless parameters, we set a0 = 1, flow timescale = 1, mu = 1
-!   and fit the rest from there
+    INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im, ic
+
+!   General problem parameters
+    prob%NT = READ_GRINT_INT(filein, 'Max_time_steps')
+    prob%NCell = READ_GRINT_INT(filein, 'Number_cells')
+    prob%dt = READ_GRINT_DOUB(filein, 'Time_step')
+    prob%dtinc = READ_GRINT_INT(filein, 'Time_inc')
+    prob%cts = 1
+!   Gradient file location
+    prob%gradfile = READ_GRINT_CHAR(filein, 'Gradient_file')
+
 !   Material properties from input
-    cell%mu = 1D0 !READ_GRINT_DOUB(filein, 'Viscosity')
-    cell%lam = READ_GRINT_DOUB(filein, 'Viscosity_Ratio')
+    lam = READ_GRINT_DOUB(filein, 'Viscosity_Ratio')
+    Ca = READ_GRINT_DOUB(filein, 'Capillary')
+    C = READ_GRINT_DOUB(filein, 'Dilatation_Ratio')
+    Eb = READ_GRINT_DOUB(filein, 'Bending_Modulus')
+    c0 = READ_GRINT_DOUB(filein, 'Spont_Curvature')
 
-!   Turns out Re doesn't matter at all. What matters is (flow timescale)/(membrance timescale),
-!   which is the Capillary number (tm = (flow ts)*Ca = Ca)
+!   Write location
+    fileout = TRIM(READ_GRINT_CHAR(filein, 'Output'))
 
-!   Ca = (shear rate)*mu*(cell radius)/(B/2)
-    cell%Ca = READ_GRINT_DOUB(filein, 'Capillary')
-
-    cell%B = 2D0/cell%Ca
-!   A note on the dilation modulus: many papers use (B*C) in the spot where
-!   I use C, so I just make that correction here
-    cell%C = READ_GRINT_DOUB(filein, 'Dilatation_Ratio')*cell%B
-!   Similar situation for beinding modulus: the input is the non-dim
-!   parameter E*b = Eb/(a_0^2*(B/2))
-    cell%Eb = READ_GRINT_DOUB(filein, 'Bending_Modulus')*2D0*cell%B
-    cell%c0 = READ_GRINT_DOUB(filein, 'Spont_Curvature')
-    cell%NT = READ_GRINT_INT(filein, 'Max_time_steps')
-    cell%dt = READ_GRINT_DOUB(filein, 'Time_step')
-    cell%fileout = TRIM(READ_GRINT_CHAR(filein, 'Output'))
-    cell%dtinc = READ_GRINT_INT(filein, 'Time_inc')
-
-    cell%cts = 1
 !   Coarse and fine grids    
     p = READ_GRINT_INT(filein, 'Harmonic_order')
-    cell%p = p
+    prob%p = p
     fali   = READ_GRINT_INT(filein, 'Refinement_factor')
-    cell%q = cell%p*fali
+    prob%q = p*fali
 
-!   Gradient file location
-    cell%gradfile = READ_GRINT_CHAR(filein, 'Gradient_file')
+!   Restart location
+    restart = READ_GRINT_CHAR(filein, 'Restart')
+!   Choose file to restart from (assuming that this is after deflation)
+    restfile = READ_GRINT_CHAR(filein, 'Restart_Loc')
+
+!   Note that the file MUST be in the restart directory!
+    restfile = 'restart/'//trim(restfile)
 
 !   Make harmonics(order, # of derivs, if we'll rotate or not)
-    cell%Y = YType(p, 1, .true.)
-    cell%Yf = YType(p*fali, 4, .false.)
+    prob%Y = YType(p, 1, .true.)
+    prob%Yf = YType(p*fali, 4, .false.)
+    nt  = prob%Y%nt
+    np  = prob%Y%np
+    ntf = prob%Yf%nt
+    npf = prob%Yf%np
+    ALLOCATE(prob%es(2*(p-1)+1, np), prob%cPmn(p, 2*(p-1)+1, nt), cPt(nt, p*(p+1)/2))
 
-    nt  = cell%Y%nt
-    np  = cell%Y%np
-    ntf = cell%Yf%nt
-    npf = cell%Yf%np
+!   Material properties in temporary containers so I can put them in indiv cells
 
-!   Allocating everything, starting with derivatives
-    ALLOCATE(cell%dxt(3,ntf,npf), cell%dxp(3,ntf,npf), cell%dxp2(3,ntf,npf), &
-             cell%dxt2(3,ntf,npf), cell%dxtp(3,ntf,npf), cell%dxp3(3,ntf,npf), &
-             cell%dxt3(3,ntf,npf), cell%dxt2p(3,ntf,npf), cell%dxtp2(3,ntf,npf), &
-             cell%dxp4(3,ntf,npf), cell%dxtp3(3,ntf,npf), cell%dxt2p2(3,ntf,npf), &
-             cell%dxt3p(3,ntf,npf), cell%dxt4(3,ntf,npf), &
-             cell%J(ntf,npf), cell%x(3,nt,np), cell%xf(3,ntf,npf), &
-             cell%xmn(3,(p+1)*(p+1)), cell%xmnR(3,(p+1)*(p+1)), cell%umn(3,(p+1)*(p+1)), &
-             cell%es(2*(p-1)+1, np), cell%cPmn(p, 2*(p-1)+1, nt), cPt(nt, p*(p+1)/2))
-!   Reference items
-    ALLOCATE(cell%kR(ntf,npf), cell%kdR(2,ntf,npf), cell%kd2R(3,ntf,npf), &
-             cell%c1R(3,ntf,npf), cell%c2R(3,ntf,npf), cell%c1tR(3,ntf,npf), &
-             cell%c1pR(3,ntf,npf), cell%c2tR(3,ntf,npf), cell%c2pR(3,ntf,npf))
+    ALLOCATE(cell(prob%NCell))
 
-!   Force items
-    ALLOCATE(cell%fab(3,ntf,npf), cell%ff(3,ntf,npf), cell%fc(3,nt,np), &
-             cell%fmn(3,(cell%q+1)*(cell%q+1)), cell%nkmn(3,(cell%q+1)*(cell%q+1)), &
-             cell%fmnR(3,(cell%q+1)*(cell%q+1)), cell%fmn2(3,(cell%q+1)*(cell%q+1)), &
-             cell%nkt(3,(cell%q+1)*(cell%q+1)))
-    cell%ff = 0D0  
-    cell%fmn = 0D0
-    cell%umn = 0D0
+    DO ic = 1, prob%NCell
+        cell(ic)%mu = 1D0
+        cell(ic)%lam = lam
 
-!   For a = 1, V = 4.18904795321178, SA = 16.8447913187040, sphere 6.50088174342271
+!       To fit dimesnionless parameters, we set a0 = 1, flow timescale = 1, mu = 1
+!       and fit the rest from there
+!       Ca = (shear rate)*mu*(cell radius)/(B/2)
+        cell(ic)%Ca = Ca
+        cell(ic)%B = 2D0/Ca
+!       A note on the dilation modulus: many papers use (B*C) in the spot where
+!       I use C, so I just make that correction here
+        cell(ic)%C = C*cell(ic)%B
+!       Similar situation for beinding modulus: the input is the non-dim
+!       parameter E*b = Eb/(a_0^2*(B/2))
+        cell(ic)%Eb = Eb*2D0*cell(ic)%B
+        cell(ic)%c0 = c0
+        cell(ic)%fileout = fileout
 
-!   First, we need to get the reference shape for the shear stress
-    ! cell%xmn = RBCcoeff(cell%Y)
-    ! cell%xmn = Cubecoeff(cell%Y)
-    cell%xmn = Spherecoeff(cell%Y, .76D0) ! Reduced volume .997, .98, .95-> .9,.76,.65
+!       Coarse and fine grids/harms
+        cell(ic)%p = p
+        cell(ic)%q = p*fali
+        cell(ic)%Y => prob%Y
+        cell(ic)%Yf => prob%Yf
 
-!   Initial surfce derivatives/reference state
-    CALL cell%Derivs()
-    CALL cell%Stress()
+!       Allocating everything, starting with derivatives
+        ALLOCATE(cell(ic)%dxt(3,ntf,npf), cell(ic)%dxp(3,ntf,npf), cell(ic)%dxp2(3,ntf,npf), &
+                cell(ic)%dxt2(3,ntf,npf), cell(ic)%dxtp(3,ntf,npf), cell(ic)%dxp3(3,ntf,npf), &
+                cell(ic)%dxt3(3,ntf,npf), cell(ic)%dxt2p(3,ntf,npf), cell(ic)%dxtp2(3,ntf,npf), &
+                cell(ic)%dxp4(3,ntf,npf), cell(ic)%dxtp3(3,ntf,npf), cell(ic)%dxt2p2(3,ntf,npf), &
+                cell(ic)%dxt3p(3,ntf,npf), cell(ic)%dxt4(3,ntf,npf), &
+                cell(ic)%J(ntf,npf), cell(ic)%x(3,nt,np), cell(ic)%xf(3,ntf,npf), &
+                cell(ic)%xmn(3,(p+1)*(p+1)), cell(ic)%xmnR(3,(p+1)*(p+1)), cell(ic)%umn(3,(p+1)*(p+1)))
+!       Reference items
+        ALLOCATE(cell(ic)%kR(ntf,npf), cell(ic)%kdR(2,ntf,npf), cell(ic)%kd2R(3,ntf,npf), &
+                cell(ic)%c1R(3,ntf,npf), cell(ic)%c2R(3,ntf,npf), cell(ic)%c1tR(3,ntf,npf), &
+                cell(ic)%c1pR(3,ntf,npf), cell(ic)%c2tR(3,ntf,npf), cell(ic)%c2pR(3,ntf,npf))
 
-!   Now scale to get an equivalent radius of 1
-    IF(.not. reduce) THEN
-        cell%xmn = cell%xmn/(3D0*cell%vol()/(4D0*pi))**(1D0/3D0)
-!   If we want to do deflation, comment the above and scale to get right SA
-    ELSE
-        cell%xmn = cell%xmn*(16.8447913187040D0/cell%SA())**(1D0/2D0) 
-    ENDIF
+!       Force items
+        ALLOCATE(cell(ic)%fab(3,ntf,npf), cell(ic)%ff(3,ntf,npf), cell(ic)%fc(3,nt,np), &
+                cell(ic)%fmn(3,(cell(ic)%q+1)*(cell(ic)%q+1)), cell(ic)%nkmn(3,(cell(ic)%q+1)*(cell(ic)%q+1)), &
+                cell(ic)%fmnR(3,(cell(ic)%q+1)*(cell(ic)%q+1)), cell(ic)%fmn2(3,(cell(ic)%q+1)*(cell(ic)%q+1)), &
+                cell(ic)%nkt(3,(cell(ic)%q+1)*(cell(ic)%q+1)))
 
-!   Initialize derivs again... I do this because I need the derivs to get the volume
-    CALL cell%Derivs()
-    CALL cell%Stress()
+        cell(ic)%ff = 0D0  
+        cell(ic)%fmn = 0D0
+        cell(ic)%umn = 0D0
 
-!   Now with a reference shape made, should we choose an intermediate point
-!   to restart from?
-    restart = READ_GRINT_CHAR(filein, 'Restart')
-    IF (restart .eq. "Yes") THEN
-!       This gives us the right surface area with a blown up volume
-!       The 16.8 is for equiv radius of 1
-        cell%xmn = cell%xmn*sqrt(16.8447913187040D0/cell%SA())
-!       Get referennce state
-        CALL cell%Derivs()
-        CALL cell%Stress()
+!       For a = 1, V = 4.18904795321178, SA = 16.8447913187040, sphere 6.50088174342271
 
-!       Choose file to restart from (assuming that this is after deflation)
-        restfile = READ_GRINT_CHAR(filein, 'Restart_Loc')
+!       First, we need to get the reference shape for the shear stress
+        ! cell(ic)%xmn = RBCcoeff(cell(ic)%Y)
+        ! cell(ic)%xmn = Cubecoeff(cell(ic)%Y)
+        cell(ic)%xmn = Spherecoeff(cell(ic)%Y, .76D0) ! Reduced volume .997, .98, .95-> .9,.76,.65
 
-!       Note that the file MUST be in the restart directory!
-        restfile = 'restart/'//trim(restfile)
+!       Initial surfce derivatives/reference state
+        CALL cell(ic)%Derivs()
+        CALL cell(ic)%Stress()
 
-!       And just set the constants equal, scaling for equiv radius
-!       This assumes the equiv radius in input is 1.
-        cell%xmn = Readcoeff(restfile, cell%Y%p)
-    ENDIF
-    ! print *, (3D0*cell%vol()/(4D0*pi))**(1D0/3D0)
-    ! print *, cell%vol()/(cell%SA()**1.5D0/3d0/sqrt(4d0*pi))
-    ! print *, cell%SA()
+!       Now scale to get an equivalent radius of 1
+        IF(.not. reduce) THEN
+            cell(ic)%xmn = cell(ic)%xmn/(3D0*cell(ic)%vol()/(4D0*pi))**(1D0/3D0)
+!       If we want to do deflation, comment the above and scale to get right SA
+        ELSE
+            cell(ic)%xmn = cell(ic)%xmn*(16.8447913187040D0/cell(ic)%SA())**(1D0/2D0) 
+        ENDIF
 
-!   Initial positions
-    cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
-    cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
-    cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+!       Initialize derivs again... I do this because I need the derivs to get the volume
+        CALL cell(ic)%Derivs()
+        CALL cell(ic)%Stress()
+
+!       Now with a reference shape made, should we choose an intermediate point
+!       to restart from?
+        IF (restart .eq. "Yes") THEN
+!           This gives us the right surface area with a blown up volume
+!           The 16.8 is for equiv radius of 1
+            cell(ic)%xmn = cell(ic)%xmn*sqrt(16.8447913187040D0/cell(ic)%SA())
+!           Get referennce state
+            CALL cell(ic)%Derivs()
+            CALL cell(ic)%Stress()
+
+!           And just set the constants equal, scaling for equiv radius
+!           This assumes the equiv radius in input is 1.
+            cell(ic)%xmn = Readcoeff(restfile, cell(ic)%Y%p)
+        ENDIF
+
+!       Initial positions
+        cell(ic)%x(1,:,:) = cell(ic)%Y%backward(cell(ic)%xmn(1,:))
+        cell(ic)%x(2,:,:) = cell(ic)%Y%backward(cell(ic)%xmn(2,:))
+        cell(ic)%x(3,:,:) = cell(ic)%Y%backward(cell(ic)%xmn(3,:))
+
+    ENDDO
     
 !   Exponential calculation part
     DO m = -(p-1),(p-1)
         ind = m + p
-        cell%es(ind,:) = EXP(ii*DBLE(m)*cell%Y%phi)
+        prob%es(ind,:) = EXP(ii*DBLE(m)*prob%Y%phi)
     ENDDO
 
 !   Legendre polynomial calculation part
-    cPt = Alegendre(p-1,COS(cell%Y%tht))
+    cPt = Alegendre(p-1,COS(prob%Y%tht))
     it = 0
     DO n = 0, p-1
         ind = n+1
@@ -223,13 +253,13 @@ FUNCTION newcell(filein, reduce) RESULT(cell)
         DO m = -(p-1),p-1
             im = im + 1
             IF(ABS(m) .gt. n) THEN
-                cell%cPmn(ind,im,:) = 0D0
+                prob%cPmn(ind,im,:) = 0D0
             ELSEIF(m .le. 0) THEN
                 it = it + 1
                 IF(m.eq.-n) im2 = it
-                cell%cPmn(ind,im,:) = (-1D0)**m*cPt(:, im2 + abs(m))
+                prob%cPmn(ind,im,:) = (-1D0)**m*cPt(:, im2 + abs(m))
             ELSE
-                cell%cPmn(ind,im,:) = (-1D0)**m*cell%cPmn(ind, im - 2*m, :)
+                prob%cPmn(ind,im,:) = (-1D0)**m*prob%cPmn(ind, im - 2*m, :)
             ENDIF
         ENDDO
     ENDDO
@@ -239,12 +269,13 @@ END FUNCTION newcell
 
 ! -------------------------------------------------------------------------!
 ! Writes xmn to a text file. Could be better
-SUBROUTINE Writecell(cell)
+SUBROUTINE Writecell(cell, prob)
     CLASS(cellType), INTENT(INOUT) ::cell
+    TYPE(probType), INTENT(IN) :: prob
     CHARACTER (LEN = 25) ctsst, datdir, filename
 
 !   Formatting pain
-    write(ctsst, "(I0.5)") cell%cts
+    write(ctsst, "(I0.5)") prob%cts
     datdir = TRIM('dat/'//cell%fileout//'/')
     filename = TRIM('x_'//ctsst)
 
@@ -271,9 +302,9 @@ SUBROUTINE Writecell(cell)
         WRITE(88,*) "p"
         WRITE(88,*) cell%p
         WRITE(88,*) "dt"
-        WRITE(88,*) cell%dt
+        WRITE(88,*) prob%dt
         WRITE(88,*) "dt_inc"
-        WRITE(88,*) cell%dtinc
+        WRITE(88,*) prob%dtinc
         WRITE(88,*) "Ed"
         WRITE(88,*) cell%C/cell%B
         WRITE(88,*) "Eb"
@@ -290,7 +321,7 @@ SUBROUTINE Writecell(cell)
 !   Not optimal, but just a file for the max timestep
     filename = 'maxdt'
     OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
-    WRITE(88,*) cell%cts
+    WRITE(88,*) prob%cts
     CLOSE(88)
     
     IF(.not. cell%writ) cell%writ = .true.
@@ -874,8 +905,9 @@ END SUBROUTINE Stresscell
 ! -------------------------------------------------------------------------!
 ! Knowing the force jump get the velocity on the surface of the cell via
 ! the fluid problem
-SUBROUTINE Fluidcell(cell)
+SUBROUTINE Fluidcell(cell, prob)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
+    TYPE(probType), INTENT(IN), TARGET :: prob
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
                Nmat, iter, info, colm, ind, im3
@@ -939,10 +971,10 @@ SUBROUTINE Fluidcell(cell)
 !!  Can be sped up with symmetry
 
 !   Exponential  part
-    es =>cell%es
+    es =>prob%es
 
 !   Legendre polynomial part
-    cPmn => cell%cPmn
+    cPmn => prob%cPmn
 
     ip = 0
     ic = 0
@@ -955,7 +987,7 @@ SUBROUTINE Fluidcell(cell)
             row = 3*(ic - 1)  + 1
 
 !           Velocity at integration point
-            Utmp = TRANSPOSE(cell%dU)
+            Utmp = TRANSPOSE(prob%dU)
             Uc = INNER3_33(cell%x(:,i,j), Utmp)
 
 ! !           Pouiseielle
@@ -1167,8 +1199,9 @@ END SUBROUTINE Fluidcell
 
 ! -------------------------------------------------------------------------!
 ! Time advancement
-SUBROUTINE UpdateCell(cell, ord, reduce)
+SUBROUTINE UpdateCell(cell, prob, ord, reduce)
     CLASS(cellType), INTENT(INOUT) :: cell
+    TYPE(probType), INTENT(INOUT) :: prob
     INTEGER, INTENT(IN) :: ord
     LOGICAL, INTENT(IN) :: reduce
     REAL(KIND = 8) :: zm
@@ -1180,7 +1213,7 @@ SUBROUTINE UpdateCell(cell, ord, reduce)
 !   Volume correction: small, inward normal velocity based off current volume/SA/time step
 !   Removed for reduce, because that keeps things at constant volume
     if(.not. reduce) THEN
-        zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*cell%dt)
+        zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*prob%dt)
         cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
     ENDIF
 
@@ -1198,12 +1231,12 @@ SUBROUTINE UpdateCell(cell, ord, reduce)
     IF(ord .eq. 2) THEN
         CALL cell%derivs()
         CALL cell%stress()
-        CALL cell%fluid()
+        CALL cell%fluid(prob)
         cell%umn(:,1) = 0D0
-        zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*cell%dt)
+        zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*prob%dt)
         cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
         umnt = 0.5D0*(umnt + cell%umn)
-        cell%xmn = xmnt + umnt*cell%dt
+        cell%xmn = xmnt + umnt*prob%dt
         cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
         cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
         cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
@@ -1213,12 +1246,12 @@ SUBROUTINE UpdateCell(cell, ord, reduce)
     ENDIF
     
 !   Update position and current time step
-    cell%xmn = xmnt + umnt*cell%dt
+    cell%xmn = xmnt + umnt*prob%dt
     cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
     cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
     cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
 
-    cell%cts = cell%cts + 1
+    prob%cts = prob%cts + 1
 END SUBROUTINE UpdateCell
 
 ! -------------------------------------------------------------------------!
