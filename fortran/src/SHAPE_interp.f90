@@ -52,13 +52,14 @@ TYPE cellType
     PROCEDURE :: Derivs  => Derivscell
     PROCEDURE :: Stress  => Stresscell
     PROCEDURE :: Fluid   => Fluidcell
-    PROCEDURE :: Update  => UpdateCell
+    PROCEDURE :: Relax   => RelaxCell
     PROCEDURE :: Dealias => Dealiascell
     PROCEDURE :: Vol     => Volcell
     PROCEDURE :: SA      => SAcell
     PROCEDURE :: Intg    => Intgcell
 END TYPE cellType
 
+! -------------------------------------------------------------------------!
 ! Contains all the miscellaneous info about the problem
 TYPE probType
     INTEGER :: cts, NT, dtinc, NCell
@@ -74,8 +75,15 @@ TYPE probType
 !   Harmonics info
     INTEGER :: p, q, ftot
     TYPE(YType) :: Y, Yf
+
+!   Pointer to the cells
+    TYPE(cellType), POINTER :: cell(:)
+    
+    CONTAINS
+    PROCEDURE :: Update  => UpdateProb
 END TYPE probType
 
+! -------------------------------------------------------------------------!
 INTERFACE cellType
     PROCEDURE :: newcell
 END INTERFACE cellType
@@ -85,12 +93,12 @@ CONTAINS
 !================================= ROUTINES ==================================!
 !=============================================================================!
 
-! Constructs cell object, takes in order and alias amount
+! Constructs cell object, takes in order
 FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     CHARACTER(len = *), INTENT(IN) :: filein
     LOGICAL, INTENT(IN) :: reduce
     TYPE(probType), TARGET, INTENT(INOUT) :: prob
-    TYPE(cellType), ALLOCATABLE :: cell(:)
+    TYPE(cellType), ALLOCATABLE, TARGET :: cell(:)
     CHARACTER(len = 3) :: restart
     CHARACTER(len = 30) :: restfile
     CHARACTER(:), ALLOCATABLE :: fileout
@@ -105,7 +113,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     prob%NCell = READ_GRINT_INT(filein, 'Number_cells')
     prob%dt = READ_GRINT_DOUB(filein, 'Time_step')
     prob%dtinc = READ_GRINT_INT(filein, 'Time_inc')
-    prob%cts = 1
+    prob%cts = 0
 !   Gradient file location
     prob%gradfile = READ_GRINT_CHAR(filein, 'Gradient_file')
 
@@ -189,7 +197,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
                 cell(ic)%fmnR(3,(cell(ic)%q+1)*(cell(ic)%q+1)), cell(ic)%fmn2(3,(cell(ic)%q+1)*(cell(ic)%q+1)), &
                 cell(ic)%nkt(3,(cell(ic)%q+1)*(cell(ic)%q+1)))
 
-        cell(ic)%ff = 0D0  
+        cell(ic)%ff = 0D0
         cell(ic)%fmn = 0D0
         cell(ic)%umn = 0D0
 
@@ -996,6 +1004,9 @@ SUBROUTINE Fluidcell(cell, prob)
 !             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
 !             Uc(3) = rt*rt - 1D0/3D0
 !             ENDIF
+! !           Hardcoded shear flow
+!             cell%dU = 0D0
+!             cell%dU(1,3) = 1d0
 
 !           Location of north pole in unrotated frame (just current integration point)
             xcr = cell%x(:,i,j)
@@ -1041,11 +1052,11 @@ SUBROUTINE Fluidcell(cell, prob)
 !                   RHS vector
                     ft = frot(:,i2,j2)
                     ft2 = Gij(r, eye)
-                    bt = bt + INNER3_33(ft,ft2)*cell%Y%ws(i2)
+                    bt = bt + INNER3_33(ft,ft2)*Y%ws(i2)
                 ENDDO
             ENDDO
-            b(row:row+2) = bt*cell%Y%dphi/cell%mu/(1+cell%lam) &
-                         - Uc*8D0*pi/(1+cell%lam)
+            b(row:row+2) = bt*Y%dphi/cell%mu/(1D0 + cell%lam) &
+                         - Uc*8D0*pi/(1D0 + cell%lam)
 
 !           Next intermediate matrices: over phi's and theta's
             im2 = 0
@@ -1199,60 +1210,100 @@ END SUBROUTINE Fluidcell
 
 ! -------------------------------------------------------------------------!
 ! Time advancement
-SUBROUTINE UpdateCell(cell, prob, ord, reduce)
-    CLASS(cellType), INTENT(INOUT) :: cell
-    TYPE(probType), INTENT(INOUT) :: prob
+SUBROUTINE UpdateProb(prob, ord, reduce)
+    CLASS(probType), INTENT(INOUT) :: prob
+    TYPE(cellType), POINTER :: cell
     INTEGER, INTENT(IN) :: ord
     LOGICAL, INTENT(IN) :: reduce
-    REAL(KIND = 8) :: zm
+    REAL(KIND = 8) :: zm, tic, toc
     COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:)
+    INTEGER :: ic
     
-!   Remove rigid body motion
-    cell%umn(:,1) = 0D0
+    CALL CPU_TIME(tic)
 
-!   Volume correction: small, inward normal velocity based off current volume/SA/time step
-!   Removed for reduce, because that keeps things at constant volume
-    if(.not. reduce) THEN
-        zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*prob%dt)
-        cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
-    ENDIF
+    DO ic = 1, prob%Ncell
+        cell => prob%cell(ic)
 
-    umnt = cell%umn
-    xmnt = cell%xmn
-
-!   Volume reduction (add small inward normal vel every timestep)
-    IF(reduce) THEN
-        IF(cell%Vol().gt. 4.22  ) umnt = umnt - 0.10D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
-        IF(cell%Vol().lt. 4.185 ) umnt = umnt + 0.01D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
-        IF(cell%Vol().gt. 4.1894) umnt = umnt - 0.01D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
-    ENDIF
-    
-!   Second part for midpoint
-    IF(ord .eq. 2) THEN
+!       Get geometric info about new state, get stress in new state, get velocity
         CALL cell%derivs()
         CALL cell%stress()
         CALL cell%fluid(prob)
-        cell%umn(:,1) = 0D0
-        zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*prob%dt)
-        cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
-        umnt = 0.5D0*(umnt + cell%umn)
+!       Remove rigid body motion
+        ! cell%umn(:,1) = 0D0
+
+!       Volume correction: small, inward normal velocity based off current volume/SA/time step
+!       Removed for reduce, because that keeps things at constant volume
+        if(.not. reduce) THEN
+            zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*prob%dt)
+            cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+        ENDIF
+
+        umnt = cell%umn
+        xmnt = cell%xmn
+
+!       Volume reduction (add small inward normal vel every timestep)
+        IF(reduce) THEN
+            IF(cell%Vol().gt. 4.22  ) umnt = umnt - 0.10D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+            IF(cell%Vol().lt. 4.185 ) umnt = umnt + 0.01D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+            IF(cell%Vol().gt. 4.1894) umnt = umnt - 0.01D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+        ENDIF
+    
+!       Second part for midpoint
+        IF(ord .eq. 2) THEN
+            CALL cell%derivs()
+            CALL cell%stress()
+            CALL cell%fluid(prob)
+            ! cell%umn(:,1) = 0D0
+            zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*prob%dt)
+            cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+            umnt = 0.5D0*(umnt + cell%umn)
+            cell%xmn = xmnt + umnt*prob%dt
+            cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
+            cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
+            cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+        ELSEIF(ord .gt. 2) THEN
+            print*, "ERROR: time advancement of order >2 not supported"
+            stop
+        ENDIF
+    
+!       Update position and current time step
         cell%xmn = xmnt + umnt*prob%dt
         cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
         cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
         cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
-    ELSEIF(ord .gt. 2) THEN
-        print*, "ERROR: time advancement of order >2 not supported"
-        stop
-    ENDIF
-    
-!   Update position and current time step
-    cell%xmn = xmnt + umnt*prob%dt
-    cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
-    cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
-    cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+    ENDDO
+
+    CALL CPU_TIME(toc)
+    ! print *, toc-tic
 
     prob%cts = prob%cts + 1
-END SUBROUTINE UpdateCell
+    
+!   Check if there's any funny business
+    IF(isNaN(MAXVAL(ABS(cell%umn))) .or. MAXVAL(ABS(cell%umn)) .gt. HUGE(zm)) THEN
+            print *, 'ERROR: inftys or NaNs'
+            STOP
+    ENDIF
+END SUBROUTINE UpdateProb
+
+! -------------------------------------------------------------------------!
+! Runs until initial cell is relaxed
+SUBROUTINE RelaxCell(cell, prob, tol)
+    CLASS(cellType), INTENT(INOUT) :: cell
+    TYPE(probType), INTENT(IN) :: prob
+    REAL(KIND = 8), INTENT(IN) :: tol
+    cell%umn(1,1) = 1/cell%Ca
+    DO WHILE(MAXVAL(ABS(cell%umn))*cell%Ca .gt. tol)
+            CALL cell%derivs()
+            CALL cell%stress() 
+            CALL cell%fluid(prob)
+            cell%umn(:,1) = 0D0
+            cell%xmn = cell%xmn + cell%umn*prob%dt
+            cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
+            cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:)) 
+            cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+            write(*,'(F8.6)') MAXVAL(ABS(cell%umn))*cell%Ca
+    ENDDO
+END SUBROUTINE RelaxCell
 
 ! -------------------------------------------------------------------------!
 ! Takes an input and cell and de-alises it

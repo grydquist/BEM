@@ -339,6 +339,38 @@ PURE FUNCTION QInterp(x, y, xo) RESULT(yo)
 END FUNCTION QInterp
 
 ! -------------------------------------------------------------------------!
+! Uses above function to get current velocity gradient
+PURE FUNCTION VelInterp(G, t, nts, kfr) RESULT(dU)
+    REAL(KIND = 8), INTENT(IN) :: t, kfr
+    INTEGER, INTENT(IN) :: nts
+    INTEGER :: kts
+    REAL(KIND = 8), INTENT(IN) :: G(:,:,:)
+    REAL(KIND = 8) :: dU(3,3)
+    REAL(KIND = 8) :: xs(3)
+    REAL(KIND = 8), ALLOCATABLE :: ys(:,:,:)
+
+    ALLOCATE(ys(3,3,3))
+
+    kts = FLOOR(t/kfr)
+    xs(1) = REAL(kts,8)*kfr
+    xs(2) = xs(1) + kfr
+    ys(1,:,:) = G(kts + 1,:,:)
+    ys(2,:,:) = G(kts + 2,:,:)
+
+!       Use two points to right and one left, unless you're at the end
+!       Exception if there's just 1 timestep needed
+    IF(t + 2D0*kfr .lt. nts*kfr .or. nts .eq. 1) THEN
+            xs(3) = xs(2) + kfr
+            ys(3,:,:) = G(kts + 3,:,:)
+    ELSE
+            xs(3) = xs(1) - kfr
+            ys(3,:,:) = G(kts - 1,:,:)
+    ENDIF
+    dU = QInterp(xs,ys,t)
+
+END FUNCTION VelInterp
+
+! -------------------------------------------------------------------------!
 ! Takes the velocity gradient file and gets it all setup
 PURE FUNCTION VGradSetup(x, y, xo) RESULT(yo)
     REAL(KIND = 8), INTENT(IN) :: x(3), xo

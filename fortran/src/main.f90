@@ -2,12 +2,12 @@ PROGRAM MAIN
 USE UTILMOD
 USE SHAPEMOD
 IMPLICIT NONE
-REAL(KIND = 8) :: tic, toc, t = 0D0, xs(3), kdt, kfr, Gfac
-TYPE(cellType), ALLOCATABLE :: cell(:)
+REAL(KIND = 8) :: tic, toc, t = 0D0, kdt, kfr, Gfac
+TYPE(cellType), ALLOCATABLE, TARGET :: cell(:)
 TYPE(probType) :: prob
 CHARACTER(:), ALLOCATABLE :: filein
-INTEGER ::  i, argl, stat, kts, nts, pthline
-REAL(KIND=8), ALLOCATABLE :: G(:,:,:), ys(:,:,:), Gtmp(:,:,:,:)
+INTEGER ::  i, argl, stat, nts, pthline, ic
+REAL(KIND = 8), ALLOCATABLE :: G(:,:,:), Gtmp(:,:,:,:)
 
 print *, 'Reading in input file...'
 CALL get_command_argument(number=1, length=argl)
@@ -16,6 +16,7 @@ CALL get_command_argument(number=1, value=filein, status=stat)
 
 print *, 'Initializing cell/harmonics...'
 cell = cellType(filein, .false., prob)
+prob%cell => cell
 CALL cpu_time(tic)
 
 ! Info about flow time scales/vel grad file
@@ -27,9 +28,10 @@ print *, 'Reading in velocity gradient...'
 OPEN(1,FILE = prob%gradfile, ACCESS = 'stream', ACTION = 'read')
 READ(1) nts, i
 ! Read into a temporary array so we don't hold onto this big one
-ALLOCATE(Gtmp(nts,3,3,i), ys(3,3,3))
+ALLOCATE(Gtmp(nts,3,3,i))
 READ(1) Gtmp
 CLOSE(1)
+
 ! How many timesteps from G do we actually need?
 Gfac = nts*kfr/(prob%NT*prob%dt)
 nts = CEILING(nts/Gfac)
@@ -43,25 +45,21 @@ ELSE
 ENDIF
 DEALLOCATE(Gtmp)
 
-! Let shape equilibrate by running a few time steps with no dU
+
+! Relax cell to get it into an equilibrium state
+!! ============================
 print *, 'Getting initial shape -'
 print *,  'Max velocity coefficient w.r.t. membrane time (want less than 0.0005*Ca):'
 prob%dU = 0D0
-
-!! ============================
-cell(1)%umn(1,1) = 1/cell(1)%Ca
-DO WHILE(MAXVAL(ABS(cell(1)%umn))*cell(1)%Ca .gt. 0.005)
-        CALL cell(1)%derivs()
-        CALL cell(1)%stress() 
-        CALL cell(1)%fluid(prob)
-        cell(1)%umn(:,1) = 0D0
-        cell(1)%xmn = cell(1)%xmn + cell(1)%umn*prob%dt
-        cell(1)%x(1,:,:) = cell(1)%Y%backward(cell(1)%xmn(1,:))
-        cell(1)%x(2,:,:) = cell(1)%Y%backward(cell(1)%xmn(2,:)) 
-        cell(1)%x(3,:,:) = cell(1)%Y%backward(cell(1)%xmn(3,:))
-        write(*,'(F8.6)') MAXVAL(ABS(cell(1)%umn))*cell(1)%Ca
+DO ic = 1, prob%NCell
+        CALL cell(ic)%relax(prob, 0.005D0)
 ENDDO
 !! ============================
+
+! Get initial volumes
+DO ic = 1, prob%NCell
+        cell(ic)%V0 = cell(ic)%Vol()
+ENDDO
 
 !   Write initial configuration
 CALL cell(1)%write(prob)
@@ -70,67 +68,28 @@ print*, 'Initialized!'
 
 ! Time step loop
 DO i = 1,prob%NT
-
-!       First, interpolate velocity gradient to current time step
-!       Get time steps to interpolate to, first getting kolmogorov timesteps we're between
 !! ============================
-        kts = FLOOR(t/kfr)
-        xs(1) = REAL(kts,8)*kfr
-        xs(2) = xs(1) + kfr
-        ys(1,:,:) = G(kts + 1,:,:)
-        ys(2,:,:) = G(kts + 2,:,:)
-
-!       Use two points to right and one left, unless you're at the end
-!       Exception if there's just 1 timestep needed
-        IF(t + 2D0*kfr .lt. nts*kfr .or. nts .eq. 1) THEN
-                xs(3) = xs(2) + kfr
-                ys(3,:,:) = G(kts + 3,:,:)
-        ELSE
-                xs(3) = xs(1) - kfr
-                ys(3,:,:) = G(kts - 1,:,:)
-        ENDIF
-
-!       Do interpolation, then normalize by kolm time
-        prob%dU = QInterp(xs,ys,t)*kdt
+!       Do interpolation to get current grad tensor, then normalize by kolm time
+        prob%dU = VelInterp(G,t,nts,kfr)*kdt
 !! ============================
-        
-!       Hardcoded shear flow
-        ! cell%dU = 0D0
-        ! cell%dU(1,3) = 1d0
 
-!       Get surface derivatives, then stress froom deformation, then motion from fluid
-        CALL cell(1)%derivs()
-        CALL cell(1)%stress()
-        CALL cell(1)%fluid(prob)
-
-!       Initial volume
-        IF(i.eq.1) THEN
-                cell(1)%V0 = cell(1)%Vol()
-        ENDIF
-
-!       Time advancer. Arguments are order of accuracy
-!       and if we should do volume reduction routine.
-        CALL cell(1)%update(prob, 1, .false.)
+!       Updater
+        CALL prob%update(1, .false.)
 
 !       Write and display some output
         IF((prob%cts .eq. 1) .or. (MOD(prob%cts,prob%dtinc)) .eq. 0) THEN
                 CALL cell(1)%write(prob)
         ENDIF
 
-!       Check if there's any funny business
-        IF(isNaN(MAXVAL((ABS(cell(1)%umn)))) .or. MAXVAL((ABS(cell(1)%umn))) .gt. HUGE(t)) THEN
-                print *, 'ERROR: inftys or NaNs'
-                stop
-        ENDIF
-
         t = t + prob%dt
-        write(*,'(I4,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') &
-        i, t, 1D0*2D0*MAXVAL((ABS(cell(1)%ff)))/cell%B, MAXVAL((ABS(cell(1)%umn))), cell(1)%vol(), &
-        cell(1)%SA()
+        DO ic = 1, prob%NCell
+                write(*,'(I4,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') &
+                prob%cts, t, 1D0*2D0*MAXVAL(ABS(cell(ic)%ff))/cell(ic)%B, MAXVAL(ABS(cell(ic)%umn)), cell(ic)%vol(), &
+                cell(ic)%SA()
+        ENDDO
 ENDDO
 
 CALL cpu_time(toc)
-
 print *, toc-tic
 
 END PROGRAM MAIN
