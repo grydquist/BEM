@@ -320,11 +320,9 @@ END FUNCTION
 PURE FUNCTION RREF3(U) RESULT(V)
     REAL(KIND = 8), INTENT(IN) :: U(3,3)
     REAL(KIND = 8) :: V(3,3)
-
     V(1,:) = U(1,:) - U(1,2)*(U(3,:)/U(3,2))
     V(2,:) = U(2,:) - U(2,1)*(U(3,:)/U(3,1))
     V(3,:) = 0D0
-
 END FUNCTION RREF3
 
 ! -------------------------------------------------------------------------!
@@ -367,7 +365,6 @@ PURE FUNCTION VelInterp(G, t, nts, kfr) RESULT(dU)
             ys(3,:,:) = G(kts - 1,:,:)
     ENDIF
     dU = QInterp(xs,ys,t)
-
 END FUNCTION VelInterp
 
 ! -------------------------------------------------------------------------!
