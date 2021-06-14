@@ -18,7 +18,7 @@ TYPE cellType
 !   Harmonics info
     INTEGER :: p, q, ftot
     TYPE(YType), POINTER :: Y, Yf
-    COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:), xmnR(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:)
 
 !   Geometric info
     REAL(KIND = 8), ALLOCATABLE :: J(:,:), x(:,:,:), xf(:,:,:), k(:,:)
@@ -35,7 +35,7 @@ TYPE cellType
 
 !   Force variables
     REAL(KIND = 8), ALLOCATABLE :: fab(:,:,:), ff(:,:,:), fc(:,:,:)
-    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:), nkmn(:,:), fmnR(:,:), fmn2(:,:), nkt(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:), nkmn(:,:), fmn2(:,:), nkt(:,:)
 
 !   Cell velocity constants
     COMPLEX(KIND = 8), ALLOCATABLE :: umn(:,:)    
@@ -62,7 +62,7 @@ END TYPE cellType
 ! -------------------------------------------------------------------------!
 ! Contains all the miscellaneous info about the problem
 TYPE probType
-    INTEGER :: cts, NT, dtinc, NCell
+    INTEGER :: cts, NT, dtinc, NCell, Nmat, NmatT
     REAL(KIND = 8) :: dt
 !   Velocity gradient & its file location
     REAL(KIND = 8) :: dU(3,3)
@@ -78,6 +78,9 @@ TYPE probType
 
 !   Pointer to the cells
     TYPE(cellType), POINTER :: cell(:)
+
+!   Big, total matrix
+    COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), b(:)
     
     CONTAINS
     PROCEDURE :: Update  => UpdateProb
@@ -150,11 +153,19 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     npf = prob%Yf%np
     ALLOCATE(prob%es(2*(p-1)+1, np), prob%cPmn(p, 2*(p-1)+1, nt), cPt(nt, p*(p+1)/2))
 
-!   Material properties in temporary containers so I can put them in indiv cells
+!   Big matrix to solve
+    ALLOCATE(prob%A(3*p*p*prob%Ncell, 3*p*p*prob%Ncell), prob%b(3*p*p*prob%Ncell))
+    prob%A = 0D0
+    prob%b = 0D0
+
+!   Matrix size
+    prob%Nmat = 3*(prob%Y%p)*(prob%Y%p)
+    prob%NmatT= prob%Nmat*prob%Ncell
 
     ALLOCATE(cell(prob%NCell))
 
     DO ic = 1, prob%NCell
+        cell(ic)%id = ic
         cell(ic)%mu = 1D0
         cell(ic)%lam = lam
 
@@ -185,7 +196,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
                 cell(ic)%dxp4(3,ntf,npf), cell(ic)%dxtp3(3,ntf,npf), cell(ic)%dxt2p2(3,ntf,npf), &
                 cell(ic)%dxt3p(3,ntf,npf), cell(ic)%dxt4(3,ntf,npf), &
                 cell(ic)%J(ntf,npf), cell(ic)%x(3,nt,np), cell(ic)%xf(3,ntf,npf), &
-                cell(ic)%xmn(3,(p+1)*(p+1)), cell(ic)%xmnR(3,(p+1)*(p+1)), cell(ic)%umn(3,(p+1)*(p+1)))
+                cell(ic)%xmn(3,(p+1)*(p+1)), cell(ic)%umn(3,(p+1)*(p+1)))
 !       Reference items
         ALLOCATE(cell(ic)%kR(ntf,npf), cell(ic)%kdR(2,ntf,npf), cell(ic)%kd2R(3,ntf,npf), &
                 cell(ic)%c1R(3,ntf,npf), cell(ic)%c2R(3,ntf,npf), cell(ic)%c1tR(3,ntf,npf), &
@@ -193,9 +204,8 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
 
 !       Force items
         ALLOCATE(cell(ic)%fab(3,ntf,npf), cell(ic)%ff(3,ntf,npf), cell(ic)%fc(3,nt,np), &
-                cell(ic)%fmn(3,(cell(ic)%q+1)*(cell(ic)%q+1)), cell(ic)%nkmn(3,(cell(ic)%q+1)*(cell(ic)%q+1)), &
-                cell(ic)%fmnR(3,(cell(ic)%q+1)*(cell(ic)%q+1)), cell(ic)%fmn2(3,(cell(ic)%q+1)*(cell(ic)%q+1)), &
-                cell(ic)%nkt(3,(cell(ic)%q+1)*(cell(ic)%q+1)))
+                 cell(ic)%fmn(3,(cell(ic)%q+1)*(cell(ic)%q+1)), cell(ic)%nkmn(3,(cell(ic)%q+1)*(cell(ic)%q+1)), &
+                 cell(ic)%fmn2(3,(cell(ic)%q+1)*(cell(ic)%q+1)), cell(ic)%nkt(3,(cell(ic)%q+1)*(cell(ic)%q+1)))
 
         cell(ic)%ff = 0D0
         cell(ic)%fmn = 0D0
@@ -237,6 +247,16 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
 !           And just set the constants equal, scaling for equiv radius
 !           This assumes the equiv radius in input is 1.
             cell(ic)%xmn = Readcoeff(restfile, cell(ic)%Y%p)
+        ENDIF
+
+        !! Test                                                                         !!!!!
+        if(ic.eq.1) THEN
+            cell(ic)%xmn(3,1) =   5D0*SQRT(pi)*3D0/5D0
+            ! cell(ic)%xmn(1,1) =  -5D0*SQRT(pi)*3D0/5D0
+        ENDIF
+        if(ic.eq.2) THEN
+            cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/5D0
+            ! cell(ic)%xmn(1,1) =  5D0*SQRT(pi)*3D0/5D0
         ENDIF
 
 !       Initial positions
@@ -336,7 +356,6 @@ SUBROUTINE Writecell(cell, prob)
 
 END SUBROUTINE Writecell
 
-
 ! -------------------------------------------------------------------------!
 ! Updates the values of the derivatives on the surface of the cell on fine grid.
 SUBROUTINE Derivscell(cell)
@@ -379,7 +398,7 @@ SUBROUTINE Derivscell(cell)
 
 !       Values at current order        
         nm =>Y%nm(ih)
-        DO m = -n,n !!!! Could exploit symmetry here... but it isn't a big deal since it takes so little time
+        DO m = -n,n ! Could exploit symmetry here... but it isn't a big deal since it takes so little time
             it = it + 1
             im = im + 1
 
@@ -890,10 +909,6 @@ SUBROUTINE Stresscell(cell)
         cell%fmn(2,:) = cell%Yf%forward(cell%ff(2,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
         cell%fmn(3,:) = cell%Yf%forward(cell%ff(3,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
 
-        cell%fmn2(1,:) = cell%Yf%forward(cell%ff(1,:,:), cell%q)
-        cell%fmn2(2,:) = cell%Yf%forward(cell%ff(2,:,:), cell%q)
-        cell%fmn2(3,:) = cell%Yf%forward(cell%ff(3,:,:), cell%q)
-        
 !       Normal vector for volume correction
         cell%nkmn(1,:) = cell%Yf%forward(cell%fab(1,:,:), cell%q) 
         cell%nkmn(2,:) = cell%Yf%forward(cell%fab(2,:,:), cell%q)
@@ -903,31 +918,27 @@ SUBROUTINE Stresscell(cell)
         cell%nkt(1,:) = cell%Yf%forward(cell%fab(1,:,:)*cell%J/SIN(cell%Yf%th), cell%q) 
         cell%nkt(2,:) = cell%Yf%forward(cell%fab(2,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
         cell%nkt(3,:) = cell%Yf%forward(cell%fab(3,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
-
-        cell%fc(1,:,:) = cell%Y%backward(cell%fmn(1,:), cell%p)
-        cell%fc(2,:,:) = cell%Y%backward(cell%fmn(2,:), cell%p)
-        cell%fc(3,:,:) = cell%Y%backward(cell%fmn(3,:), cell%p)
     ENDIF
 END SUBROUTINE Stresscell
 
 ! -------------------------------------------------------------------------!
 ! Knowing the force jump get the velocity on the surface of the cell via
 ! the fluid problem
-SUBROUTINE Fluidcell(cell, prob)
+SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
     TYPE(probType), INTENT(IN), TARGET :: prob
+    COMPLEX(KIND = 8), INTENT(OUT), ALLOCATABLE :: A2(:,:), b2(:)
+    TYPE(cellType), INTENT(IN), POINTER, OPTIONAL :: celli
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
-               Nmat, iter, info, colm, ind, im3
+               colm, ind, im3
     COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
     REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3), tic, toc
-    COMPLEX(KIND = 8), ALLOCATABLE :: A2(:,:), b(:), b2(:), ut(:), wrk(:), &
-                                      Ci(:,:,:,:), Ei(:,:,:,:), Dr(:,:,:), &
-                                      Fi(:,:,:,:), Ai(:,:,:,:,:,:)
-    REAL(KIND = 8), ALLOCATABLE :: frot(:,:,:), xcg(:,:,:), rwrk(:), nJt(:,:,:), &
-                                   ft(:),ft2(:,:), Bi(:,:,:,:)
-    COMPLEX, ALLOCATABLE :: swrk(:)
-    INTEGER, ALLOCATABLE :: IPIV(:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: b(:), Ci(:,:,:,:), Ei(:,:,:,:), & 
+                                      Dr(:,:,:), Fi(:,:,:,:), Ai(:,:,:,:,:,:), &
+                                      fmnR(:,:), xmnR(:,:)
+    REAL(KIND = 8), ALLOCATABLE :: frot(:,:,:), xcg(:,:,:), nJt(:,:,:), &
+                                   ft(:),ft2(:,:), Bi(:,:,:,:), wgi(:)
     COMPLEX(KIND = 8), POINTER :: vcurn(:,:), es(:,:)
     REAL(KIND = 8), POINTER :: cPmn(:,:, :)
     TYPE(YType), POINTER :: Y
@@ -935,22 +946,14 @@ SUBROUTINE Fluidcell(cell, prob)
 
     Y => cell%Y
 
-!   Big matrix size (we don't calculate the highest order
-!   b/c it has a large error)
-    Nmat = 3*(Y%p)*(Y%p)
-
 !   Allocate things
-    ALLOCATE(A2(Nmat, Nmat), &
+    ALLOCATE(A2(prob%Nmat, prob%Nmat), &
              b(3*Y%nt*Y%np), &
-             b2(Nmat), &
+             b2(prob%Nmat), &
              frot(3, Y%nt, Y%np), &
              xcg(3, Y%nt, Y%np), &
-             ut(Nmat), &
-             IPIV(Nmat), wrk(Nmat), &
-             swrk(Nmat*(Nmat+1)), &
-             rwrk(Nmat), &
              nJt(3, Y%nt, Y%np), &
-             ft(3),ft2(3,3), &
+             ft(3), ft2(3,3), &
              Bi(3,3,Y%nt,Y%np), &
              Ci(3,3, 2*(Y%p-1)+1, Y%nt), &
              Ei(3,3, 2*(Y%p-1)+1, Y%p), &
@@ -958,9 +961,13 @@ SUBROUTINE Fluidcell(cell, prob)
              Ai(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
              Dr(3,3,Y%p*Y%p),  &
              es(2*(Y%p-1)+1, Y%np), &
-             cPmn(Y%p, 2*(Y%p-1)+1, Y%nt))
+             cPmn(Y%p, 2*(Y%p-1)+1, Y%nt), &
+             fmnR(3, (cell%q+1)*(cell%q+1)), &
+             xmnR(3, (cell%p+1)*(cell%p+1)), &
+             wgi(Y%nt))
 
     eye = 0D0
+    Ai = 0D0
     FORALL(j = 1:3) eye(j,j) = 1D0
 !   We need to do two integral loops: the first calculates the integral 
 !   that is the convolution of the Stokeslets and stresslets. We need those
@@ -975,8 +982,6 @@ SUBROUTINE Fluidcell(cell, prob)
 !   in temporary arrays, leading down to O(p^5). The 1st big matrix is the components of
 !   the spherical harmonic functions evaluated at the Gauss points (rows=>GP,
 !   cols=>Sph fns).
-    
-!!  Can be sped up with symmetry
 
 !   Exponential  part
     es =>prob%es
@@ -1004,59 +1009,78 @@ SUBROUTINE Fluidcell(cell, prob)
 !             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
 !             Uc(3) = rt*rt - 1D0/3D0
 !             ENDIF
-! !           Hardcoded shear flow
-!             cell%dU = 0D0
-!             cell%dU(1,3) = 1d0
 
 !           Location of north pole in unrotated frame (just current integration point)
             xcr = cell%x(:,i,j)
             
-!           Rotate everything to this grid
-!           Get the rotated constants
-            cell%xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
-            cell%xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
-            cell%xmnR(3,:) = Y%rotate(cell%xmn(3,:), i, j, -Y%phi(j))
+!           Rotate everything to this grid if singular int, else use normal other cell grid
+            IF(PRESENT(celli)) THEN
+                xmnR(1,:) = celli%xmn(1,:)
+                xmnR(2,:) = celli%xmn(2,:)
+                xmnR(3,:) = celli%xmn(3,:)
+                wgi = Y%wg
+            ELSE
+                xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
+                xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
+                xmnR(3,:) = Y%rotate(cell%xmn(3,:), i, j, -Y%phi(j))
+                wgi = Y%ws
+            ENDIF
 
 !           Rotated integration points in unrotated frame
-            xcg(1,:,:) = Y%backward(cell%xmnR(1,:))
-            xcg(2,:,:) = Y%backward(cell%xmnR(2,:))
-            xcg(3,:,:) = Y%backward(cell%xmnR(3,:))
+            xcg(1,:,:) = Y%backward(xmnR(1,:))
+            xcg(2,:,:) = Y%backward(xmnR(2,:))
+            xcg(3,:,:) = Y%backward(xmnR(3,:))
 
 !           Forces on rotated grid
-            cell%fmnR(1,:) = Y%rotate(cell%fmn(1,:), i, j, -Y%phi(j))
-            cell%fmnR(2,:) = Y%rotate(cell%fmn(2,:), i, j, -Y%phi(j))
-            cell%fmnR(3,:) = Y%rotate(cell%fmn(3,:), i, j, -Y%phi(j))
+            IF(PRESENT(celli)) THEN
+                fmnR(1,:) = celli%fmn(1,:)
+                fmnR(2,:) = celli%fmn(2,:)
+                fmnR(3,:) = celli%fmn(3,:)
+            ELSE
+                fmnR(1,:) = Y%rotate(cell%fmn(1,:), i, j, -Y%phi(j))
+                fmnR(2,:) = Y%rotate(cell%fmn(2,:), i, j, -Y%phi(j))
+                fmnR(3,:) = Y%rotate(cell%fmn(3,:), i, j, -Y%phi(j))
+            ENDIF
 
-            frot(1,:,:) = Y%backward(cell%fmnR(1,:), cell%p)
-            frot(2,:,:) = Y%backward(cell%fmnR(2,:), cell%p)
-            frot(3,:,:) = Y%backward(cell%fmnR(3,:), cell%p)
+            frot(1,:,:) = Y%backward(fmnR(1,:), cell%p)
+            frot(2,:,:) = Y%backward(fmnR(2,:), cell%p)
+            frot(3,:,:) = Y%backward(fmnR(3,:), cell%p)
             
 !           Rotate the normal vector total constants
-            cell%fmnR(1,:) = Y%rotate(cell%nkt(1,:), i, j, -Y%phi(j))
-            cell%fmnR(2,:) = Y%rotate(cell%nkt(2,:), i, j, -Y%phi(j))
-            cell%fmnR(3,:) = Y%rotate(cell%nkt(3,:), i, j, -Y%phi(j))
+            IF(PRESENT(celli)) THEN
+                fmnR(1,:) = celli%nkt(1,:)
+                fmnR(2,:) = celli%nkt(2,:)
+                fmnR(3,:) = celli%nkt(3,:)
+            ELSE
+                fmnR(1,:) = Y%rotate(cell%nkt(1,:), i, j, -Y%phi(j))
+                fmnR(2,:) = Y%rotate(cell%nkt(2,:), i, j, -Y%phi(j))
+                fmnR(3,:) = Y%rotate(cell%nkt(3,:), i, j, -Y%phi(j))
+            ENDIF
 
-            nJt(1,:,:) = -Y%backward(cell%fmnR(1,:), cell%p)
-            nJt(2,:,:) = -Y%backward(cell%fmnR(2,:), cell%p)
-            nJt(3,:,:) = -Y%backward(cell%fmnR(3,:), cell%p)
+            nJt(1,:,:) = Y%backward(fmnR(1,:), cell%p)
+            nJt(2,:,:) = Y%backward(fmnR(2,:), cell%p)
+            nJt(3,:,:) = Y%backward(fmnR(3,:), cell%p)
 
 !           First matrix: integral components at the i,jth - i2,j2 grid.
             Bi = 0D0
             bt = 0D0
-            DO i2 = 1,Y%nt
-                DO j2 = 1,Y%np
-                    r = xcr - xcg(:,i2,j2)
+
+            DO i2 = 1,cell%Y%nt
+                DO j2 = 1,cell%Y%np
+                    r = xcg(:,i2,j2) - xcr
 !                   Matrix of integration grid about i,j-th point 
                     Bi(1:3,1:3,i2,j2) = Tij(r, nJt(:,i2,j2))
                     
 !                   RHS vector
                     ft = frot(:,i2,j2)
                     ft2 = Gij(r, eye)
-                    bt = bt + INNER3_33(ft,ft2)*Y%ws(i2)
+                    bt = bt + INNER3_33(ft,ft2)*wgi(i2)
                 ENDDO
             ENDDO
-            b(row:row+2) = bt*Y%dphi/cell%mu/(1D0 + cell%lam) &
-                         - Uc*8D0*pi/(1D0 + cell%lam)
+
+            b(row:row+2) = bt*Y%dphi/cell%mu/(1D0 + cell%lam)
+            IF(.not. PRESENT(celli)) b(row:row+2) = b(row:row+2) &
+                                                  - Uc*8D0*pi/(1D0 + cell%lam)
 
 !           Next intermediate matrices: over phi's and theta's
             im2 = 0
@@ -1079,9 +1103,10 @@ SUBROUTINE Fluidcell(cell, prob)
                     colm = im2 - 2*m2
                     tmpsum = 0D0
                     DO i2 = 1,Y%nt
-                        tmpsum = tmpsum + Ci(1:3,1:3, im2, i2)*cPmn(ind,im2,i2)*Y%ws(i2)
+                        tmpsum = tmpsum + Ci(1:3,1:3, im2, i2)*cPmn(ind,im2,i2)*wgi(i2)
                     ENDDO
                     Ei(1:3,1:3, im2, ind) = tmpsum
+!                   Symmetry
                     IF(m2.gt.0) THEN
                         Ei(1:3,1:3, colm, ind) = CONJG(tmpsum)*(-1D0)**m2
                     ENDIF
@@ -1099,14 +1124,20 @@ SUBROUTINE Fluidcell(cell, prob)
                     it = it + 1
                     tmpsum = 0D0
                     im3 = 0
-                    DO m2 = -n,n
-                        im2 = Y%p + im3 - n
-                        im3 = im3 + 1
-                        tmpsum = tmpsum &
-                               + Ei(1:3,1:3, im2, ind) &
-                               * Y%rot(i,j,ind)%dmms(im,im3) &
-                               * EXP(ii*(m-m2)*Y%phi(j))
-                    ENDDO
+!                   If this is a self-integral, we need to rotate. If not, just do normal SpHarms
+                    IF(PRESENT(celli)) THEN
+                        im2 = im + Y%p - n - 1
+                        tmpsum = Ei(1:3,1:3, im2, ind)
+                    ELSE
+                        DO m2 = -n,n
+                            im2 = Y%p + im3 - n
+                            im3 = im3 + 1
+                            tmpsum = tmpsum &
+                                + Ei(1:3,1:3, im2, ind) &
+                                * Y%rot(i,j,ind)%dmms(im,im3) &
+                                * EXP(ii*(m-m2)*Y%phi(j))
+                        ENDDO
+                    ENDIF
                     Dr(1:3,1:3,it) = tmpsum
                 ENDDO
             ENDDO
@@ -1124,8 +1155,9 @@ SUBROUTINE Fluidcell(cell, prob)
                     vcurn => nm%v(im,:,:)
                     it = it+1
                     col = 3*(it-1) + 1
-                    Ai(1:3,1:3,im2, ind, i, j) = Dr(1:3,1:3, it)*(1D0-cell%lam)/(1D0+cell%lam) &
-                                               - vcurn(i,j)*4D0*pi*eye
+                    Ai(1:3,1:3,im2, ind, i, j) = Dr(1:3,1:3, it)*(1D0-cell%lam)/(1D0+cell%lam)
+                    IF(.not. PRESENT(celli)) Ai(1:3,1:3, im2, ind, i, j) = &
+                                             Ai(1:3,1:3, im2, ind, i, j) - vcurn(i,j)*4D0*pi*eye
                 ENDDO
             ENDDO
 
@@ -1199,37 +1231,77 @@ SUBROUTINE Fluidcell(cell, prob)
     ENDDO
     CALL cpu_time(toc)
     ! print *, toc-tic
-
-!   Calculate velocity up to highest order-1, b/c highest order has high error
-    CALL zcgesv(Nmat, 1, A2, Nmat, IPIV, b2, Nmat, ut, Nmat, wrk, swrk, rwrk, iter, info)
-    cell%umn = 0D0
-    cell%umn(1,1:Nmat/3) = ut((/(i, i=1,Nmat-2, 3)/))
-    cell%umn(2,1:Nmat/3) = ut((/(i, i=2,Nmat-1, 3)/))
-    cell%umn(3,1:Nmat/3) = ut((/(i, i=3,Nmat  , 3)/))
 END SUBROUTINE Fluidcell
 
 ! -------------------------------------------------------------------------!
-! Time advancement
+! Problem advancement
 SUBROUTINE UpdateProb(prob, ord, reduce)
     CLASS(probType), INTENT(INOUT) :: prob
-    TYPE(cellType), POINTER :: cell
+    TYPE(cellType), POINTER :: cell, celli
     INTEGER, INTENT(IN) :: ord
     LOGICAL, INTENT(IN) :: reduce
     REAL(KIND = 8) :: zm, tic, toc
-    COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:)
-    INTEGER :: ic
+    COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:), A2(:,:), b2(:), ut(:), wrk(:)
+    INTEGER :: ic, ic2, i, row, col, iter, info
+    REAL(KIND = 8), ALLOCATABLE :: rwrk(:)
+    COMPLEX, ALLOCATABLE :: swrk(:)
+    COMPLEX(KIND = 8), POINTER :: xmn(:,:)
+    INTEGER, ALLOCATABLE :: IPIV(:)
+    
+    ALLOCATE(ut(prob%NmatT), &
+             IPIV(prob%NmatT), wrk(prob%NmatT), &
+             swrk(prob%NmatT*(prob%NmatT+1)), &
+             rwrk(prob%NmatT))
     
     CALL CPU_TIME(tic)
 
+    prob%b = 0D0
+!   Construct the matrix
+!   First loop: velocity surface
+    DO ic = 1, prob%Ncell
+        row = (ic -1)*prob%Nmat + 1
+        cell => prob%cell(ic)
+
+!       Second loop: integral surface
+        DO ic2 = 1,prob%Ncell
+            celli => prob%cell(ic2)
+            
+!           Get geometric info about new state, get stress in new state if first go round
+            IF(ic.eq.1) THEN
+                CALL celli%derivs()
+                CALL celli%stress()
+            ENDIF
+
+            col = (ic2-1)*prob%Nmat + 1
+            xmn => prob%cell(ic2)%xmn
+!           Get velocity sub-matrix for cell-cell combo (Same or diff cell)
+            IF(ic .eq. ic2) THEN
+                CALL cell%fluid(prob, A2, b2)
+            ELSE
+                CALL cell%fluid(prob, A2, b2, celli)
+            ENDIF
+
+!           Put sub matrix into big matrix
+            prob%A(row:row + prob%Nmat - 1, col:col + prob%Nmat - 1) = A2
+!           Sum over all the integrals
+            prob%b(row:row + prob%Nmat - 1) = prob%b(row:row + prob%Nmat - 1) + b2
+        ENDDO
+    ENDDO
+
+!   Invert big matrix to get a list of all the vels of all cell
+    CALL zcgesv(prob%NmatT, 1, prob%A, prob%NmatT, IPIV, prob%b, prob%NmatT, &
+                ut, prob%NmatT, wrk, swrk, rwrk, iter, info)
+
+!   Advance in time now
     DO ic = 1, prob%Ncell
         cell => prob%cell(ic)
 
-!       Get geometric info about new state, get stress in new state, get velocity
-        CALL cell%derivs()
-        CALL cell%stress()
-        CALL cell%fluid(prob)
-!       Remove rigid body motion
-        ! cell%umn(:,1) = 0D0
+!       Reconstruct individual vels
+        row = (ic-1)*prob%Nmat + 1
+        cell%umn = 0D0
+        cell%umn(1,1:prob%Nmat/3) = ut((/(i, i=row    , row + prob%Nmat-2, 3)/))
+        cell%umn(2,1:prob%Nmat/3) = ut((/(i, i=row + 1, row + prob%Nmat-1, 3)/))
+        cell%umn(3,1:prob%Nmat/3) = ut((/(i, i=row + 2, row + prob%Nmat  , 3)/))
 
 !       Volume correction: small, inward normal velocity based off current volume/SA/time step
 !       Removed for reduce, because that keeps things at constant volume
@@ -1249,20 +1321,19 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
         ENDIF
     
 !       Second part for midpoint
-        IF(ord .eq. 2) THEN
-            CALL cell%derivs()
-            CALL cell%stress()
-            CALL cell%fluid(prob)
-            ! cell%umn(:,1) = 0D0
-            zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*prob%dt)
-            cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
-            umnt = 0.5D0*(umnt + cell%umn)
-            cell%xmn = xmnt + umnt*prob%dt
-            cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
-            cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
-            cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
-        ELSEIF(ord .gt. 2) THEN
-            print*, "ERROR: time advancement of order >2 not supported"
+        IF(ord .eq. 1) THEN
+            ! CALL cell%derivs()
+            ! CALL cell%stress()
+            ! CALL cell%fluid(prob, A2, b2)
+            ! zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*prob%dt)
+            ! cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+            ! umnt = 0.5D0*(umnt + cell%umn)
+            ! cell%xmn = xmnt + umnt*prob%dt
+            ! cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
+            ! cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
+            ! cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+        ELSEIF(ord .ne. 1) THEN
+            print*, "ERROR: time advancement of order >1 not supported"
             stop
         ENDIF
     
@@ -1291,11 +1362,27 @@ SUBROUTINE RelaxCell(cell, prob, tol)
     CLASS(cellType), INTENT(INOUT) :: cell
     TYPE(probType), INTENT(IN) :: prob
     REAL(KIND = 8), INTENT(IN) :: tol
+    COMPLEX(KIND = 8), ALLOCATABLE :: A2(:,:), b2(:), ut(:), wrk(:)
+    INTEGER iter, info, i
+    REAL(KIND = 8), ALLOCATABLE :: rwrk(:)
+    COMPLEX, ALLOCATABLE :: swrk(:)
+    INTEGER, ALLOCATABLE :: IPIV(:)
+
+    ALLOCATE(ut(prob%Nmat), &
+             IPIV(prob%Nmat), wrk(prob%Nmat), &
+             swrk(prob%Nmat*(prob%Nmat+1)), &
+             rwrk(prob%Nmat))
+
     cell%umn(1,1) = 1/cell%Ca
     DO WHILE(MAXVAL(ABS(cell%umn))*cell%Ca .gt. tol)
             CALL cell%derivs()
             CALL cell%stress() 
-            CALL cell%fluid(prob)
+            CALL cell%fluid(prob, A2, b2)
+            CALL zcgesv(prob%Nmat, 1, A2, prob%Nmat, IPIV, b2, prob%Nmat, ut, prob%Nmat, wrk, swrk, rwrk, iter, info)
+            cell%umn = 0D0
+            cell%umn(1,1:prob%Nmat/3) = ut((/(i, i=1,prob%Nmat-2, 3)/))
+            cell%umn(2,1:prob%Nmat/3) = ut((/(i, i=2,prob%Nmat-1, 3)/))
+            cell%umn(3,1:prob%Nmat/3) = ut((/(i, i=3,prob%Nmat  , 3)/))
             cell%umn(:,1) = 0D0
             cell%xmn = cell%xmn + cell%umn*prob%dt
             cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))

@@ -201,7 +201,6 @@ SUBROUTINE EIG3(A, e, ev)
     e(1) = q + 2D0*p*COS(phi)
     e(3) = q + 2D0*p*COS(phi + 2D0*pi/3D0)
     e(2) = 3D0*q - e(1) - e(3)
-    ! IF(ABS(A(1,1) - 0.996933541385099D0) .lt. 1e-10) print *, e
 
 !   Eigenvectors if wanted    
     IF(PRESENT(ev)) THEN

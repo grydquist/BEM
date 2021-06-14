@@ -209,6 +209,7 @@ FUNCTION newnm(n, dero, Y) RESULT(nm)
 !   Zero-th order
     IF(n .eq. 0) THEN
         nm%v = 0.5D0*ispi
+        nm%dY= 0D0
         RETURN
     ENDIF
 
@@ -745,7 +746,7 @@ FUNCTION Readcoeff(filen, ord) RESULT(xmn)
     jmp = (p+1)*(p+1)
     
     IF(ord>p) THEN
-        print *, 'ERROR: when reading coeffs, desired order higher than supplied by input'
+        print *, 'ERROR: when reading coeffs, desired order higher than supplied by input' !!! I could just pad w/ zeros
         STOP
     ENDIF
 

@@ -58,6 +58,8 @@ ENDDO
 
 ! Get initial volumes
 DO ic = 1, prob%NCell
+        CALL cell(ic)%derivs()
+        CALL cell(ic)%stress() 
         cell(ic)%V0 = cell(ic)%Vol()
 ENDDO
 
@@ -71,10 +73,16 @@ DO i = 1,prob%NT
 !! ============================
 !       Do interpolation to get current grad tensor, then normalize by kolm time
         prob%dU = VelInterp(G,t,nts,kfr)*kdt
+!       Hardcoded shear
+        prob%dU = 0D0
+        prob%dU(1,3) = 1D0
 !! ============================
 
 !       Updater
+        CALL CPU_TIME(tic)
         CALL prob%update(1, .false.)
+        CALL CPU_TIME(toc)
+        ! print *, toc - tic
 
 !       Write and display some output
         IF((prob%cts .eq. 1) .or. (MOD(prob%cts,prob%dtinc)) .eq. 0) THEN
