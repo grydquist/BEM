@@ -6,3 +6,4 @@ fortran/lapack-3.9.0
 *gif
 *.bin
 harms
+tmper*
