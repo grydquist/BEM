@@ -251,10 +251,10 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
 
         !! Test                                        !!!!!
         if(ic.eq.1) THEN
-            ! cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/20D0
-            ! cell(ic)%xmn(1,1) = -5D0*SQRT(pi)*3D0/3D0
+            cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/20D0
+            cell(ic)%xmn(1,1) = -5D0*SQRT(pi)*3D0/3D0
         ENDIF
-        if(ic.eq.3) THEN
+        if(ic.eq.2) THEN
             cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/20D0
             cell(ic)%xmn(1,1) =  5D0*SQRT(pi)*3D0/3D0
         ENDIF
@@ -278,6 +278,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
         prob%esf(ind,:) = EXP(ii*DBLE(m)*prob%Yf%phi)
     ENDDO
 
+!!! Here's where we will need to do the pre-computation of diff grids (3 total)
 !   Legendre polynomial calculation part (coarse and fine)
     cPt = Alegendre(p-1,COS(prob%Y%tht))
     it = 0
@@ -1063,7 +1064,7 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
             dphi = Y%dphi
 
 !           Location of north pole in unrotated frame (just current integration point)
-            xcr = (/0D0,0D0,1.1D0/) ! cell%x(:,i,j)
+            xcr = cell%x(:,i,j)
 
 !           If the integration and target surfaces are different, check minimum spacing
             IF(PRESENT(celli)) THEN
@@ -1086,7 +1087,8 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
 
 !               If min spacing is small, we need to do near-singular integration
                 !!!! right now this is upsampling, and it isn't even upsampling enough
-                IF(.true.) THEN!minr .lt. celli%h) THEN
+                !!!! Fix by local fine patch in region of near-singularity
+                IF(minr .lt. celli%h) THEN
                     sing = .true.
 
 !                   Need to integrate on finer grid
@@ -1199,15 +1201,11 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
                     Bi(1:3,1:3,i2,j2) = Tij(r, nJt(:,i2,j2))
                     
 !                   RHS vector
-                    ft = 1D0!frot(:,i2,j2)
-                    ft2 = Tij(r, nJt(:,i2,j2))!Gij(r, eye)
+                    ft = frot(:,i2,j2)
+                    ft2 = Gij(r, eye)
                     bt = bt + INNER3_33(ft,ft2)*wgi(i2)
                 ENDDO
             ENDDO
-            IF(PRESENT(Celli)) THEN
-            print *, bt*dphi
-            stop
-            ENDIF
 
             b(row:row+2) = bt*dphi/(1D0 + cell%lam)
             IF(.not. PRESENT(celli)) b(row:row+2) = b(row:row+2) &
