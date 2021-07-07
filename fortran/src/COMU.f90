@@ -65,8 +65,9 @@
          PROCEDURE :: BCASTRV
          PROCEDURE :: BCASTSS
          PROCEDURE :: BCASTSV
+         PROCEDURE :: BCASTCV
          GENERIC :: bcast => BCASTLS, BCASTLV, BCASTIS, BCASTIV, &
-            BCASTRS, BCASTRV, BCASTSS, BCASTSV
+            BCASTRS, BCASTRV, BCASTSS, BCASTSV, BCASTCV
 !        Blocking MPI send
          PROCEDURE :: send => SENDRV
 !        Blocking MPI recv
@@ -84,7 +85,8 @@
          PROCEDURE :: REDUCEIV
          PROCEDURE :: REDUCERS
          PROCEDURE :: REDUCERV
-         GENERIC :: reduce => REDUCEIS, REDUCEIV, REDUCERS, REDUCERV
+         PROCEDURE :: REDUCECV
+         GENERIC :: reduce => REDUCEIS, REDUCEIV, REDUCERS, REDUCERV, REDUCECV
          PROCEDURE :: COLLECTIS
          PROCEDURE :: COLLECTIV
          PROCEDURE :: COLLECTRS
@@ -308,6 +310,19 @@
 
       RETURN
       END SUBROUTINE BCASTRV
+!--------------------------------------------------------------------
+      SUBROUTINE BCASTCV(cm, u)
+      IMPLICIT NONE
+      CLASS(cmType), INTENT(IN) :: cm
+      COMPLEX(KIND=8), INTENT(INOUT) :: u(:)
+
+      INTEGER m, ierr
+
+      m = SIZE(u)
+      CALL MPI_BCAST(u, m, mpreal, master, cm%com(), ierr)
+
+      RETURN
+      END SUBROUTINE BCASTCV
 !--------------------------------------------------------------------
       SUBROUTINE BCASTSS(cm, u)
       IMPLICIT NONE
@@ -539,6 +554,29 @@
 
       RETURN
       END FUNCTION REDUCERV
+!--------------------------------------------------------------------
+      FUNCTION REDUCECV(cm, u, iOp) RESULT(gU)
+      IMPLICIT NONE
+      CLASS(cmType), INTENT(IN) :: cm
+      COMPLEX(KIND=8), INTENT(IN) :: u(:)
+      INTEGER, INTENT(IN), OPTIONAL :: iOp
+      REAL(KIND=8), ALLOCATABLE :: gU(:)
+
+      INTEGER n, ierr
+      INTEGER op
+
+      op = MPI_SUM
+      IF (PRESENT(iOp)) op = iOp
+      n = SIZE(u)
+      ALLOCATE(gU(n))
+      IF (cm%seq()) THEN
+         gU = u
+         RETURN
+      END IF
+      CALL MPI_ALLREDUCE(u, gU, n, mpreal, op, cm%com(), ierr)
+
+      RETURN
+      END FUNCTION REDUCECV
 
 !####################################################################
       

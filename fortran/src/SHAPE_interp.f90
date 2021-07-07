@@ -22,7 +22,7 @@ TYPE cellType
 
 !   Geometric info
     REAL(KIND = 8), ALLOCATABLE :: J(:,:), x(:,:,:), xf(:,:,:), k(:,:)
-    REAL(KIND = 8) :: V0
+    REAL(KIND = 8) :: V0, h
 !   Derivatives
     REAL(KIND = 8), ALLOCATABLE :: dxt(:,:,:), dxp(:,:,:), dxp2(:,:,:), &
     dxt2(:,:,:), dxtp(:,:,:), dxp3(:,:,:), dxt3(:,:,:), dxt2p(:,:,:), &
@@ -48,7 +48,6 @@ TYPE cellType
     CHARACTER(:), ALLOCATABLE :: fileout
     
     CONTAINS
-    PROCEDURE :: Write   => Writecell
     PROCEDURE :: Derivs  => Derivscell
     PROCEDURE :: Stress  => Stresscell
     PROCEDURE :: Fluid   => Fluidcell
@@ -63,14 +62,14 @@ END TYPE cellType
 ! Contains all the miscellaneous info about the problem
 TYPE probType
     INTEGER :: cts, NT, dtinc, NCell, Nmat, NmatT
-    REAL(KIND = 8) :: dt
+    REAL(KIND = 8) :: dt, t
 !   Velocity gradient & its file location
     REAL(KIND = 8) :: dU(3,3)
     CHARACTER(len = 15) gradfile
 
 !   Normalized Legendres/exp's at GPs
-    COMPLEX(KIND =8), ALLOCATABLE :: es(:,:)
-    REAL(KIND = 8), ALLOCATABLE :: cPmn(:,:,:)
+    COMPLEX(KIND =8), ALLOCATABLE :: es(:,:), esf(:,:)
+    REAL(KIND = 8), ALLOCATABLE :: cPmn(:,:,:), cPmnf(:,:,:)
 
 !   Harmonics info
     INTEGER :: p, q, ftot
@@ -79,11 +78,14 @@ TYPE probType
 !   Pointer to the cells
     TYPE(cellType), POINTER :: cell(:)
 
-!   Big, total matrix
-    COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), b(:)
-    
+!   MPI stuff
+    TYPE(cmType), POINTER :: cm
+    INTEGER :: PCells(2)
+
     CONTAINS
     PROCEDURE :: Update  => UpdateProb
+    PROCEDURE :: Write   => WriteProb
+    PROCEDURE :: Output  => OutputProb
 END TYPE probType
 
 ! -------------------------------------------------------------------------!
@@ -103,7 +105,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     TYPE(probType), TARGET, INTENT(INOUT) :: prob
     TYPE(cellType), ALLOCATABLE, TARGET :: cell(:)
     CHARACTER(len = 3) :: restart
-    CHARACTER(len = 30) :: restfile
+    CHARACTER(len = 30) :: restfile, icC
     CHARACTER(:), ALLOCATABLE :: fileout
     REAL(KIND = 8), ALLOCATABLE :: cPt(:,:)
 
@@ -117,6 +119,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     prob%dt = READ_GRINT_DOUB(filein, 'Time_step')
     prob%dtinc = READ_GRINT_INT(filein, 'Time_inc')
     prob%cts = 0
+    prob%t = 0D0
 !   Gradient file location
     prob%gradfile = READ_GRINT_CHAR(filein, 'Gradient_file')
 
@@ -152,15 +155,11 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     ntf = prob%Yf%nt
     npf = prob%Yf%np
     ALLOCATE(prob%es(2*(p-1)+1, np), prob%cPmn(p, 2*(p-1)+1, nt), cPt(nt, p*(p+1)/2))
-
-!   Big matrix to solve
-    ALLOCATE(prob%A(3*p*p*prob%Ncell, 3*p*p*prob%Ncell), prob%b(3*p*p*prob%Ncell))
-    prob%A = 0D0
-    prob%b = 0D0
+    ALLOCATE(prob%esf(2*(p*fali-1)+1, npf), prob%cPmnf(p*fali, 2*(p*fali-1)+1, ntf))
 
 !   Matrix size
     prob%Nmat = 3*(prob%Y%p)*(prob%Y%p)
-    prob%NmatT= prob%Nmat*prob%Ncell
+    prob%NmatT= prob%Nmat*prob%NCell
 
     ALLOCATE(cell(prob%NCell))
 
@@ -181,7 +180,8 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
 !       parameter E*b = Eb/(a_0^2*(B/2))
         cell(ic)%Eb = Eb*2D0*cell(ic)%B
         cell(ic)%c0 = c0
-        cell(ic)%fileout = fileout
+        write(icC, "(I0.1)") ic
+        cell(ic)%fileout = TRIM(fileout//icC)
 
 !       Coarse and fine grids/harms
         cell(ic)%p = p
@@ -216,7 +216,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
 !       First, we need to get the reference shape for the shear stress
         ! cell(ic)%xmn = RBCcoeff(cell(ic)%Y)
         ! cell(ic)%xmn = Cubecoeff(cell(ic)%Y)
-        cell(ic)%xmn = Spherecoeff(cell(ic)%Y, .76D0) ! Reduced volume .997, .98, .95-> .9,.76,.65
+        cell(ic)%xmn = Spherecoeff(cell(ic)%Y, 1D0)!!!!!!!!!!!!!!!!!.76D0) ! Reduced volume .997, .98, .95-> .9,.76,.65
 
 !       Initial surfce derivatives/reference state
         CALL cell(ic)%Derivs()
@@ -249,14 +249,14 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
             cell(ic)%xmn = Readcoeff(restfile, cell(ic)%Y%p)
         ENDIF
 
-        !! Test                                                                         !!!!!
+        !! Test                                        !!!!!
         if(ic.eq.1) THEN
-            cell(ic)%xmn(3,1) =   5D0*SQRT(pi)*3D0/5D0
-            ! cell(ic)%xmn(1,1) =  -5D0*SQRT(pi)*3D0/5D0
+            ! cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/20D0
+            ! cell(ic)%xmn(1,1) = -5D0*SQRT(pi)*3D0/3D0
         ENDIF
-        if(ic.eq.2) THEN
-            cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/5D0
-            ! cell(ic)%xmn(1,1) =  5D0*SQRT(pi)*3D0/5D0
+        if(ic.eq.3) THEN
+            cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/20D0
+            cell(ic)%xmn(1,1) =  5D0*SQRT(pi)*3D0/3D0
         ENDIF
 
 !       Initial positions
@@ -264,15 +264,21 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
         cell(ic)%x(2,:,:) = cell(ic)%Y%backward(cell(ic)%xmn(2,:))
         cell(ic)%x(3,:,:) = cell(ic)%Y%backward(cell(ic)%xmn(3,:))
 
+!       Characteristic grid spacing
+        cell(ic)%h = SQRT(cell(ic)%SA()/nt**2D0)
     ENDDO
     
-!   Exponential calculation part
+!   Exponential calculation part (coarse and fine)
     DO m = -(p-1),(p-1)
         ind = m + p
         prob%es(ind,:) = EXP(ii*DBLE(m)*prob%Y%phi)
     ENDDO
+    DO m = -(p*fali-1),(p*fali-1)
+        ind = m + p*fali
+        prob%esf(ind,:) = EXP(ii*DBLE(m)*prob%Yf%phi)
+    ENDDO
 
-!   Legendre polynomial calculation part
+!   Legendre polynomial calculation part (coarse and fine)
     cPt = Alegendre(p-1,COS(prob%Y%tht))
     it = 0
     DO n = 0, p-1
@@ -292,15 +298,59 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
         ENDDO
     ENDDO
 
+    DEALLOCATE(cPt)
+    ALLOCATE(cPt(ntf, fali*p*(fali*p+1)/2))
+    cPt = Alegendre(p*fali-1,COS(prob%Yf%tht))
+    it = 0
+    DO n = 0, fali*p-1
+        ind = n+1
+        im = 0
+        DO m = -(fali*p-1),fali*p-1
+            im = im + 1
+            IF(ABS(m) .gt. n) THEN
+                prob%cPmnf(ind,im,:) = 0D0
+            ELSEIF(m .le. 0) THEN
+                it = it + 1
+                IF(m.eq.-n) im2 = it
+                prob%cPmnf(ind,im,:) = (-1D0)**m*cPt(:, im2 + abs(m))
+            ELSE
+                prob%cPmnf(ind,im,:) = (-1D0)**m*prob%cPmnf(ind, im - 2*m, :)
+            ENDIF
+        ENDDO
+    ENDDO
+
+!   Which cells will the current processor handle? Integer div. rounds down
+    n = MOD(prob%NCell, prob%cm%np())
+    m = prob%NCell/prob%cm%np()
+
+!   Get the top and bottom cell indices for this processor,
+!   giving more 
+    IF (prob%cm%id() .lt. n) THEN
+        prob%PCells(1) = (prob%cm%id()    )*(m + 1) + 1
+        prob%PCells(2) = (prob%cm%id() + 1)*(m + 1)
+    ELSE
+        prob%PCells(1) = n*(m + 1) + (prob%cm%id()     - n)*m + 1
+        prob%PCells(2) = n*(m + 1) + (prob%cm%id() + 1 - n)*m
+    ENDIF
+
     cell%init = .true.
 END FUNCTION newcell
 
 ! -------------------------------------------------------------------------!
 ! Writes xmn to a text file. Could be better
-SUBROUTINE Writecell(cell, prob)
-    CLASS(cellType), INTENT(INOUT) ::cell
-    TYPE(probType), INTENT(IN) :: prob
+SUBROUTINE WriteProb(prob)
+    TYPE(cellType), POINTER :: cell
+    CLASS(probType), INTENT(IN) :: prob
     CHARACTER (LEN = 25) ctsst, datdir, filename
+    INTEGER ic
+
+    IF(prob%cm%slv()) RETURN
+!   Don't write if it's not a timestep to write
+    IF(.not.((prob%cts .eq. 1) .or. (prob%cts .eq. 1) .or. &
+         (MOD(prob%cts,prob%dtinc)) .eq. 0)) RETURN
+
+    DO ic = 1,prob%NCell
+    cell => prob%cell(ic)
 
 !   Formatting pain
     write(ctsst, "(I0.5)") prob%cts
@@ -353,8 +403,9 @@ SUBROUTINE Writecell(cell, prob)
     CLOSE(88)
     
     IF(.not. cell%writ) cell%writ = .true.
+    ENDDO
 
-END SUBROUTINE Writecell
+END SUBROUTINE WriteProb
 
 ! -------------------------------------------------------------------------!
 ! Updates the values of the derivatives on the surface of the cell on fine grid.
@@ -931,9 +982,10 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
     TYPE(cellType), INTENT(IN), POINTER, OPTIONAL :: celli
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
-               colm, ind, im3
+               colm, ind, im3, nt ,np
+    LOGICAL sing
     COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
-    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3), tic, toc
+    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3), tic, toc, minr, dphi
     COMPLEX(KIND = 8), ALLOCATABLE :: b(:), Ci(:,:,:,:), Ei(:,:,:,:), & 
                                       Dr(:,:,:), Fi(:,:,:,:), Ai(:,:,:,:,:,:), &
                                       fmnR(:,:), xmnR(:,:)
@@ -966,6 +1018,8 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
              xmnR(3, (cell%p+1)*(cell%p+1)), &
              wgi(Y%nt))
 
+    IF(PRESENT(celli)) THEN; DEALLOCATE(xmnR); ALLOCATE(xmnR(3, (cell%q+1)*(cell%q+1))); ENDIF
+
     eye = 0D0
     Ai = 0D0
     FORALL(j = 1:3) eye(j,j) = 1D0
@@ -989,6 +1043,8 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
 !   Legendre polynomial part
     cPmn => prob%cPmn
 
+    nt = Y%nt
+    np = Y%np
     ip = 0
     ic = 0
     CALL cpu_time(tic)
@@ -1003,82 +1059,157 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
             Utmp = TRANSPOSE(prob%dU)
             Uc = INNER3_33(cell%x(:,i,j), Utmp)
 
-! !           Pouiseielle
-!             Uc = 0D0
-!             IF(cell%cts .lt. 550) THEN
-!             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
-!             Uc(3) = rt*rt - 1D0/3D0
-!             ENDIF
+!           For integration (changes if need a finer grid)
+            dphi = Y%dphi
 
 !           Location of north pole in unrotated frame (just current integration point)
-            xcr = cell%x(:,i,j)
-            
-!           Rotate everything to this grid if singular int, else use normal other cell grid
+            xcr = (/0D0,0D0,1.1D0/) ! cell%x(:,i,j)
+
+!           If the integration and target surfaces are different, check minimum spacing
             IF(PRESENT(celli)) THEN
-                xmnR(1,:) = celli%xmn(1,:)
-                xmnR(2,:) = celli%xmn(2,:)
-                xmnR(3,:) = celli%xmn(3,:)
-                wgi = Y%wg
+                sing = .false.
+                minr = celli%h + 1D0
+                DO i2 = 1,celli%Y%nt
+                    DO j2 = 1,celli%Y%np
+                        r = celli%x(:,i2,j2) - xcr
+                        minr = MIN(norm2(r), minr)
+                    ENDDO
+                ENDDO
+
+                fmnR(1,:) = celli%fmn(1,:)
+                fmnR(2,:) = celli%fmn(2,:)
+                fmnR(3,:) = celli%fmn(3,:)
+
+                xmnR(1,:) = celli%nkt(1,:)
+                xmnR(2,:) = celli%nkt(2,:)
+                xmnR(3,:) = celli%nkt(3,:)
+
+!               If min spacing is small, we need to do near-singular integration
+                !!!! right now this is upsampling, and it isn't even upsampling enough
+                IF(.true.) THEN!minr .lt. celli%h) THEN
+                    sing = .true.
+
+!                   Need to integrate on finer grid
+                    nt = cell%Yf%nt
+                    np = cell%Yf%np
+
+!                   Deallocate integ. quants
+                    DEALLOCATE(frot, xcg, nJt, Bi, Ci, wgi)
+                    ALLOCATE( &
+                    frot(3, nt, np), &
+                    xcg(3,  nt, np), &
+                    nJt(3,  nt, np), &
+                    Bi(3,3, nt, np), &
+                    Ci(3,3, 2*(Y%p-1)+1, nt), &
+                    wgi(nt))
+
+                    es   => prob%esf
+                    cPmn => prob%cPmnf
+                    dphi = celli%Yf%dphi
+                    wgi  = celli%Yf%wg
+                    
+                    xcg(1,:,:) = celli%xf(1,:,:)
+                    xcg(2,:,:) = celli%xf(2,:,:)
+                    xcg(3,:,:) = celli%xf(3,:,:)
+
+                    frot(1,:,:) = cell%Yf%backward(fmnR(1,:), cell%p)
+                    frot(2,:,:) = cell%Yf%backward(fmnR(2,:), cell%p)
+                    frot(3,:,:) = cell%Yf%backward(fmnR(3,:), cell%p)
+
+                    nJt(1,:,:) = cell%Yf%backward(xmnR(1,:), cell%p)
+                    nJt(2,:,:) = cell%Yf%backward(xmnR(2,:), cell%p)
+                    nJt(3,:,:) = cell%Yf%backward(xmnR(3,:), cell%p)
+                ELSE
+                    sing = .false.
+
+!                   We can use the coarse grid
+                    nt = Y%nt
+                    np = Y%np
+
+!                   Deallocate integ. quants
+                    DEALLOCATE(frot, xcg, nJt, Bi, Ci, wgi)
+                    ALLOCATE( &
+                    frot(3, nt, np), &
+                    xcg(3,  nt, np), &
+                    nJt(3,  nt, np), &
+                    Bi(3,3, nt, np), &
+                    Ci(3,3, 2*(Y%p-1)+1, nt), &
+                    wgi(nt))
+                    
+                    es   => prob%es
+                    cPmn => prob%cPmn
+                    dphi = celli%Y%dphi
+                    wgi  = celli%Y%wg
+
+                    xcg(1,:,:) = celli%x(1,:,:)
+                    xcg(2,:,:) = celli%x(2,:,:)
+                    xcg(3,:,:) = celli%x(3,:,:)
+
+                    frot(1,:,:) = Y%backward(fmnR(1,:), cell%p)
+                    frot(2,:,:) = Y%backward(fmnR(2,:), cell%p)
+                    frot(3,:,:) = Y%backward(fmnR(3,:), cell%p)
+
+                    nJt(1,:,:) = Y%backward(xmnR(1,:), cell%p)
+                    nJt(2,:,:) = Y%backward(xmnR(2,:), cell%p)
+                    nJt(3,:,:) = Y%backward(xmnR(3,:), cell%p)
+                ENDIF
+
+!           Normal grid: Get rotated constants
             ELSE
                 xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
                 xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
                 xmnR(3,:) = Y%rotate(cell%xmn(3,:), i, j, -Y%phi(j))
-                wgi = Y%ws
-            ENDIF
 
-!           Rotated integration points in unrotated frame
-            xcg(1,:,:) = Y%backward(xmnR(1,:))
-            xcg(2,:,:) = Y%backward(xmnR(2,:))
-            xcg(3,:,:) = Y%backward(xmnR(3,:))
+!               Rotated integration points in unrotated frame
+                xcg(1,:,:) = Y%backward(xmnR(1,:))
+                xcg(2,:,:) = Y%backward(xmnR(2,:))
+                xcg(3,:,:) = Y%backward(xmnR(3,:))
 
-!           Forces on rotated grid
-            IF(PRESENT(celli)) THEN
-                fmnR(1,:) = celli%fmn(1,:)
-                fmnR(2,:) = celli%fmn(2,:)
-                fmnR(3,:) = celli%fmn(3,:)
-            ELSE
+!               Forces on rotated grid
                 fmnR(1,:) = Y%rotate(cell%fmn(1,:), i, j, -Y%phi(j))
                 fmnR(2,:) = Y%rotate(cell%fmn(2,:), i, j, -Y%phi(j))
                 fmnR(3,:) = Y%rotate(cell%fmn(3,:), i, j, -Y%phi(j))
-            ENDIF
 
-            frot(1,:,:) = Y%backward(fmnR(1,:), cell%p)
-            frot(2,:,:) = Y%backward(fmnR(2,:), cell%p)
-            frot(3,:,:) = Y%backward(fmnR(3,:), cell%p)
-            
-!           Rotate the normal vector total constants
-            IF(PRESENT(celli)) THEN
-                fmnR(1,:) = celli%nkt(1,:)
-                fmnR(2,:) = celli%nkt(2,:)
-                fmnR(3,:) = celli%nkt(3,:)
-            ELSE
+                frot(1,:,:) = Y%backward(fmnR(1,:), cell%p)
+                frot(2,:,:) = Y%backward(fmnR(2,:), cell%p)
+                frot(3,:,:) = Y%backward(fmnR(3,:), cell%p)
+
+!               Rotate the normal vector total constants
                 fmnR(1,:) = Y%rotate(cell%nkt(1,:), i, j, -Y%phi(j))
                 fmnR(2,:) = Y%rotate(cell%nkt(2,:), i, j, -Y%phi(j))
                 fmnR(3,:) = Y%rotate(cell%nkt(3,:), i, j, -Y%phi(j))
-            ENDIF
 
-            nJt(1,:,:) = Y%backward(fmnR(1,:), cell%p)
-            nJt(2,:,:) = Y%backward(fmnR(2,:), cell%p)
-            nJt(3,:,:) = Y%backward(fmnR(3,:), cell%p)
+                nJt(1,:,:) = Y%backward(fmnR(1,:), cell%p)
+                nJt(2,:,:) = Y%backward(fmnR(2,:), cell%p)
+                nJt(3,:,:) = Y%backward(fmnR(3,:), cell%p)
+
+                wgi = Y%ws
+            ENDIF
 
 !           First matrix: integral components at the i,jth - i2,j2 grid.
             Bi = 0D0
             bt = 0D0
 
-            DO i2 = 1,cell%Y%nt
-                DO j2 = 1,cell%Y%np
+            !!!! Put some stuff into noali on integration, goes here
+
+            DO i2 = 1,nt
+                DO j2 = 1,np
                     r = xcg(:,i2,j2) - xcr
 !                   Matrix of integration grid about i,j-th point 
                     Bi(1:3,1:3,i2,j2) = Tij(r, nJt(:,i2,j2))
                     
 !                   RHS vector
-                    ft = frot(:,i2,j2)
-                    ft2 = Gij(r, eye)
+                    ft = 1D0!frot(:,i2,j2)
+                    ft2 = Tij(r, nJt(:,i2,j2))!Gij(r, eye)
                     bt = bt + INNER3_33(ft,ft2)*wgi(i2)
                 ENDDO
             ENDDO
+            IF(PRESENT(Celli)) THEN
+            print *, bt*dphi
+            stop
+            ENDIF
 
-            b(row:row+2) = bt*Y%dphi/cell%mu/(1D0 + cell%lam)
+            b(row:row+2) = bt*dphi/(1D0 + cell%lam)
             IF(.not. PRESENT(celli)) b(row:row+2) = b(row:row+2) &
                                                   - Uc*8D0*pi/(1D0 + cell%lam)
 
@@ -1086,10 +1217,10 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
             im2 = 0
             DO m2 = -(Y%p-1), Y%p-1
                 im2 = im2 + 1
-                DO i2 = 1, Y%nt
+                DO i2 = 1, nt
                     tmpsum = 0D0
-                    DO j2 = 1,Y%np
-                        tmpsum = tmpsum + Bi(1:3, 1:3, i2, j2)*es(im2, j2)*Y%dphi
+                    DO j2 = 1, np
+                        tmpsum = tmpsum + Bi(1:3, 1:3, i2, j2)*es(im2, j2)*dphi
                     ENDDO
                     Ci(1:3,1:3,im2,i2) = tmpsum
                 ENDDO
@@ -1102,7 +1233,7 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
                     im2 = im2+1
                     colm = im2 - 2*m2
                     tmpsum = 0D0
-                    DO i2 = 1,Y%nt
+                    DO i2 = 1,nt
                         tmpsum = tmpsum + Ci(1:3,1:3, im2, i2)*cPmn(ind,im2,i2)*wgi(i2)
                     ENDDO
                     Ei(1:3,1:3, im2, ind) = tmpsum
@@ -1241,35 +1372,45 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     INTEGER, INTENT(IN) :: ord
     LOGICAL, INTENT(IN) :: reduce
     REAL(KIND = 8) :: zm, tic, toc
-    COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:), A2(:,:), b2(:), ut(:), wrk(:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:), ut(:), wrk(:), &
+                                      A2(:,:), b2(:), A(:,:), b(:)
     INTEGER :: ic, ic2, i, row, col, iter, info
-    REAL(KIND = 8), ALLOCATABLE :: rwrk(:)
+    REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:)
     COMPLEX, ALLOCATABLE :: swrk(:)
     COMPLEX(KIND = 8), POINTER :: xmn(:,:)
     INTEGER, ALLOCATABLE :: IPIV(:)
     
     ALLOCATE(ut(prob%NmatT), &
+             uti(prob%NmatT), &
+             utr(prob%NmatT), &
              IPIV(prob%NmatT), wrk(prob%NmatT), &
              swrk(prob%NmatT*(prob%NmatT+1)), &
-             rwrk(prob%NmatT))
+             rwrk(prob%NmatT), &
+             A(prob%NmatT, prob%NmatT), &
+             b(prob%NmatT))
     
     CALL CPU_TIME(tic)
 
-    prob%b = 0D0
+    A = 0D0
+    b = 0D0
+    b2 = 0D0
+    A2 = 0D0
 !   Construct the matrix
 !   First loop: velocity surface
-    DO ic = 1, prob%Ncell
+    DO ic = prob%PCells(1), prob%PCells(2)
         row = (ic -1)*prob%Nmat + 1
         cell => prob%cell(ic)
 
 !       Second loop: integral surface
-        DO ic2 = 1,prob%Ncell
+        DO ic2 = 1,prob%NCell
             celli => prob%cell(ic2)
             
 !           Get geometric info about new state, get stress in new state if first go round
-            IF(ic.eq.1) THEN
+            IF(ic.eq.prob%PCells(1)) THEN
                 CALL celli%derivs()
                 CALL celli%stress()
+!               Characteristic grid spacing
+                celli%h = SQRT(celli%SA()/celli%Y%nt**2D0)
             ENDIF
 
             col = (ic2-1)*prob%Nmat + 1
@@ -1282,18 +1423,34 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             ENDIF
 
 !           Put sub matrix into big matrix
-            prob%A(row:row + prob%Nmat - 1, col:col + prob%Nmat - 1) = A2
+            A(row:row + prob%Nmat - 1, col:col + prob%Nmat - 1) = A2
 !           Sum over all the integrals
-            prob%b(row:row + prob%Nmat - 1) = prob%b(row:row + prob%Nmat - 1) + b2
+            b(row:row + prob%Nmat - 1) = b(row:row + prob%Nmat - 1) + b2
         ENDDO
     ENDDO
 
-!   Invert big matrix to get a list of all the vels of all cell
-    CALL zcgesv(prob%NmatT, 1, prob%A, prob%NmatT, IPIV, prob%b, prob%NmatT, &
-                ut, prob%NmatT, wrk, swrk, rwrk, iter, info)
+    DO i = 1,prob%NmatT
+        A(:,i) = prob%cm%reduce(REAL(A(:,i))) + prob%cm%reduce(AIMAG(A(:,i)))*ii !! Would probably work better to just send all the A's
+    ENDDO
+    b = prob%cm%reduce(REAL(b)) + prob%cm%reduce(AIMAG(b))*ii
 
+!   Invert big matrix to get a list of all the vels of all cell
+    ut = 0D0
+    IF(prob%cm%mas()) THEN
+        CALL zcgesv(prob%NmatT, 1, A, prob%NmatT, IPIV, b, prob%NmatT, &
+                    ut, prob%NmatT, wrk, swrk, rwrk, iter, info)
+        utr = REAL(ut)
+        uti = AIMAG(ut)
+    ENDIF
+
+    IF(prob%cm%np() .gt. 1) THEN
+        CALL prob%cm%bcast(utr)
+        CALL prob%cm%bcast(uti)
+        ut = utr + uti*ii
+    ENDIF
+    ! print *, ut(7)
 !   Advance in time now
-    DO ic = 1, prob%Ncell
+    DO ic = 1, prob%NCell
         cell => prob%cell(ic)
 
 !       Reconstruct individual vels
@@ -1348,7 +1505,8 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     ! print *, toc-tic
 
     prob%cts = prob%cts + 1
-    
+    prob%t = prob%t + prob%dt
+
 !   Check if there's any funny business
     IF(isNaN(MAXVAL(ABS(cell%umn))) .or. MAXVAL(ABS(cell%umn)) .gt. HUGE(zm)) THEN
             print *, 'ERROR: inftys or NaNs'
@@ -1391,6 +1549,19 @@ SUBROUTINE RelaxCell(cell, prob, tol)
             write(*,'(F8.6)') MAXVAL(ABS(cell%umn))*cell%Ca
     ENDDO
 END SUBROUTINE RelaxCell
+! -------------------------------------------------------------------------!
+! Runs until initial cell is relaxed
+SUBROUTINE OutputProb(prob)
+    CLASS(probType), INTENT(IN) :: prob
+    INTEGER ic
+    IF(prob%cm%slv()) RETURN
+
+    DO ic = 1, prob%NCell
+        write(*,'(I4,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
+        prob%cts, prob%t, 1D0*2D0*MAXVAL(ABS(prob%cell(ic)%ff))/prob%cell(ic)%B, &
+        MAXVAL(ABS(prob%cell(ic)%umn)), prob%cell(ic)%vol(), prob%cell(ic)%SA()
+    ENDDO
+END SUBROUTINE OutputProb
 
 ! -------------------------------------------------------------------------!
 ! Takes an input and cell and de-alises it

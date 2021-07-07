@@ -1025,6 +1025,58 @@ SUBROUTINE Fluidcell(cell)
             frot(2,:,:) = Yt%backward(cell%fmn(2,:))*Jg/SIN(Y%th)
             frot(3,:,:) = Yt%backward(cell%fmn(3,:))*Jg/SIN(Y%th)
 
+            ! IF(i.eq.1.and.j.eq.1) THEN
+            !     OPEN (UNIT = 88, FILE = 'tmper1')
+            !     OPEN (UNIT = 87, FILE = 'tmper2')
+            !     OPEN (UNIT = 86, FILE = 'tmper3')
+            !     OPEN (UNIT = 89, FILE = 'tmperx')
+            !     OPEN (UNIT = 90, FILE = 'tmpery')
+            !     OPEN (UNIT = 91, FILE = 'tmperz')
+            !     OPEN (UNIT = 92, FILE = 'tmperJ')
+            !     DO i2 = 1,cell%Yf%nt
+            !         DO j2 = 1,cell%Yf%np
+            !             WRITE(88,*) cell%ff(1,i2,j2)
+            !             WRITE(87,*) cell%ff(2,i2,j2)
+            !             WRITE(86,*) cell%ff(3,i2,j2)
+            !             WRITE(89,*) cell%xf(1,i2,j2)
+            !             WRITE(90,*) cell%xf(2,i2,j2)
+            !             WRITE(91,*) cell%xf(3,i2,j2)
+            !             WRITE(92,*) cell%J(i2,j2)
+            !         ENDDO
+            !     ENDDO
+            !     CLOSE(88)
+            !     CLOSE(87)
+            !     CLOSE(86)
+            !     CLOSE(89)
+            !     CLOSE(90)
+            !     CLOSE(91)
+            !     CLOSE(92)
+            ! ENDIF
+            
+            ! IF(PRESENT(CELLI)) THEN
+            !     OPEN (UNIT = 88, FILE = 'tmperint')
+            !     OPEN (UNIT = 89, FILE = 'tmperval')
+            !     DO n2 = 1,201
+            !         xcr = (/0D0,0D0,.85D0 + REAL(n2-1)/500D0/)
+            !         bt = 0D0
+            !         DO i2 = 1,cell%Yf%nt
+            !             DO j2 = 1,cell%Yf%np
+            !                 r = cell%xf(:,i2,j2) - xcr
+            !                 ft = (/1D0,1D0,1D0/)!frot(:,i2,j2)
+            !                 ft2 = Gij(r, eye)
+            !                 bt = bt + INNER3_33(ft,ft2)*cell%Yf%wg(i2)*cell%Yf%dphi
+            !             ENDDO
+            !         ENDDO
+            !         WRITE(88,*) REAL(bt(1))
+            !         WRITE(89,*) REAL(xcr(3))
+            !     ENDDO
+
+            !     CLOSE(89)
+            !     CLOSE(88)
+
+            !     STOP
+            ! ENDIF
+
 !           Bookkeeping - rows are coordinates and columns are harmonics, in 3x3 ij blocks
             row = 3*(ic - 1)  + 1
             bt = 0

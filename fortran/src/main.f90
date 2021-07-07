@@ -1,20 +1,25 @@
 PROGRAM MAIN
-USE UTILMOD
 USE SHAPEMOD
 IMPLICIT NONE
-REAL(KIND = 8) :: tic, toc, t = 0D0, kdt, kfr, Gfac
+REAL(KIND = 8) :: tic, toc, kdt, kfr, Gfac
 TYPE(cellType), ALLOCATABLE, TARGET :: cell(:)
 TYPE(probType) :: prob
+TYPE(cmType), TARGET :: cm
 CHARACTER(:), ALLOCATABLE :: filein
 INTEGER ::  i, argl, stat, nts, pthline, ic
 REAL(KIND = 8), ALLOCATABLE :: G(:,:,:), Gtmp(:,:,:,:)
 
-print *, 'Reading in input file...'
+! MPI communicator startup
+CAll MPI_INIT(ic)
+CALL cm%new(MPI_COMM_WORLD)
+
+IF(cm%mas()) print *, 'Reading in input file...'
 CALL get_command_argument(number=1, length=argl)
 ALLOCATE(character(argl) :: filein)
 CALL get_command_argument(number=1, value=filein, status=stat)
 
-print *, 'Initializing cell/harmonics...'
+IF(cm%mas()) print *, 'Initializing cell/harmonics...'
+prob%cm   => cm
 cell = cellType(filein, .false., prob)
 prob%cell => cell
 CALL cpu_time(tic)
@@ -24,7 +29,7 @@ kdt = READ_GRINT_DOUB(filein, 'Kolm_time')
 kfr = READ_GRINT_DOUB(filein, 'Kolm_frac')
 pthline = READ_GRINT_INT(filein, 'Path_line')
 
-print *, 'Reading in velocity gradient...'
+IF(cm%mas()) print *, 'Reading in velocity gradient...'
 OPEN(1,FILE = prob%gradfile, ACCESS = 'stream', ACTION = 'read')
 READ(1) nts, i
 ! Read into a temporary array so we don't hold onto this big one
@@ -45,7 +50,6 @@ ELSE
 ENDIF
 DEALLOCATE(Gtmp)
 
-
 ! Relax cell to get it into an equilibrium state
 !! ============================
 print *, 'Getting initial shape -'
@@ -64,15 +68,14 @@ DO ic = 1, prob%NCell
 ENDDO
 
 !   Write initial configuration
-CALL cell(1)%write(prob)
-
-print*, 'Initialized!'
+CALL prob%write()
+IF(cm%mas()) print*, 'Initialized!'
 
 ! Time step loop
 DO i = 1,prob%NT
 !! ============================
 !       Do interpolation to get current grad tensor, then normalize by kolm time
-        prob%dU = VelInterp(G,t,nts,kfr)*kdt
+        prob%dU = VelInterp(G,prob%t,nts,kfr)*kdt
 !       Hardcoded shear
         prob%dU = 0D0
         prob%dU(1,3) = 1D0
@@ -82,21 +85,12 @@ DO i = 1,prob%NT
         CALL CPU_TIME(tic)
         CALL prob%update(1, .false.)
         CALL CPU_TIME(toc)
-        ! print *, toc - tic
+        IF(prob%cm%mas()) print *, toc - tic
 
 !       Write and display some output
-        IF((prob%cts .eq. 1) .or. (MOD(prob%cts,prob%dtinc)) .eq. 0) THEN
-                CALL cell(1)%write(prob)
-        ENDIF
-
-        t = t + prob%dt
-        DO ic = 1, prob%NCell
-                write(*,'(I4,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') &
-                prob%cts, t, 1D0*2D0*MAXVAL(ABS(cell(ic)%ff))/cell(ic)%B, MAXVAL(ABS(cell(ic)%umn)), cell(ic)%vol(), &
-                cell(ic)%SA()
-        ENDDO
+        CALL prob%write()
+        CALL prob%output()
 ENDDO
-
 CALL cpu_time(toc)
 print *, toc-tic
 

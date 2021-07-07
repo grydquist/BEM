@@ -20,7 +20,6 @@ TYPE rotType
     INTEGER :: n
     COMPLEX(KIND = 8), ALLOCATABLE :: Dmm(:,:)
     REAL(KIND = 8), ALLOCATABLE :: dmms(:,:)
-
 END TYPE rotType
 
 ! Full harmonic object evaluated at all values tht and phi
@@ -143,7 +142,6 @@ FUNCTION newY(p, dero, rot) RESULT(Y)
             ENDDO
         ENDDO
     ENDIF
-
 END FUNCTION newY
 
 !------------------------------------------------------------------!
@@ -185,7 +183,6 @@ FUNCTION newYbare(th, ph, p, dero) RESULT(Y)
             Y%nm(i+1) = nmType(i, 0, Y)
         ENDDO
     ENDIF
-
 END FUNCTION newYbare
 
 !------------------------------------------------------------------!
@@ -396,7 +393,6 @@ FUNCTION forwardYDirect(Y, f, p) RESULT(fmn)
             ENDDO
         ENDDO
     ENDDO
-
 END FUNCTION forwardYDirect
 !------------------------------------------------------------------!
 ! Takes a collection of points in spectral space and gets the physical domain
@@ -492,7 +488,6 @@ FUNCTION rotcnstY(Y, a, b, n) RESULT(rot)
             rot%dmms(im,im2) = dmms
         ENDDO
     ENDDO
-
 END FUNCTION rotcnstY
 
 ! -------------------------------------------------------------------------!

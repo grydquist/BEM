@@ -1,4 +1,4 @@
-FC=ifort
+FC=mpiifort
 LDIR=./lib/lapack-3.9.0/
 IDIR=./FFTs/
 LIBS= -llapack -lrefblas
@@ -12,7 +12,7 @@ MYEXEC=harms
 
 # Normal, opt flags
 # Removing fast can make the last line of the compilation faster, whereas other way shape is slow
-FFLAGS = -O3 -funroll-loops -fomit-frame-pointer -DNDEBUG -fast
+FFLAGS = -O3 -funroll-loops -fomit-frame-pointer -DNDEBUG #-fast
 
 # Can specify debug flags with make dbg=1
 ifeq ($(dbg),1)
@@ -28,12 +28,14 @@ endif
 
 # Functions
 MYFUN = UTIL.o\
+		COMU.o\
 		HARMONICS.o\
 		SHAPE_interp.o\
 		main.o
 
 # Modules
 MYMOD = harmmod.mod\
+		cmmod.mod\
 		utilmod.mod\
 		shapemod.mod
 
@@ -61,11 +63,13 @@ $(DATDIR):
 # Dependencies
 $(OBJDIR)UTIL.o : $(SRC)UTIL.f90
 
-$(OBJDIR)HARMONICS.o : $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
+$(OBJDIR)COMU.o : $(SRC)COMU.f90 $(SRC)UTIL.f90
 
-$(OBJDIR)SHAPE_interp.o : $(SRC)SHAPE_interp.f90 $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
+$(OBJDIR)HARMONICS.o : $(SRC)HARMONICS.f90 $(SRC)COMU.f90 $(SRC)UTIL.f90
 
-$(OBJDIR)main.o : $(SRC)main.f90 $(SRC)SHAPE_interp.f90 $(SRC)HARMONICS.f90 $(SRC)UTIL.f90
+$(OBJDIR)SHAPE_interp.o : $(SRC)SHAPE_interp.f90 $(SRC)HARMONICS.f90 $(SRC)COMU.f90 $(SRC)UTIL.f90
+
+$(OBJDIR)main.o : $(SRC)main.f90 $(SRC)SHAPE_interp.f90 $(SRC)HARMONICS.f90 $(SRC)COMU.f90 $(SRC)UTIL.f90
 
 .PHONY : clean
 clean:
