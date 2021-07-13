@@ -4,17 +4,19 @@ fclose all;
 
 % dir = 'pap_dat/MeshIndNew/TT18/';
 % dir = 'pap_dat/TurbRes/Ca3/HITCa3_11/';
-dir = 'fortran/dat/ERAZURE/';
+% dir = 'fortran/dat/tmptmp';
+% dir = 'fortran/dat/tmptmptmp';
+dir = 'fortran/dat/tmp';
 % dir = 'fortran/dat/ERAZURE7/';
 % dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
 % dir = 'pap_dat/TWZ/cmplTWZ/TWZp16F90pN/';
-fid = fopen(strcat(dir,'maxdt'));
+fid = fopen(strcat(dir,'1/','maxdt'));
 tts = str2double(fgetl(fid));
 fclose(fid);
 tts = floor(tts);
 
 % Read Param file to get simulation info
-fid = fopen(strcat(dir,'Params'));
+fid = fopen(strcat(dir,'1/','Params'));
 tline = fgetl(fid);
 while ischar(tline)
     tline = strtrim(tline);
@@ -89,25 +91,39 @@ for i = 1:incr:tts + 1
         file = strcat(file,num2str(i-1));
     end
     
+    %% Do this for two cells!
+    
 %   All the data in the ts
-    fID = fopen(strcat(dir,file));
+    fID = fopen(strcat(dir,'1/',file));
     raw = fscanf(fID,'%f');
+    fclose(fID);
+    fID = fopen(strcat(dir,'2/',file));
+    raw2 = fscanf(fID,'%f');
     fclose(fID);
     
 %   Individual directional coefficients, not distinct between real/imag)
     x1t = raw(1:3:end);
     x2t = raw(2:3:end);
     x3t = raw(3:3:end);
+    x1t2 = raw2(1:3:end);
+    x2t2 = raw2(2:3:end);
+    x3t2 = raw2(3:3:end);
     
 %   Real and imaginary separation
     x1c = x1t(1:tot) + x1t(tot+1:end)*1i;
     x2c = x2t(1:tot) + x2t(tot+1:end)*1i;
     x3c = x3t(1:tot) + x3t(tot+1:end)*1i;
+    x1c2 = x1t2(1:tot) + x1t2(tot+1:end)*1i;
+    x2c2 = x2t2(1:tot) + x2t2(tot+1:end)*1i;
+    x3c2 = x3t2(1:tot) + x3t2(tot+1:end)*1i;
     
 %   Interpolate these to physical positions
     x1 = real(SpHReconst(x1c,Yr));
     x2 = real(SpHReconst(x2c,Yr));
     x3 = real(SpHReconst(x3c,Yr));
+    x12 = real(SpHReconst(x1c2,Yr));
+    x22 = real(SpHReconst(x2c2,Yr));
+    x32 = real(SpHReconst(x3c2,Yr));
 %   Same procedure for velocities
 %   Read in data file of current timestep, making exception for the first
     if(i == 1)
@@ -121,27 +137,28 @@ for i = 1:incr:tts + 1
     end
     
 %   All the data in the ts
-    fID = fopen(strcat(dir,file));
+    fID = fopen(strcat(dir,'1/',file));
     raw = fscanf(fID,'%f');
+    fclose(fID);
+    fID = fopen(strcat(dir,'2/',file));
+    raw2 = fscanf(fID,'%f');
     fclose(fID);
     
 %   Individual directional coefficients, not distinct between real/imag)
     u1t = raw(1:3:end);
     u2t = raw(2:3:end);
     u3t = raw(3:3:end);
+    u1t2 = raw2(1:3:end);
+    u2t2 = raw2(2:3:end);
+    u3t2 = raw2(3:3:end);
     
 %   Real and imaginary separation
     u1c = u1t(1:tot) + u1t(tot+1:end)*1i;
     u2c = u2t(1:tot) + u2t(tot+1:end)*1i;
     u3c = u3t(1:tot) + u3t(tot+1:end)*1i;
-    for n=0:p
-        if(n <= p)
-            Ex(n+1,(i-1)/incr + 1) = norm(norm([x1c(n^2+1:(n+1)^2),x2c(n^2+1:(n+1)^2),x3c(n^2+1:(n+1)^2)]));
-%           Ex(n+1,(i-1)/incr + 1) = norm(x3c(n^2+1:(n+1)^2));
-        end
-%         Eu(n+1,(i-1)/incr + 1) = norm(norm([u1c(n^2+1:(n+1)^2),u2c(n^2+1:(n+1)^2),u3c(n^2+1:(n+1)^2)]));
-        Eu(n+1,(i-1)/incr + 1) = norm(u1c(n^2+1:(n+1)^2));
-    end
+    u1c2 = u1t2(1:tot) + u1t2(tot+1:end)*1i;
+    u2c2 = u2t2(1:tot) + u2t2(tot+1:end)*1i;
+    u3c2 = u3t2(1:tot) + u3t2(tot+1:end)*1i;
     
 %   Interpolate these to physical positions
     u1 = real(SpHReconst(u1c,Yqv));
@@ -150,50 +167,40 @@ for i = 1:incr:tts + 1
     xq1 = real(SpHReconst(x1c,Yqv,p));
     xq2 = real(SpHReconst(x2c,Yqv,p));
     xq3 = real(SpHReconst(x3c,Yqv,p));
+    u12 = real(SpHReconst(u1c2,Yqv));
+    u22 = real(SpHReconst(u2c2,Yqv));
+    u32 = real(SpHReconst(u3c2,Yqv));
+    xq12 = real(SpHReconst(x1c2,Yqv,p));
+    xq22 = real(SpHReconst(x2c2,Yqv,p));
+    xq32 = real(SpHReconst(x3c2,Yqv,p));
 
     clf;
 %   Plot this timestep
-    h1 = subplot(2,1,1);
     sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
-    set(h1, 'Units', 'normalized');
-    set(h1, 'Position', [-.1, 0.5, 1.15, .6]);
 
     
 %     surf(xf1,xf2,xf3,squeeze(fmns(1,:,:,(i-1)/incr + 1)./fmns(1,:,:,2)),'edgecolor','none')
     surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 0 0], ...
          'FaceAlpha',0.75,'FaceLighting','gouraud')
     lightangle(gca,150,50)
+    hold on
+    surf(x12,x22,x32,'edgecolor','none','FaceColor',[1 0 0], ...
+     'FaceAlpha',0.75,'FaceLighting','gouraud')
+    
     set(gca,'nextplot','replacechildren','visible','off')
     % Top down
 %     view(0,90);
     % Side
     view(0,0);
-    axis([-4,4,0,2,-1.5,2.5])
-    pbaspect([2,.5,1])
+    axis([-3,3,0,2,-2,2])
+    pbaspect([6,2,4])
     hold on
     xtop((i-1)/incr + 1) = real(SpHReconst(x1c,Ytrc));
     ytop((i-1)/incr + 1) = real(SpHReconst(x2c,Ytrc)); 
     ztop((i-1)/incr + 1) = real(SpHReconst(x3c,Ytrc)); 
-    scatter3(xtop((i-1)/incr + 1),ytop((i-1)/incr + 1),ztop((i-1)/incr + 1),75,'go','filled');
+%     scatter3(xtop((i-1)/incr + 1),ytop((i-1)/incr + 1),ztop((i-1)/incr + 1),75,'go','filled');
     quiver3(reshape(xq1,[1,numel(xq1)]),reshape(xq2,[1,numel(xq2)]),reshape(xq3,[1,numel(xq1)]),reshape(u1*2,[1,numel(xq1)]),reshape(u2*2,[1,numel(xq1)]),reshape(u3*2,[1,numel(xq1)]),'b')%,'AutoScale','off')
-
-    h2 = subplot(2,1,2);
-    set(h2, 'Units', 'normalized');
-    set(h2, 'Position', [0.05, 0, 1, .7]);
-
-    surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 0 0], ...
-          'FaceAlpha',0.75,'FaceLighting','gouraud')
-    lightangle(gca,150,50)
-    
-    set(gca,'nextplot','replacechildren','visible','off')
-    set(gcf, 'color', 'white');
-    view(45,45);
-%     view(0,90);
-    axis([-2,2,-2,2,-2,2])
-    pbaspect([1,1,1])
-    hold on
-    scatter3(real(SpHReconst(x1c,Ytrc)),real(SpHReconst(x2c,Ytrc)),real(SpHReconst(x3c,Ytrc)),75,'go','filled');
-    quiver3(reshape(xq1,[1,numel(xq1)]),reshape(xq2,[1,numel(xq2)]),reshape(xq3,[1,numel(xq1)]),reshape(u1,[1,numel(xq1)]),reshape(u2,[1,numel(xq1)]),reshape(u3,[1,numel(xq1)]),'b')
+    quiver3(reshape(xq12,[1,numel(xq12)]),reshape(xq22,[1,numel(xq22)]),reshape(xq32,[1,numel(xq12)]),reshape(u12*2,[1,numel(xq12)]),reshape(u22*2,[1,numel(xq12)]),reshape(u32*2,[1,numel(xq12)]),'b')%,'AutoScale','off')
 
 %     clf
 % %     loglog(Ex8(:,(i-1)/incr +  1),'o')
@@ -243,7 +250,7 @@ incl(1) = 1/4;
 % [imind,cm] = rgb2ind(frame.cdata,256,'nodither');
 % % Write to the GIF File 
 % if i == 1
-%   filename = 'gif3.gif';
+%   filename = 'pull3.gif';
 %   imwrite(imind,cm,filename,'gif', 'Loopcount',inf,'DelayTime',0); 
 % else 
 %   imwrite(imind,cm,filename,'gif','WriteMode','append','DelayTime',0); 

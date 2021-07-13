@@ -68,11 +68,12 @@ CONTAINS
 !=============================================================================!
 
 ! Construction routine for whole spheerical harmonic structure
-FUNCTION newY(p, dero, rot) RESULT(Y)
+FUNCTION newY(p, dero, rot, rotint) RESULT(Y)
     TYPE(YType) Y
     INTEGER, INTENT(IN) :: p, dero
+    INTEGER, INTENT(IN), OPTIONAL :: rotint
 
-    INTEGER i, j, n
+    INTEGER i, j, n, ri
     REAL(KIND = 8) xs(p + 1)
 
 !   Do we want to store rotation info about each point?
@@ -83,6 +84,13 @@ FUNCTION newY(p, dero, rot) RESULT(Y)
     Y%nt = p + 1
     Y%np = 2*(p + 1)
     Y%dphi = 2*pi/Y%np
+
+!   How far to calculate the rotation constants
+    IF(PRESENT(rotint)) THEN
+        ri = rotint
+    ELSE
+        ri = p
+    ENDIF
 
 !   Allocate things
     ALLOCATE(Y%facs(2*p + 1), Y%tht(Y%nt), Y%phi(Y%np), &
@@ -132,11 +140,11 @@ FUNCTION newY(p, dero, rot) RESULT(Y)
 !   Rotation info
     Y%hasrot = rot
     IF(rot) THEN
-        ALLOCATE(Y%rot(Y%nt,Y%np, Y%p+1))
+        ALLOCATE(Y%rot(Y%nt,Y%np, ri+1))
 !       Go to each point and get all the rotation constants at that point
         DO i = 1,Y%nt
             DO j = 1,Y%np
-                DO n = 0,Y%p
+                DO n = 0,ri
                     Y%rot(i,j,n + 1) = Y%rotcnst(Y%phi(j), -Y%tht(i), n)
                 ENDDO
             ENDDO
@@ -498,7 +506,7 @@ FUNCTION rotateY(Y, fmn, ti, pj, c) RESULT(f)
     CLASS(YType), TARGET :: Y
     COMPLEX(KIND = 8) f(SIZE(fmn))
 
-    INTEGER n, mp, it, m,  i, ti, pj
+    INTEGER n, mp, it, m,  i, ti, pj, maxi
     INTEGER, ALLOCATABLE :: frng(:)
     COMPLEX(KIND = 8), POINTER :: Dmm(:,:)
     REAL(KIND = 8), POINTER :: facs(:)
@@ -512,9 +520,10 @@ FUNCTION rotateY(Y, fmn, ti, pj, c) RESULT(f)
     f = 0
     it = 0
     ALLOCATE(frng(1))
+    maxi = SIZE(Y%rot(1,1,:)) - 1
 
 !   Loop over harmonic order
-    DO n = 0, Y%p
+    DO n = 0, maxi
         DEALLOCATE(frng)
         ALLOCATE(frng(2*n + 1))
 !       Indices of fmn at a given n
@@ -534,7 +543,7 @@ FUNCTION rotateY(Y, fmn, ti, pj, c) RESULT(f)
 !   Rotate back in last angle (if nonzero)
     IF(c .ne. 0) THEN
     it = 0
-    DO n = 0,Y%p
+    DO n = 0, maxi
         DO m = -n,n
             it = it+1
             f(it) = f(it)*EXP(ii*m*c)

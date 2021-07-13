@@ -12,4 +12,4 @@
 # rm -f *.o
 rm -f harms
 make dbg=0 prof=0
-./harms noBgrint.mfs
+mpirun -n=1 ./harms noBgrint.mfs

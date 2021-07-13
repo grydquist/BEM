@@ -11,6 +11,14 @@ phif = 0:dphi:dphi*(np-1)';
 thtf = acos(trash);
 [phf,thf] = meshgrid(phif,thtf);
 
+ws = zeros(1,length(wg));
+for i = 1:nt
+    for j = 0:q
+        ws(i) = ws(i) + legendreP(j,trash(i))*sin(thtf(i)/2)*2;
+    end
+    ws(i) = ws(i)*wg(i);
+end
+
 
 xsx12 = dlmread('./fortran/tmperx');
 xsx12 = reshape(xsx12,[np,nt])';
@@ -49,7 +57,7 @@ for i = 1:nx
         for i2 = 1:nt
             for j2 = 1:np
                 r = [xsx12(i2,j2),xsy12(i2,j2),xsz12(i2,j2)] - [xq(i),0,zq(j)];
-                f = [fsx12(i2,j2),fsy12(i2,j2),fsz12(i2,j2)];
+                f = [1,1,1];%[fsx12(i2,j2),fsy12(i2,j2),fsz12(i2,j2)];
                 Gs = Gij(r);
                 b = b + wg(i2)*dphi*Gs*f'*J(i2,j2)/sin(thtf(i2));
             end
@@ -62,4 +70,37 @@ for i = 1:nx
 end
 
 quiver(xq,zq,-bx',-bz')
+axis([-3,3,-3,3,-3,3])
+pbaspect([1,1,1])
 
+%% Integral that gets progressively close to singular
+% Note surf + quiv is misleading, as quive is x,z and it sees x,y
+lstN = 200;
+lst = linspace(.95,1.05,lstN);
+bs = zeros(3,lstN);
+for i = 1:lstN
+    b = [0,0,0]';
+    for i2 = 1:nt
+        for j2 = 1:np
+            r = [xsx12(i2,j2),xsy12(i2,j2),xsz12(i2,j2)] - [0,0,lst(i)];
+            f = [1,1,1];%[fsx12(i2,j2),fsy12(i2,j2),fsz12(i2,j2)];
+            Gs = Gij(r);
+            b = b + wg(i2)*dphi*Gs*f'*J(i2,j2)/sin(thtf(i2));
+        end
+    end
+    bs(:,i) = b;
+end
+
+plot(lst,bs(1,:))
+
+%% Singular here
+b = [0,0,0]';
+for i2 = 1:nt
+    for j2 = 1:np
+        r = [xsx12(i2,j2),xsy12(i2,j2),xsz12(i2,j2)] - [0,0,lst(i)];
+        f = [fsx12(i2,j2),fsy12(i2,j2),fsz12(i2,j2)];
+        Gs = Gij(r);
+        b = b + wg(i2)*dphi*Gs*f'*J(i2,j2)/sin(thtf(i2));
+
+    end
+end

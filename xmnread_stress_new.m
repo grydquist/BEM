@@ -52,7 +52,8 @@ myf = zeros(3,ntf,npf);
 fab = myf;
 
 % Read Param file to get simulation info
-dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
+% dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
+dir = 'fortran/dat/ERAZURE/';
 fid = fopen(strcat(dir,'Params'));
 tline = fgetl(fid);
 while ischar(tline)
@@ -97,7 +98,7 @@ fclose(fid);
 tts = floor(tts);
 
 % How many timesteps to skip
-incr = floor(.1/ts);%500;
+incr = floor(.5/ts);%500;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
