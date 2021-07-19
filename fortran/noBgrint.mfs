@@ -1,7 +1,7 @@
 All properties nondimensional (even time step, based on Kolm time)
 Max_time_steps 10000
-Number_cells 2
-Time_step 0.005
+Number_cells 1
+Time_step 0.0025
 Time_inc 25
 Gradient_file VG.bin
 Viscosity_Ratio 5
@@ -9,7 +9,7 @@ Capillary 1
 Dilatation_Ratio 100
 Bending_Modulus .03
 Spont_Curvature -2
-Output ERAZURE
+Output mshind16
 Harmonic_order 16
 Refinement_factor 2
 Restart Yes

@@ -721,7 +721,7 @@ FUNCTION Readcoeff(filen, ord) RESULT(xmn)
     REAL(KIND = 8), ALLOCATABLE :: xmnraw(:)
     CHARACTER (len=*) filen
     INTEGER, INTENT(IN) :: ord
-    INTEGER stat, p, i, jmp
+    INTEGER stat, p, i, jmp, ord2
 
     ALLOCATE(xmn(3, (ord+1)*(ord+1)))
     p = 0
@@ -749,21 +749,18 @@ FUNCTION Readcoeff(filen, ord) RESULT(xmn)
     xmnrawind = p/6
     p = int(sqrt(xmnrawind)) - 1
     jmp = (p+1)*(p+1)
-    
-    IF(ord>p) THEN
-        print *, 'ERROR: when reading coeffs, desired order higher than supplied by input' !!! I could just pad w/ zeros
-        STOP
-    ENDIF
 
-!   Fill out complex coefficient matrix!
-    xmn(1,:) = xmnraw(1:(ord+1)*(ord+1))
-    xmn(1,:) = xmn(1,:) + xmnraw(jmp + 1 : jmp + (ord+1)*(ord+1))*ii 
+    xmn = 0D0
 
-    xmn(2,:) = xmnraw(2*jmp + 1 : 2*jmp + (ord+1)*(ord+1))
-    xmn(2,:) = xmn(2,:) + xmnraw(3*jmp + 1 : 3*jmp + (ord+1)*(ord+1))*ii 
+!   Fill out complex coefficient matrix, padding zeros if the input is too small
+    xmn(1,1:(p+1)*(p+1)) = xmnraw(1:(p+1)*(p+1))
+    xmn(1,1:(p+1)*(p+1)) = xmn(1,1:(p+1)*(p+1)) + xmnraw(jmp + 1 : jmp + (p+1)*(p+1))*ii 
 
-    xmn(3,:) = xmnraw(4*jmp + 1 : 4*jmp + (ord+1)*(ord+1))
-    xmn(3,:) = xmn(3,:) + xmnraw(5*jmp + 1 : 5*jmp + (ord+1)*(ord+1))*ii
+    xmn(2,1:(p+1)*(p+1)) = xmnraw(2*jmp + 1 : 2*jmp + (p+1)*(p+1))
+    xmn(2,1:(p+1)*(p+1)) = xmn(2,1:(p+1)*(p+1)) + xmnraw(3*jmp + 1 : 3*jmp + (p+1)*(p+1))*ii 
+
+    xmn(3,1:(p+1)*(p+1)) = xmnraw(4*jmp + 1 : 4*jmp + (p+1)*(p+1))
+    xmn(3,1:(p+1)*(p+1)) = xmn(3,1:(p+1)*(p+1)) + xmnraw(5*jmp + 1 : 5*jmp + (p+1)*(p+1))*ii
 END FUNCTION Readcoeff
 
 END MODULE HARMMOD
