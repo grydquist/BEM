@@ -4,7 +4,8 @@ fclose all;
 
 % dir = 'pap_dat/MeshIndNew/TT18/';
 % dir = 'pap_dat/TurbRes/Ca3/HITCa3_11/';
-dir = 'fortran/dat/ERAZURE/';
+% dir = 'fortran/dat/ERAZURE/';
+dir = 'fortran/dat/mshind181/';
 % dir = 'fortran/dat/ERAZURE7/';
 % dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
 % dir = 'pap_dat/TWZ/cmplTWZ/TWZp16F90pN/';
