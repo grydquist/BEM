@@ -5,7 +5,7 @@ fclose all;
 % dir = 'pap_dat/MeshIndNew/TT18/';
 % dir = 'pap_dat/TurbRes/Ca3/HITCa3_11/';
 % dir = 'fortran/dat/ERAZURE/';
-dir = 'fortran/dat/mshind181/';
+dir = 'fortran/dat/mshind181/'; 
 % dir = 'fortran/dat/ERAZURE7/';
 % dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
 % dir = 'pap_dat/TWZ/cmplTWZ/TWZp16F90pN/';
@@ -217,7 +217,7 @@ elz = vertcat(x3(:,1),flip(x3(:,51)));
 rs = sqrt(elx.^2 + elz.^2);
 Dij((i-1)/incr + 1) = (max(rs)-min(rs))/(max(rs) + min(rs));
 incl((i-1)/incr + 1) = atan2(abs(angs(3,1)),abs(angs(1,1)))/4;
-incl(1) = 1/4;
+incl(1) = 1/4; 
 
 % 
 % clf
