@@ -721,7 +721,7 @@ FUNCTION Readcoeff(filen, ord) RESULT(xmn)
     REAL(KIND = 8), ALLOCATABLE :: xmnraw(:)
     CHARACTER (len=*) filen
     INTEGER, INTENT(IN) :: ord
-    INTEGER stat, p, i, jmp, ord2
+    INTEGER stat, p, i, jmp
 
     ALLOCATE(xmn(3, (ord+1)*(ord+1)))
     p = 0
@@ -751,6 +751,8 @@ FUNCTION Readcoeff(filen, ord) RESULT(xmn)
     jmp = (p+1)*(p+1)
 
     xmn = 0D0
+
+    p = MIN(p,ord)
 
 !   Fill out complex coefficient matrix, padding zeros if the input is too small
     xmn(1,1:(p+1)*(p+1)) = xmnraw(1:(p+1)*(p+1))
