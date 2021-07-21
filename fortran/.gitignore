@@ -1,7 +1,7 @@
 *txt
 *mat
-fortran/lib
-fortran/lapack-3.9.0
+fortran/lib/dummy_mpi
+fortran/lib/lapack-3.9.0
 *mod
 *gif
 *.bin

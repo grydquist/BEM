@@ -269,7 +269,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
 !       First, we need to get the reference shape for the shear stress
         ! cell(ic)%xmn = RBCcoeff(cell(ic)%Y)
         ! cell(ic)%xmn = Cubecoeff(cell(ic)%Y)
-        cell(ic)%xmn = Spherecoeff(cell(ic)%Y, 1D0)!!!!.76D0) ! Reduced volume .997, .98, .95-> .9,.76,.65
+        cell(ic)%xmn = Spherecoeff(cell(ic)%Y, .76D0) !1D0)!!!! Reduced volume .997, .98, .95-> .9,.76,.65
 
 !       Initial surfce derivatives/reference state
         CALL cell(ic)%Derivs()
@@ -304,11 +304,11 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
 
         !! Test                                        !!!!!
         if(ic.eq.1) THEN
-            cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/5D0!20D0
+            ! cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/5D0!5D0
             ! cell(ic)%xmn(1,1) = -5D0*SQRT(pi)*3D0/3D0
         ENDIF
-        if(ic.eq.2) THEN
-            cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/5D0!20D0
+        if(ic.eq.3) THEN
+            cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/5D0!5D0
             ! cell(ic)%xmn(1,1) =  5D0*SQRT(pi)*3D0/3D0
         ENDIF
 
@@ -325,22 +325,6 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     DO m = -(p-1),(p-1)
         ind = m + p
         prob%es(ind,:) = EXP(ii*DBLE(m)*prob%Y%phi)*prob%Y%dphi
-    ENDDO
-
-!   Fine part, essentially done on 2 grids
-!   Technically the grid goes up to order q, but we only calculate up to p
-    DO m = -(p-1),(p-1)
-        ind = m + p
-        prob%esf(ind,:) = EXP(ii*DBLE(m)*prob%Ys%ph(1,:))
-    ENDDO
-
-!   Manage the dphi
-    DO ic = 1,np + npf
-        IF(ic .le. np) THEN
-            prob%esf(:,ic) = prob%esf(:,ic)*prob%Y%dphi
-        ELSE
-            prob%esf(:,ic) = prob%esf(:,ic)*prob%Yf%dphi
-        ENDIF
     ENDDO
 
 !   Legendre polynomial calculation part (coarse and fine)
@@ -363,6 +347,22 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
         ENDDO
     ENDDO
 
+    IF(prob%NCell .gt. 1) THEN
+!   Fine part, essentially done on 2 grids
+!   Technically the grid goes up to order q, but we only calculate up to p
+    DO m = -(p-1),(p-1)
+        ind = m + p
+        prob%esf(ind,:) = EXP(ii*DBLE(m)*prob%Ys%ph(1,:))
+    ENDDO
+
+!   Manage the dphi
+    DO ic = 1,np + npf
+        IF(ic .le. np) THEN
+            prob%esf(:,ic) = prob%esf(:,ic)*prob%Y%dphi
+        ELSE
+            prob%esf(:,ic) = prob%esf(:,ic)*prob%Yf%dphi
+        ENDIF
+    ENDDO
     DEALLOCATE(cPt)
 !   Technically the grid goes up to order q, but we only calculate up to p
     ALLOCATE(cPt(nt + ntf, p*(p+1)/2))
@@ -384,6 +384,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
             ENDIF
         ENDDO
     ENDDO
+    ENDIF
 
 !   Which cells will the current processor handle? Integer div. rounds down
     n = MOD(prob%NCell, prob%cm%np())
