@@ -9,3 +9,6 @@ fortran/dat
 *.asv
 /TurbData
 pap_dat
+*.png
+*.svg
+*.eps

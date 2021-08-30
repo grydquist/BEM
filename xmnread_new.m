@@ -4,10 +4,12 @@ fclose all;
 
 % dir = 'pap_dat/MeshIndNew/TT18/';
 % dir = 'pap_dat/TurbRes/Ca3/HITCa3_11/';
-% dir = 'fortran/dat/ERAZURE/';
-dir = 'fortran/dat/mshind181/'; 
-% dir = 'fortran/dat/ERAZURE7/';
+% dir = 'fortran/dat/TT2821/';
+% dir = 'fortran/dat/ts16_006251/'; 
+dir = 'fortran/dat/ERAZURE1/';
 % dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
+% dir = 'pap_dat/DilInd/dil16_2001/';
+% dir = 'pap_dat/Time/ts16_00151/';
 % dir = 'pap_dat/TWZ/cmplTWZ/TWZp16F90pN/';
 fid = fopen(strcat(dir,'maxdt'));
 tts = str2double(fgetl(fid));
@@ -32,6 +34,8 @@ while ischar(tline)
     tline = fgetl(fid);
 end
 fclose(fid);
+
+% tts = ceil(25/ts);
 
 % How many timesteps to skip
 incr = floor(.125/ts);%500;
@@ -81,7 +85,7 @@ for i = 1:incr:tts + 1
     
 %   Read in data file of current timestep, making exception for the first
     if(i == 1)
-        file = 'x_00000';
+        file = 'x_00001'; %%!! inconsistent with some older files (change to 1)
     else
         file = 'x_';
         for fl = 1:(4-floor(log10(i-1)))
@@ -112,7 +116,7 @@ for i = 1:incr:tts + 1
 %   Same procedure for velocities
 %   Read in data file of current timestep, making exception for the first
     if(i == 1)
-        file = 'u_00000';
+        file = 'u_00001'; %%!! inconsistent with some older files (change to 1)
     else
         file = 'u_';
         for fl = 1:(4-floor(log10(i-1)))
