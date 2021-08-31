@@ -9,3 +9,7 @@ fortran/dat
 *.asv
 /TurbData
 pap_dat
+fortran/FFTs/fftpack5.o
+*.png
+*.svg
+*.eps

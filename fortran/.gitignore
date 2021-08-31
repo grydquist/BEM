@@ -4,6 +4,6 @@ fortran/lib/dummy_mpi
 fortran/lib/lapack-3.9.0
 *mod
 *gif
-*.bin
+GU_1.bin
 harms
 tmper*

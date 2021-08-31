@@ -83,10 +83,14 @@ TYPE probType
     TYPE(cmType), POINTER :: cm
     INTEGER :: PCells(2)
 
+!   Are we continuing from somewhere?
+    LOGICAL :: cont = .false.
+
     CONTAINS
     PROCEDURE :: Update  => UpdateProb
     PROCEDURE :: Write   => WriteProb
     PROCEDURE :: Output  => OutputProb
+    PROCEDURE :: Continue=> ContinueProb
 END TYPE probType
 
 ! -------------------------------------------------------------------------!
@@ -105,12 +109,12 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     LOGICAL, INTENT(IN) :: reduce
     TYPE(probType), TARGET, INTENT(INOUT) :: prob
     TYPE(cellType), ALLOCATABLE, TARGET :: cell(:)
-    CHARACTER(len = 3) :: restart
-    CHARACTER(len = 30) :: restfile, icC
+    CHARACTER(len = 3) :: restart, cont
+    CHARACTER(len = 30) :: restfile, icC, contfile, cfile2
     CHARACTER(:), ALLOCATABLE :: fileout
     REAL(KIND = 8), ALLOCATABLE :: cPt(:,:), ths(:,:), phs(:,:), thts(:), phis(:), xs(:), wg(:)
     REAL(KIND = 8) lam, Ca, C, Eb, c0, dphi
-    INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im, ic
+    INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im, ic, stat
 
 !   General problem parameters
     prob%NT = READ_GRINT_INT(filein, 'Max_time_steps')
@@ -148,6 +152,8 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     restart = READ_GRINT_CHAR(filein, 'Restart')
 !   Choose file to restart from (assuming that this is after deflation)
     restfile = READ_GRINT_CHAR(filein, 'Restart_Loc')
+!   Should we continue from a  previous file?
+    cont = READ_GRINT_CHAR(filein, 'Continue')
 
 !   Note that the file MUST be in the restart directory!
     restfile = 'restart/'//trim(restfile)
@@ -301,6 +307,10 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
 !           This assumes the equiv radius in input is 1.
             cell(ic)%xmn = Readcoeff(restfile, cell(ic)%Y%p)
         ENDIF
+
+!       Should we continue from a spot where we left off? !! Not working right now,
+        !! doesn't return the same values for some reason
+        IF(cont .eq. "Yes") prob%cont = .true.
 
         !! Test                                        !!!!!
         if(ic.eq.1) THEN
@@ -1052,7 +1062,7 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
                colm, ind, im3, nt ,np, indi = 1, indj = 1
     LOGICAL sing
     COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
-    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3), tic, toc, minr, dphi
+    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3), minr, dphi
     COMPLEX(KIND = 8), ALLOCATABLE :: b(:), Ci(:,:,:,:), Ei(:,:,:,:), & 
                                       Dr(:,:,:), Fi(:,:,:,:), Ai(:,:,:,:,:,:), &
                                       fmnR(:,:), xmnR(:,:), nmnR(:,:)
@@ -1062,6 +1072,7 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
     REAL(KIND = 8), POINTER :: cPmn(:,:, :)
     TYPE(YType), POINTER :: Y
     TYPE(nmType), POINTER :: nm
+    INTEGER(KIND = 8) :: tic, toc, rate
 
     Y => cell%Y
 
@@ -1105,7 +1116,7 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
 
     ip = 0
     ic = 0
-    CALL cpu_time(tic)
+    CALL SYSTEM_CLOCK(tic,rate)
 !   First loops: singular integral points
     DO i = 1,Y%nt
         DO j = 1,Y%np
@@ -1475,8 +1486,8 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
 
         ENDDO
     ENDDO
-    CALL cpu_time(toc)
-    ! print *, toc-tic
+    CALL SYSTEM_CLOCK(toc)
+    ! print *, REAL(toc-tic)/REAL(rate)
 END SUBROUTINE Fluidcell
 
 ! -------------------------------------------------------------------------!
@@ -1486,7 +1497,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     TYPE(cellType), POINTER :: cell, celli
     INTEGER, INTENT(IN) :: ord
     LOGICAL, INTENT(IN) :: reduce
-    REAL(KIND = 8) :: zm, tic, toc
+    REAL(KIND = 8) :: zm
     COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:), ut(:), wrk(:), &
                                       A2(:,:), b2(:), A(:,:), b(:)
     INTEGER :: ic, ic2, i, row, col, iter, info
@@ -1494,6 +1505,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     COMPLEX, ALLOCATABLE :: swrk(:)
     COMPLEX(KIND = 8), POINTER :: xmn(:,:)
     INTEGER, ALLOCATABLE :: IPIV(:)
+    INTEGER(KIND = 8) tic, toc, rate
     
     ALLOCATE(ut(prob%NmatT), &
              uti(prob%NmatT), &
@@ -1504,7 +1516,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
              A(prob%NmatT, prob%NmatT), &
              b(prob%NmatT))
     
-    CALL CPU_TIME(tic)
+    CALL SYSTEM_CLOCK(tic,rate)
 
     A = 0D0
     b = 0D0
@@ -1578,7 +1590,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !       Volume correction: small, inward normal velocity based off current volume/SA/time step
 !       Removed for reduce, because that keeps things at constant volume
         if(.not. reduce) THEN
-            zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*prob%dt)
+            zm = -(cell%Vol() - cell%V0)/(cell%SA()*prob%dt)
             cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
         ENDIF
 
@@ -1616,8 +1628,8 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
         cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
     ENDDO
 
-    CALL CPU_TIME(toc)
-    ! print *, toc-tic
+    CALL SYSTEM_CLOCK(toc)
+    !print *, REAL(toc-tic)/REAL(rate)
 
     prob%cts = prob%cts + 1
     prob%t = prob%t + prob%dt
@@ -1628,6 +1640,65 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             STOP
     ENDIF
 END SUBROUTINE UpdateProb
+
+! -------------------------------------------------------------------------!
+! Continue from where we left off at? 
+!!! Should make this more robust (read Params, but at the top, etc.)
+SUBROUTINE ContinueProb(prob)
+    CLASS(probType), INTENT(INOUT) :: prob
+    TYPE(cellType), POINTER :: cell
+    CHARACTER (LEN = 25) ctsst, contfile, cfile2
+    INTEGER ic, endt, stat, p, i, jmp
+    REAL(KIND = 8), ALLOCATABLE :: xmnraw(:,:)
+    REAL(KIND = 8) :: xmnrawind
+    LOGICAL :: exist_in
+
+    DO ic = 1,prob%NCell
+        cell => prob%cell(ic)
+        INQUIRE(FILE = TRIM('dat/'//TRIM(cell%fileout)//'/maxdt'), EXIST = exist_in)
+        IF(.not. exist_in) THEN
+            print *, "ERROR: Files not found for continue. Have you run previous cases with the same number of cells?"
+            stop
+        ENDIF
+
+!       Get the timestep of where we left off
+        contfile = TRIM('dat/'//TRIM(cell%fileout))
+        cfile2 = TRIM('dat/'//TRIM(cell%fileout)//'/maxdt')
+        OPEN(unit = 13, file = TRIM(cfile2), action = 'read')
+        READ(13, '(I16)', iostat = stat) endt
+        CLOSE(13)
+        prob%cts = endt
+
+!       Open the file of where we left off and get the shape
+        write(cfile2, "(I0.5)") endt
+        cfile2 = TRIM('dat/'//TRIM(cell%fileout)//'/x_'//TRIM(cfile2))
+
+!       Read in the files
+        p = (cell%p + 1)*(cell%p + 1)*2
+        ALLOCATE(xmnraw(3,p))
+        OPEN(unit = 13, file = cfile2, action = 'read')
+        DO i = 1,p
+            READ(13, *, iostat = stat) xmnraw(:,i)
+        ENDDO
+        CLOSE(13)
+
+!       Text file format: all real, then imag
+        p = cell%p
+        jmp = (p+1)*(p+1)
+    
+        cell%xmn = 0D0
+
+        cell%xmn(1,1:(p+1)*(p+1)) = xmnraw(1,1:(p+1)*(p+1))
+        cell%xmn(2,1:(p+1)*(p+1)) = xmnraw(2,1:(p+1)*(p+1))
+        cell%xmn(3,1:(p+1)*(p+1)) = xmnraw(3,1:(p+1)*(p+1))
+
+        cell%xmn(1,1:(p+1)*(p+1)) = cell%xmn(1,1:(p+1)*(p+1)) + xmnraw(1, jmp+1: 2*jmp)*ii
+        cell%xmn(2,1:(p+1)*(p+1)) = cell%xmn(2,1:(p+1)*(p+1)) + xmnraw(2, jmp+1: 2*jmp)*ii
+        cell%xmn(3,1:(p+1)*(p+1)) = cell%xmn(3,1:(p+1)*(p+1)) + xmnraw(3, jmp+1: 2*jmp)*ii
+        
+    ENDDO
+    prob%t = prob%cts*prob%dt
+END SUBROUTINE ContinueProb
 
 ! -------------------------------------------------------------------------!
 ! Runs until initial cell is relaxed
@@ -1672,7 +1743,7 @@ SUBROUTINE OutputProb(prob)
     IF(prob%cm%slv()) RETURN
 
     DO ic = 1, prob%NCell
-        write(*,'(I4,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
+        write(*,'(I5,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
         prob%cts, prob%t, 1D0*2D0*MAXVAL(ABS(prob%cell(ic)%ff))/prob%cell(ic)%B, &
         MAXVAL(ABS(prob%cell(ic)%umn)), prob%cell(ic)%vol(), prob%cell(ic)%SA()
     ENDDO
