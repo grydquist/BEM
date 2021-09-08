@@ -105,7 +105,50 @@ end
 us = 8*eps1/sqrt(pi)*f;
 % u = u -us;
 
+%% Do for the Green's function 2/r
+G = 0;
+G2= 0;
+x0 = [.5;.5;.5];
+V = 1;
+it = 0;
+GSR = zeros(41*41*41-1,1);
+GSM = GSR;
+Gr = GSM;
+r = GSR;
+eps1 = 0.1;
+for i = -20:20
+    for j = -20:20
+        for k = -20:20
+            if (i==0 && j==0 && k==0);continue;end
+            it = it+1;
+            p = [i;j;k];
+            kv= [i;j;k]*2*pi;
+            
+            G = G + rspecG(kv)/V;
+            G = G + rshortG(p);
+            G2 = G2 + 2/norm(p);
+            r(it) = norm(p);
+            GSM(it) = rspecG(kv)/V;
+            GSR(it) = rshortG(p);
+            Gr(it) = 2/norm(p);
+        end
+    end
+end
+
 %% Green's function functions
+function G = rshortG(x)
+global eps1
+r = norm(x);
+er = eps1*r;
+G = 2/r*(2*er/sqrt(pi)*exp(-er^2)*(er^2-2) + erfc(er));
+end
+
+function G = rspecG(k)
+global eps1
+kn = norm(k);
+w = kn/eps1;
+G = 8*pi/kn^2*(1/w^4 + 1/4/w^2 + 1/8)*exp(-w^2/4)*1; % 1 for now since no sum
+end
 
 function G = shortG(x)
 global eps1
@@ -143,7 +186,7 @@ function G = specG(k)
 global eps1
 kn = norm(k);
 w = kn/eps1;
-G = 8*pi/eps1^4*(1/w^4 + 1/4/w^2 + 1/8)*(kn^2*eye(3) - k*k');
+G = 8*pi/eps1^4*(1/w^4 + 1/4/w^2 + 1/8)*(kn^2*eye(3) - k*k'); % No 1/k^2???
 end
 
 % function Gh = specG(k,x0) %%% STRANGE STUFF HERE
