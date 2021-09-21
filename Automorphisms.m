@@ -9,14 +9,16 @@ M5 = [2,-2;-2,3];
 M7 = [-1,2;0,1];
 M8 = [1,1;0,1];
 M9 = [1,0;1,1];
+M10= [1,-2;-2,5];
 
 A = [1,1;1,-1];
-L2 = L*expm(A*.65);
+L2 = L*expm(A*1.2);
 plot([0,L2(1,1)],[0,L2(1,2)],'--');hold on;plot([0,L2(2,1)],[0,L2(2,2)],'--')
 plot([0,L2(1,1)]+ L2(2,1),[0,L2(1,2)]+L2(2,2),'--');hold on;plot([0,L2(2,1)]+L2(1,1),[0,L2(2,2)]+L2(1,2),'--')
 % L3 = inv(M8)*L2;
 % L3 = (M7)*L2;
 L3 = inv(M3)*L2;
+% L3 = M10*L2;
 plot([0,L3(1,1)],[0,L3(1,2)]);hold on;plot([0,L3(2,1)],[0,L3(2,2)])
 plot([0,L3(1,1)] + L3(2,1),[0,L3(1,2)] + L3(2,2) );hold on;plot([0,L3(2,1)]+L3(1,1),[0,L3(2,2)]+L3(1,2))
 
@@ -35,8 +37,8 @@ p2(:,1) = [0.25,.75] - 0*[L2(1,1),L2(2,1)] - 2*[L2(1,2),L2(2,2)];
 p3(:,1) = [0,0] - 0*[L2(1,1),L2(2,1)] - 2*[L2(1,2),L2(2,2)];
 
 it = 1;
-for i = 0:4
-    for j = 0:4
+for i = -4:4
+    for j = -4:4
         it = it + 1;
         p(:,it) = p(:,1)  + i*[L2(1,1);L2(2,1)];
         p(:,it) = p(:,it) + j*[L2(1,2);L2(2,2)];
@@ -51,3 +53,68 @@ end
 scatter(p(1,:),p(2,:))
 scatter(p2(1,:),p2(2,:))
 scatter(p3(1,:),p3(2,:))
+
+%% Try by just using nearest lattice point
+% This really seems to work?????
+L2 = L;
+mdot = [1;0];
+% Move the lattice a little each time
+maxt = 250;
+theta = linspace(1,20,maxt);
+uu = zeros(2,2,maxt);
+uu(1,1,:) = sin(theta);
+uu(1,2,:) = 10;
+uu(2,1,:) = 8*cos(2*theta);
+uu(2,2,:) = -sin(theta);
+for t = 1:maxt
+dt = 0.01;
+A = uu(:,:,t);
+L2 = L2 + A*L2*dt;
+mdot = mdot + A*mdot*dt;
+d = max([norm(L2(:,1)),norm(L2(:,2))]);
+        if t==20
+            disp(1)
+        end
+% Starting at the lattice point at 0,0, find the nearest lattice point
+for i = 1:1
+    for j = -1:1
+        if i==0 && j==0; continue; end
+        pp = i*[L2(1,1);L2(2,1)] + j*[L2(1,2);L2(2,2)];
+        if d>=norm(pp)
+            d = norm(pp);
+            ii = i;
+            jj = j;
+        end
+    end
+end
+% ii = 1;jj=0;
+myp = ii*[L2(1,1);L2(2,1)] + jj*[L2(1,2);L2(2,2)];
+L2(:,1) = myp;
+% Then find the second nearest, as well as angle (don't want too sheared)
+ang = pi/2;
+for i = -1:1
+    for j = 1:1
+        if i==0 && j==0; continue; end
+        pp = i*[L2(1,1);L2(2,1)] + j*[L2(1,2);L2(2,2)];
+        ang2 = abs(pi/2 - acos(dot(pp,myp)/norm(pp)/norm(myp)));
+        if ang>=ang2
+            ang = ang2;
+            ii2 = i;
+            jj2 = j;
+        end
+    end
+end
+% ii2 = 0;jj2=1;
+myp2 = ii2*[L2(1,1);L2(2,1)] + jj2*[L2(1,2);L2(2,2)];
+L2 = [myp,myp2];
+clf
+L3 = L2;%[myp';myp2'];
+plot([0,L3(1,1)],[0,L3(2,1)]);hold on;plot([0,L3(1,2)],[0,L3(2,2)])
+plot([0,L3(1,1)] + L3(1,2),[0,L3(2,1)] + L3(2,2) );hold on;plot([0,L3(1,2)]+L3(1,1),[0,L3(2,2)]+L3(2,1))
+axis([-2,2,-2,2])
+drawnow 
+pause(0.1);
+end
+L3 = L2;%[myp';myp2'];
+plot([0,L3(1,1)],[0,L3(2,1)]);hold on;plot([0,L3(1,2)],[0,L3(2,2)])
+plot([0,L3(1,1)] + L3(1,2),[0,L3(2,1)] + L3(2,2) );hold on;plot([0,L3(1,2)]+L3(1,1),[0,L3(2,2)]+L3(2,1))
