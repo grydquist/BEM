@@ -648,6 +648,63 @@ FUNCTION Spherecoeff(Y, obl, ord) RESULT(xmn)
 END FUNCTION Spherecoeff
 
 ! -------------------------------------------------------------------------!
+! Calculate spherical harmonic coefficients for a Bacterium (capped cylinder)
+FUNCTION BactCoeff(Y, h, ord) RESULT(xmn)
+    TYPE(YType),INTENT(IN) :: Y
+    COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:)
+    REAL(KIND = 8) :: h ! Height of cylindrical part
+    INTEGER, OPTIONAL :: ord
+    REAL(KIND = 8), ALLOCATABLE :: x1(:,:), x2(:,:), x3(:,:), z(:)
+    REAL(KIND = 8) :: ct, thtc, th3, zz, th4, th2, rr, xx, xy
+    INTEGER :: p, i, J
+
+    IF(PRESENT(ord)) THEN
+        p = ord
+    ELSE
+        p = Y%p
+    ENDIF
+
+    ALLOCATE(x1(Y%nt,Y%np), x2(Y%nt,Y%np), x3(Y%nt,Y%np), &
+    z(Y%nt), xmn(3,(Y%p + 1)*(Y%p + 1)))
+    
+    thtc = ATAN2(h,1);
+
+    DO i = 1:Y%nt
+    DO j = 1:Y%np
+        ct = pi/2D0 - Y%tht(i);
+        IF(ct.gt.thtc) THEN
+            th3 = pi - ct;
+            zz = h/TAN(ct);
+            th4 = ASIN(sin(th3)*zz);
+            th2 = pi - th3 - th4;
+            rr = SQRT(zz*zz + 1D0 - 2D0*zz*COS(th2));
+            xx = rr*COS(ct);
+            xy = zz + xx;
+            x3(i,j) = h + xx*TAN(ct);
+            
+        ELSEIF(ABS(ct).gt.thtc) THEN
+            ct = abs(ct);
+            th3 = pi-ct;
+            zz = h/tan(ct);
+            th4 = asin(sin(th3)*zz);
+            th2 = pi - th3 - th4;
+            rr = sqrt(zz*ZZ + 1D0 - 2D0*zz*cos(th2));
+            xx = rr*cos(ct);
+            xy = zz + xx;
+            x3(i,j) = -(h + xx*tan(ct));
+        ELSE
+            xy = 1;
+            x3(i,j) = tan(ct);
+        ENDIF
+        x1(i,j) = xy*cos(phi(i,j));
+        x2(i,j) = xy*sin(phi(i,j));
+    ENDDO
+    ENDDO
+
+
+END FUNCTION BactCoeff
+
+! -------------------------------------------------------------------------!
 ! Calculate spherical harmonic coefficients for a cubish thing (gives flattish surface p = 8)
 FUNCTION Cubecoeff(Y, ord) RESULT(xmn)
     TYPE(YType),INTENT(IN) :: Y
