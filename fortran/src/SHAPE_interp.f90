@@ -13,7 +13,7 @@ TYPE cellType
     INTEGER :: id
 
 !   Material Properties
-    REAL(KIND = 8) :: mu, lam, B, C, Eb, c0, Ca
+    REAL(KIND = 8) :: mu, lam, B, C, Eb, c0, Ca, int_pres
 
 !   Harmonics info
     INTEGER :: p, q, ftot
@@ -113,7 +113,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     CHARACTER(len = 30) :: restfile, icC, contfile, cfile2
     CHARACTER(:), ALLOCATABLE :: fileout
     REAL(KIND = 8), ALLOCATABLE :: cPt(:,:), ths(:,:), phs(:,:), thts(:), phis(:), xs(:), wg(:)
-    REAL(KIND = 8) lam, Ca, C, Eb, c0, dphi
+    REAL(KIND = 8) lam, Ca, C, Eb, c0, dphi, int_pres
     INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im, ic, stat
 
 !   General problem parameters
@@ -138,6 +138,7 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     C = READ_GRINT_DOUB(filein, 'Dilatation_Ratio')
     Eb = READ_GRINT_DOUB(filein, 'Bending_Modulus')
     c0 = READ_GRINT_DOUB(filein, 'Spont_Curvature')
+    int_pres = READ_GRINT_DOUB(filein, 'Internal_Pressure')
 
 !   Write location
     fileout = TRIM(READ_GRINT_CHAR(filein, 'Output'))
@@ -240,6 +241,8 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
         cell(ic)%c0 = c0
         write(icC, "(I0.1)") ic
         cell(ic)%fileout = TRIM(fileout//icC)
+!       Internal (osmotic) pressure
+        cell(ic)%int_pres = int_pres
 
 !       Coarse and fine grids/harms
         cell(ic)%p = p
@@ -275,7 +278,8 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
 !       First, we need to get the reference shape for the shear stress
         ! cell(ic)%xmn = RBCcoeff(cell(ic)%Y)
         ! cell(ic)%xmn = Cubecoeff(cell(ic)%Y)
-        cell(ic)%xmn = Spherecoeff(cell(ic)%Y, .76D0) !1D0)!!!! Reduced volume .997, .98, .95-> .9,.76,.65
+        cell(ic)%xmn = Bactcoeff(cell(ic)%Y, 1D0)
+        ! cell(ic)%xmn = Spherecoeff(cell(ic)%Y, .76D0) !1D0)!!!! Reduced volume .997, .98, .95-> .9,.76,.65
 
 !       Initial surfce derivatives/reference state
         CALL cell(ic)%Derivs()
@@ -1014,7 +1018,7 @@ SUBROUTINE Stresscell(cell)
             cell%fab(2, i, j) = -cvp !   + bm(1,2)*q1 + bm(2,2)*q2
             cell%fab(3, i, j) =     - tauab(1,1)*bv(1,1) - tauab(1,2)*bv(1,2) &
                                     - tauab(2,1)*bv(2,1) - tauab(2,2)*bv(2,2) &
-                                    + fb
+                                    + fb - cell%int_pres
                                     !  - cq
 
 !           Forces in Cartesian, on fine grid
@@ -1865,5 +1869,47 @@ FUNCTION Tij(r, n) RESULT(A)
     A(2,1) = A(1,2)
     A = -6D0*A*(mri*mri*mri*mri*mri)*(r(1)*n(1) + r(2)*n(2) + r(3)*n(3))
 END FUNCTION Tij
+! -------------------------------------------------------------------------!
+! Periodic functions to calculate the kernels
+! Arguments are (in order) distance vector, wavenumber vector, lattice vectors,
+!   inverse lattice vectors, Ewald parameter, cutoff point (for loop), dij
+! FUNCTION PGij(r, k, lv, ilv, xi, cut, eye) RESULT(A)
+!     REAL(KIND = 8) r(3), k(3), lv(3,3), ilv(3,3), xi, &
+!                    eye(3,3), A(3,3), rcur(3), kcur(3), V
+!     INTEGER cut, i, j, k
+
+! !   Calculate volume
+
+! !   We do the real and Fourier sums in the same loops
+!     DO i = -cut, cut
+!         DO j = -cut,cut
+!             DO k = -cut cut
+! !               Skip current box(???)
+
+! !               Real part (get current vector first)
+!                 rcur = r + i*lv(:,1) + j*lv(:,2) + k*lv(:,3)
+
+! !               Fourier part
+!                 kcur = k + i*ilv(:,1) + j*ilv(:,2) + k*ilv(:,3)
+
+
+!             ENDDO
+!         ENDDO
+!     ENDDO
+
+
+
+!     mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
+!     A(1,1) = r(1)*r(1)
+!     A(2,2) = r(2)*r(2)
+!     A(3,3) = r(3)*r(3)
+!     A(1,2) = r(1)*r(2)
+!     A(1,3) = r(1)*r(3)
+!     A(2,3) = r(2)*r(3)
+!     A(3,2) = A(2,3)
+!     A(3,1) = A(1,3)
+!     A(2,1) = A(1,2)
+!     A = A*mri*mri*mri + eye*mri
+! END FUNCTION PGij
 
 END MODULE SHAPEMOD
