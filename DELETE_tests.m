@@ -44,7 +44,7 @@ dU = [0,0,1;0,0,0;.0,0,0];
 refflag = true;
 
 % Order of the force and velocity transforms
-p = 6;
+p = 2;
 
 % To de-alias the force, we need to get a finer grid. The factor is fali
 fali = 4;
@@ -243,7 +243,7 @@ bt = zeros(3,1);
 thet = zeros(nt,np);
 phit = thet;
 A2 = zeros(3*ftot + 6,3*ftot + 6);
-b2 = zeros(3*ftot,1);
+b2 = zeros(3*ftot + 6,1);
 Jg  = zeros(nt,np);
 dxtg = zeros(3,1);
 dxpg = dxtg;
@@ -543,6 +543,7 @@ for n = 0:p
                 col = 3*im2 - 2 + 6;
 %               Loop over Gauss points (these sum to get one row/col value)
                 At(:) = 0;
+                bt(:) = 0;
                 ii = 0;
                 for i = 1:nt
                     for j = 1:np
@@ -551,13 +552,14 @@ for n = 0:p
                         v = Atot(3*ii-2:3*ii,3*im2-2 + 6:3*im2 + 6);
 %                       Integrate with that value
                         At = At + v*conj(Y(i,j))*wg(i)*dphi;
+                        bt = bt + b(3*ii-2:3*ii)*conj(Y(i,j))*wg(i)*dphi;
                     end
                 end
                 
                 A2(row:row+2,col:col+2) = At;
             end
         end
-        b2(row:row+2) = 0;
+        b2(row:row+2) = bt;
     end 
 end
 
@@ -655,7 +657,7 @@ end
 % A2(end-2,1:3:end) = 1;
 % A2(end-1,2:3:end) = 1;
 % A2(end-0,3:3:end) = 1;
-b2(end-2:end) = 1;
+% b2(end-2:end) = 1;
 
 ut = A2\b2;
 ut(abs(ut)<1e-12) = 0;
