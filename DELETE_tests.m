@@ -37,17 +37,17 @@ NT = 20;
 dt = 0.005;
 
 % Velocity and gradient
-dU = [0,0,1;0,0,0;.0,0,0];
+dU = [0,1,1;-1,0,0;-1,0,0];
 %% Reference Shape Definition
 
 % Flag for later...
 refflag = true;
 
 % Order of the force and velocity transforms
-p = 2;
+p = 5;
 
 % To de-alias the force, we need to get a finer grid. The factor is fali
-fali = 4;
+fali = 1;
 
 % Order of SpH for the fine grid
 q = p*fali;
@@ -119,7 +119,15 @@ x1mn = SpT(Yt,x1,th,ph);%0.5*SpT(Yt,x1,th,ph);
 x2mn = SpT(Yt,x2,th,ph);%0.5*SpT(Yt,x2,th,ph);
 x3mn = SpT(Yt,x3,th,ph);
 
-% [x1mn,x2mn,x3mn] = BactCoeffs(Yt,th,ph);
+[x1mn,x2mn,x3mn] = RBCcoeffs(Yt,th,ph);
+
+% x1mn = x1c(1:ftot);
+% x2mn = x2c(1:ftot);
+% x3mn = x3c(1:ftot);
+
+
+
+
 x1mn(abs(x1mn)<1e-12) = 0;
 x2mn(abs(x2mn)<1e-12) = 0;
 x3mn(abs(x3mn)<1e-12) = 0;
@@ -260,7 +268,11 @@ cts = 1;
 % def, and infor for the ref, and material constants and just spits out the
 % forces. In FORTRAN this information would be packaged up in objects, and
 % we could just pass pointers to the objects!)
-
+for tt = 1:25
+    
+x(1,:,:) = SpHReconst(x1mn,Yt);
+x(2,:,:) = SpHReconst(x2mn,Yt);
+x(3,:,:) = SpHReconst(x3mn,Yt);
 ih = 0;
 it = 0;
 xf(:) = 0;
@@ -342,7 +354,6 @@ ip = 0;
 ic = 0;
 A(:) = 0;
 b(:) = 0;
-nkg = nk;
 At3 = zeros(3,3,3);
 At2 = zeros(3,3);
 AtG = At2;
@@ -429,11 +440,6 @@ for i = 1:nt
                         dxpg(3) = dxpg(3) + x3mnr(it)*Ymn;
                     end
                 end
-%               Now we can get the Jacobian here, and the normal vector
-                
-%               Inward normal
-                nkg(:,i2,j2) = real(cross(dxtg,dxpg));
-                nkg(:,i2,j2) = -nkg(:,i2,j2)./norm(nkg(:,i2,j2));
                 
 %               Jacobian (area element) via fundamental forms
                 Jg(i2,j2) = real(sqrt(dot(dxtg,dxtg) ... 
@@ -468,18 +474,10 @@ for i = 1:nt
                 for ig = 1:nt
                     for jg = 1:np
                         r = (xcr-xcg(:,ig,jg));
-                        T = newT(r);
-%                         v = T(:,:,1)*nkg(1,ig,jg) + T(:,:,2)*nkg(2,ig,jg) + T(:,:,3)*nkg(3,ig,jg);
-%                         At = At + v*Jg(ig,jg)*ws(ig)*Y(ig,jg)*dphi;
-                        At3 = At3 + T*Jg(ig,jg)*ws(ig)*Y(ig,jg)*dphi;
                         v = Gij(r);
                         AtG = AtG + v*Y(ig,jg)*Jg(ig,jg)*ws(ig)/8/pi;
                     end
                 end
-               
-%                 At = squeeze(At3(:,1,:)*nk(1,i,j) + At3(:,2,:)*nk(2,i,j) + At3(:,3,:)*nk(3,i,j));
-%                 
-%                 At = 3/4/pi*At + Yg(i,j)*eye(3);
 %  
                 col = 3*(ih-1)+1;
                 A(row:row+2,col:col+2) = AtG;
@@ -665,14 +663,55 @@ ut(abs(ut)<1e-12) = 0;
 u1 = ut(1:3:end);
 u2 = ut(2:3:end);
 u3 = ut(3:3:end);
+U = [u1(1);u2(1);u3(1)];
+O = [u1(2);u2(2);u3(2)];
 
 f1 = SpHReconst(u1,Yt);
 f2 = SpHReconst(u2,Yt);
 f3 = SpHReconst(u3,Yt);
 
 
+% Reconst vels in spectral
+curU = zeros(nt,np,3);
+for i = 1:nt
+    for j = 1:np
+        xcr = x(:,i, j);
+        curU(i,j,:) = U + cross(O,xcr);
+    end
+end
 
+uu1 = SpT(Yt,curU(:,:,1),th,ph);
+uu2 = SpT(Yt,curU(:,:,2),th,ph);
+uu3 = SpT(Yt,curU(:,:,3),th,ph);
 
+dt = .1;
+x1mn = x1mn + uu1*dt;
+x2mn = x2mn + uu2*dt;
+x3mn = x3mn + uu3*dt;
+
+clf;
+x11 = real(SpHReconst(x1mn,Yr,p));
+x22 = real(SpHReconst(x2mn,Yr,p));
+x33 = real(SpHReconst(x3mn,Yr,p));
+surf(x11,x22,x33,'edgecolor','none','FaceColor',[1 0 0], ...
+     'FaceAlpha',0.75,'FaceLighting','gouraud')
+lightangle(gca,150,50)
+set(gca,'nextplot','replacechildren','visible','off')
+% Top down
+% view(0,90);
+% Side
+view(0,0);
+axis([-2,2,0,2,-2,2])
+pbaspect([1,.5,1])
+hold on
+ua(1,:,:) = real(SpHReconst(uu1,Yt));
+ua(2,:,:) = real(SpHReconst(uu2,Yt));
+ua(3,:,:) = real(SpHReconst(uu3,Yt));
+x = real(x);
+quiver3(reshape(x(1,:,:),[1,numel(x(1,:,:))]),reshape(x(2,:,:),[1,numel(x(1,:,:))]),reshape(x(3,:,:),[1,numel(x(1,:,:))]),reshape(ua(1,:,:),[1,numel(x(1,:,:))]),reshape(ua(2,:,:),[1,numel(x(1,:,:))]),reshape(ua(3,:,:),[1,numel(x(1,:,:))]),'m')
+
+drawnow
+end
 
 
 
