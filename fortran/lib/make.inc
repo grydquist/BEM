@@ -8,7 +8,7 @@ SHELL = /bin/sh
 
 #  CC is the C compiler, normally invoked with options CFLAGS.
 #
-CC = gcc
+CC = icc
 CFLAGS = -O3
 
 #  Modify the FC and FFLAGS definitions to the desired compiler
@@ -19,10 +19,10 @@ CFLAGS = -O3
 #  and handle these quantities appropriately. As a consequence, one
 #  should not compile LAPACK with flags such as -ffpe-trap=overflow.
 #
-FC = gfortran
-FFLAGS = -O2 -frecursive
+FC = ifort
+FFLAGS = -O1 -recursive
 FFLAGS_DRV = $(FFLAGS)
-FFLAGS_NOOPT = -O0 -frecursive
+FFLAGS_NOOPT = -O0 -recursive
 
 #  Define LDFLAGS to the desired linker options for your machine.
 #
@@ -45,11 +45,11 @@ RANLIB = ranlib
 #TIMER = EXT_ETIME_
 #  For gfortran compiler:  SECOND and DSECND will use a call to the
 #  INTERNAL FUNCTION ETIME
-TIMER = INT_ETIME
+#TIMER = INT_ETIME
 #  If your Fortran compiler does not provide etime (like Nag Fortran
 #  Compiler, etc...) SECOND and DSECND will use a call to the
 #  INTERNAL FUNCTION CPU_TIME
-#TIMER = INT_CPU_TIME
+TIMER = INT_CPU_TIME
 #  If none of these work, you can use the NONE value.
 #  In that case, SECOND and DSECND will always return 0.
 #TIMER = NONE
