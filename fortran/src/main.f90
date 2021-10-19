@@ -4,7 +4,7 @@ IMPLICIT NONE
 REAL(KIND = 8) :: kdt, kfr, Gfac
 TYPE(cellType), ALLOCATABLE, TARGET :: cell(:)
 TYPE(probType) :: prob
-TYPE(cmType), TARGET :: cm
+TYPE(cmType), TARGET :: cmM
 CHARACTER(:), ALLOCATABLE :: filein
 INTEGER ::  i, argl, stat, nts, pthline, ic
 INTEGER(KIND = 8) rate, tic, toc
@@ -12,16 +12,16 @@ REAL(KIND = 8), ALLOCATABLE :: G(:,:,:), Gtmp(:,:,:,:)
 
 ! MPI communicator startup
 CAll MPI_INIT(ic)
-CALL cm%new(MPI_COMM_WORLD)
+cmM = newCm(MPI_COMM_WORLD)
 
 CALL SYSTEM_CLOCK(tic,rate)
-IF(cm%mas()) print *, 'Reading in input file...'
+IF(cmM%mas()) print *, 'Reading in input file...'
 CALL get_command_argument(number=1, length=argl)
 ALLOCATE(character(argl) :: filein)
 CALL get_command_argument(number=1, value=filein, status=stat)
 
-IF(cm%mas()) print *, 'Initializing cell/harmonics...'
-prob%cm   => cm
+IF(cmM%mas()) print *, 'Initializing cell/harmonics...'
+prob%cm   => cmM
 cell = cellType(filein, .false., prob)
 prob%cell => cell
 
@@ -92,7 +92,7 @@ DO i = 1,prob%NT
         CALL SYSTEM_CLOCK(tic)
         CALL prob%update(1, .false.)
         CALL SYSTEM_CLOCK(toc)
-        IF(prob%cm%mas()) print *, REAL(toc - tic)/REAL(rate)
+        ! IF(prob%cm%mas()) print *, REAL(toc - tic)/REAL(rate)
 
 !       Write and display some output
         CALL prob%write()

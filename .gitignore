@@ -1,6 +1,7 @@
 *txt
 *mat
-fortran/lib/dummy_mpi
+fortran/lib/dummy_mpi/libmpi.a
+fortran/lib/dummy_mpi/mpi.o
 fortran/lib/lapack-3.9.0
 fortran/obj
 fortran/dat

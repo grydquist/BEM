@@ -28,9 +28,24 @@ To compile fftpack:
     ifort -c fftpack.f90
 3. You should be good to go!
 
+There is also a dummy_mpi directory that needs to be compiled if you
+want to run this sequentially. To do this:
+1. Go to /fortran/lib/dummy_mpi
+2. run
+    make
+
 To compile the code, simply navigate to /fortran/ and run
     make
+
+If you don't have access to MPI (e.g. you have a Mac), you can still
+compile in sequential mode with
+    make seq=1
 It will likely take a good bit. You will get an executable called harms.
+
+To run in parallel (only needed for multiple cells) run
+    mpirun -n=NP ./harms file.mfs
+Where file.mfs is your input file (default: noBgrint.mfs) and
+NP is the number of processors
+
 To run it in sequential mode, run
     ./harms file.mfs
-Where file.mfs is your input file (default: noBgrint.mfs)

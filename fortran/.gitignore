@@ -1,6 +1,5 @@
 *txt
 *mat
-fortran/lib/dummy_mpi
 fortran/lib/lapack-3.9.0
 *mod
 *gif

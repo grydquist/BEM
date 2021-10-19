@@ -6,6 +6,7 @@ OBJDIR=obj/
 MODDIR=mod/
 DATDIR=dat/
 DEPS=$(IDIR)fftpack5.o
+MPI_DIR=./lib/dummy_mpi
 
 SRC=./src/
 MYEXEC=harms
@@ -26,6 +27,16 @@ ifeq ($(prof),1)
 	FFLAGS = -prof-use -ipo
 endif
 
+# Compile in sequenctial
+ifeq ($(seq),1)
+	FC = ifort
+	MPI_LIBS = -L$(MPI_DIR) -lmpi
+	MPI_INCS = -I$(MPI_DIR)
+else
+	MPI_LIBS =
+	MPI_INCS =
+endif
+
 # Functions
 MYFUN = UTIL.o\
 		COMU.o\
@@ -43,10 +54,10 @@ OBJ = $(patsubst %,$(OBJDIR)%,$(MYFUN))
 MOD = $(patsubst %,$(MODDIR)%,$(MYMOD))
 
 $(OBJDIR)%.o : $(SRC)%.f90 | $(OBJDIR) $(MODDIR) $(DATDIR)
-	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ -c $<
+	$(FC) $(FFLAGS) $(MPI_INCS) -module $(MODDIR) -o $@ -c $<
 
 $(MYEXEC): $(OBJ)
-	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ $^ $(DEPS) -L$(LDIR) $(LIBS)
+	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ $^ $(DEPS) $(MPI_LIBS) -L$(LDIR) $(LIBS)
 	@echo "-----------------------"
 	@echo "Compiled successfully!!"
 	@echo "-----------------------"
