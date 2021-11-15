@@ -4,7 +4,7 @@ clear eps1
 global eps1
 
 % First, define the lattice (columns vectors)
-bv = [1 0 0; 0 1 0; 0 0 1];
+bv = [1 .5 0; 0 1 0; 0 0 1];
 x0 = [.25,.5,.5
       .75,.5,.5]';
 x = [.5;.75,;.5];
@@ -19,13 +19,13 @@ kv(:,1) = 2*pi/tau*cross(bv(:,2),bv(:,3));
 kv(:,2) = 2*pi/tau*cross(bv(:,3),bv(:,1));
 kv(:,3) = 2*pi/tau*cross(bv(:,1),bv(:,2));
 
-eps1 = 100;%pi^0.5/tau^(1/3); %00010.000;% 
+eps1 = 10;% pi^0.5/tau^(1/3);
 
 f= [1,0,0
    -1,0,0]';
+n = [0;1;0];
 
 %% Calculate them! Calculate force at one point between two forces
-it = 0;
 bxs = 10;
 bxt = bxs;
 ucv = zeros(3,bxt);
@@ -38,17 +38,32 @@ for bxs = bxt:bxt
 G = zeros(3,3,2);
 Gh = G;
 Gr = G;
+GG = G;
+TT = G;
+uu=[0;0;0];
+% clf
 % Loop over point forces
 for ps = 1:2
 for i = -bxs:bxs
     for j = -bxs:bxs
         for k = -bxs:bxs
-            it = it + 1;
             
 %           First we calculate the real space part
 %           Get current distance and use with real space 
             rc = i*bv(:,1) + j*bv(:,2) + k*bv(:,3);
             xn = (x - x0(:,ps)) + rc;
+            
+%           Plot points (better with few boxes)
+%             if(k==0)
+%                 if(ps==1)
+%                     scatter3(x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),'b')
+%                     hold on
+%                     drawnow
+%                 else
+%                     scatter3(x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),'r')
+%                     drawnow                    
+%                 end
+%             end
             
 %           Doing both Poz and Hasimoto
             G(:,:,ps)  = G(:,:,ps)  +  shortG(xn);
@@ -58,8 +73,8 @@ for i = -bxs:bxs
 %           Use that to get the Fourier part
             kc = i*kv(:,1) + j*kv(:,2) + k*kv(:,3);
             if(~(i==0 && j==0 && k==0))
-                G(:,:,ps)  = G(:,:,ps)  +  specG(kc)/tau*exp(-1i*dot(kc,xh0(:,ps))); % do cosines??
-                Gh(:,:,ps) = Gh(:,:,ps) + HspecG(kc)/tau*exp(-1i*dot(kc,xh0(:,ps)));
+                G(:,:,ps)  = G(:,:,ps)  +  specG(kc)/tau*cos(dot(kc,xh0(:,ps)));
+                Gh(:,:,ps) = Gh(:,:,ps) + HspecG(kc)/tau*cos(dot(kc,xh0(:,ps)));
                 
 %               Just doing 3d fourier transform on real spectral
 %                 tmp = specG(kc)/tau*exp(-1i*dot(kc,xh0(:,ps)));
@@ -67,7 +82,8 @@ for i = -bxs:bxs
             end
             
 %           Also doing the real space one for comparison
-            Gr(:,:,ps) = Gr(:,:,ps) + eye(3)/norm(xn) + xn*xn'/norm(xn)^3;
+            Gr(:,:,ps) = Gr(:,:,ps) + Gij(xn);%eye(3)/norm(xn) + xn*xn'/norm(xn)^3;
+            
             
 %           To check consistency with real space one            
 %             G(:,:,ps)  = G(:,:,ps)  +  shortG(xn);
@@ -77,14 +93,24 @@ for i = -bxs:bxs
 %             tmp = specG(kc)/tau*exp(-1i*dot(kc,xh0(:,ps)));
 %             Gt(i+bxt+1,j+bxt+1,k+bxt+1) = tmp(1,1);
 
-%           Just calc vel (real than fourier)
-            uu = uu
+%           Just calc vel (real then fourier)
+            A = HshortG(xn);
+            uu = uu + A*f(:,ps);
+            
+            B = HspecG(kc);
+            if(i==0 && j==0 && k==0); B(:)=0; end
+            q = cos(dot(kc,(x - x0(:,ps))));
+            z = q*f(:,ps);
+            uu = uu + B*z/tau;
             
         end
     end
 end
+GG(:,:,ps) = Gijp(xh0(:,ps),bxt,bv,eps1);
+TT(:,:,ps) = Tijp(xh0(:,ps),x0(:,ps),n,bxt,bv,eps1);
 end
-% Only if particle is in the middle...
+% scatter3(x(1),x(2),x(3));
+% hold off
 u = G(:,:,1)*f(:,1) + G(:,:,2)*f(:,2);
 ucv(1,bxs) = real(u(2));
 
@@ -94,12 +120,24 @@ ucv(2,bxs) = real(u(2));
 u = Gr(:,:,1)*f(:,1) + Gr(:,:,2)*f(:,2);
 ucv(3,bxs) = real(u(2));
 
+
 end
 
+% HERE'S WHAT''S HAPPENING WITH THE BRUTE FORCE REAL SPACE:
+% In this situation, if we have slanted boxes that are made so it is
+% periodic in a way that all but one of the velocities will be unbounded,
+% the asymmetry in the boxes/particle location means that there will be one
+% set of point forces closer than others. Usually these will balance, but
+% the skew of the boxes makes it so they don't at a given truncation (it
+% would probably work better to just do like a spherical cutoff, but we 
+% won't use this method anyways so it doesn't matter). Adding more k-layers
+% multiplies these errors, but I believe it should actually converge
 
 u = G(:,:,1)*f(:,1) + G(:,:,2)*f(:,2);
 disp(real(u'))
 disp(real(Gh(:,:,1)*f(:,1) + Gh(:,:,2)*f(:,2))')
+disp(real(GG(:,:,1)*f(:,1) + GG(:,:,2)*f(:,2))')
+disp(uu')
 disp(real(Gr(:,:,1)*f(:,1) + Gr(:,:,2)*f(:,2))')
 
 %% Try ust calculating velocity first?? Try
@@ -256,14 +294,9 @@ end
 
 function G = HspecG(k)
 global eps1
-k2 = k(1)*k(1) + k(2)*k(2) + k(3)*k(3);
-c = k2/4/eps1/eps1;
-d = 8*pi*(1+c)*exp(-c)/k2/k2;
-G = d*(k2*eye(3) - k*k');
-
-% kn = norm(k);
-% w = kn/eps1;
-% G = 8*pi/eps1^4*(1/w^4 + 1/4/w^2      )*(kn^2*eye(3) - k*k')*exp(-w^2/4);
+kn = norm(k);
+w = kn/eps1;
+G = 8*pi/eps1^4*(1/w^4 + 1/4/w^2      )*(kn^2*eye(3) - k*k')*exp(-w^2/4);
 end
 
 
@@ -287,27 +320,27 @@ end
 
 % More general version: screens, takes derivatives, and only plugs in the 
 % form of the split at the end, useful for spectral - real
-function G = shortG_der(x)
-global eps1
-r = norm(x);
-er = r*eps1;
-fp = erfc(er) - 2*er*exp(-er^2)/sqrt(pi);
-fppr= -4*er*exp(-er^2)/sqrt(pi) + 4*er^3*exp(-er^2)/sqrt(pi);
-C = fppr + fp;
-D = fp - fppr;
-G = eye(3)*C/r + x*x'*D/r^3;
-end
-
-function G = specRealG(x)
-global eps1
-r = norm(x);
-er = r*eps1;
-fp = erf(er) + 2*er*exp(-er^2)/sqrt(pi);
-fppr= 4*er*exp(-er^2)/sqrt(pi) - 4*er^3*exp(-er^2)/sqrt(pi);
-C = fppr + fp;
-D = fp - fppr;
-G = eye(3)*C/r + x*x'*D/r^3;
-end
+% function G = shortG_der(x)
+% global eps1
+% r = norm(x);
+% er = r*eps1;
+% fp = erfc(er) - 2*er*exp(-er^2)/sqrt(pi);
+% fppr= -4*er*exp(-er^2)/sqrt(pi) + 4*er^3*exp(-er^2)/sqrt(pi);
+% C = fppr + fp;
+% D = fp - fppr;
+% G = eye(3)*C/r + x*x'*D/r^3;
+% end
+% 
+% function G = specRealG(x)
+% global eps1
+% r = norm(x);
+% er = r*eps1;
+% fp = erf(er) + 2*er*exp(-er^2)/sqrt(pi);
+% fppr= 4*er*exp(-er^2)/sqrt(pi) - 4*er^3*exp(-er^2)/sqrt(pi);
+% C = fppr + fp;
+% D = fp - fppr;
+% G = eye(3)*C/r + x*x'*D/r^3;
+% end
 
 
 % function Gh = specG(k,x0) %%% STRANGE STUFF HERE
