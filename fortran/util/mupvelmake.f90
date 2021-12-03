@@ -1,6 +1,8 @@
 PROGRAM MAIN
 IMPLICIT NONE
-INTEGER ::  i,  nts, inc, argl, stat, cur_int, lines, nprt, j, iprt, k
+INTEGER ::  i,  nts, inc, argl, stat, cur_int, lines, nprt, j, iprt, k, procs
+INTEGER :: start, cnt
+INTEGER, ALLOCATABLE :: ids(:,:), idtmp(:)
 REAL(KIND=8), ALLOCATABLE ::  Gtmp(:,:,:,:)
 CHARACTER(128) :: path, cur_file, incchar
 LOGICAL :: exist_file = .true.
@@ -9,7 +11,16 @@ LOGICAL :: exist_file = .true.
 
 print *, "Reading args"
 
-! Input path (including file name) and increment
+cnt = COMMAND_ARGUMENT_COUNT()
+IF(cnt .ne. 3) THEN
+    print *, "ERROR: 3 arguments are needed, in the following order"
+    print *, "Path to (including the name of) velocity gradient files"
+    print *, "Increment velocity gradient files are saved in"
+    print *, "Numbert of first velocity gradient file"
+    stop
+ENDIF
+
+! Input path (including file name), increment, and starting file
 CALL get_command_argument(number=1, length=argl)
 ! ALLOCATE(character(argl) :: path)
 CALL get_command_argument(number=1, value=path, status=stat)
@@ -19,52 +30,87 @@ CALL get_command_argument(number=1, length=argl)
 CALL get_command_argument(number=2, value=incchar, status=stat)
 READ(incchar,*,iostat=stat) inc
 
+CALL get_command_argument(number=1, length=argl)
+! ALLOCATE(character(argl) :: incchar)
+CALL get_command_argument(number=3, value=incchar, status=stat)
+READ(incchar,*,iostat=stat) start
+
 print *, "Looping over txt files to get lengths"
-cur_int = 1
+cur_int = start
+procs = 0
+ALLOCATE(idtmp(2))
+
 ! Loop over files 1: to get size of matrix for Gtmps
 DO WHILE(exist_file)
+
 !   Construct current txt file
     WRITE(cur_file, *) cur_int
     cur_file = TRIM(ADJUSTL(path))//TRIM(ADJUSTL(cur_file))//'.txt'
     INQUIRE(FILE=cur_file, EXIST=exist_file)
 
 !   First file: find number of particles to put into Gtmp & allocate
-    IF(cur_int .eq. 1) THEN
+    IF(cur_int .eq. start) THEN
         lines = 0
         OPEN(1,file = cur_file)
         DO
-            READ(1,*,END=10)
+
+!           Need to know number of procs
+            IF(MOD(LINES,4).eq.0) THEN
+                READ(1,*,END=10) idtmp
+                procs = MAX(procs,idtmp(2))
+            ELSE
+                READ(1,*,END=10)
+            ENDIF
             lines = lines + 1
         ENDDO
         10 CLOSE (1)
+
         nprt = lines/4
         lines = 0
     ENDIF
+
     lines = lines + 1
     cur_int = cur_int + inc
 ENDDO
+procs = procs + 1
 nts = lines - 1
-ALLOCATE(Gtmp(nts,3,3,nprt))
+ALLOCATE(Gtmp(nts,3,3,nprt), ids(nprt,procs))
 
 print *, "Looping over and reading txt files"
+
 ! Now do the loop again, but read the files 1 by
 cur_int = 1
+
 DO i = 1, nts
+
 !   Construct current txt file
     WRITE(cur_file, *) cur_int
     cur_file = TRIM(ADJUSTL(path))//TRIM(ADJUSTL(cur_file))//'.txt'
     
 !   Open and read through it prt by prt
     OPEN(1,file = cur_file)
-    DO j = 1, nprt
-!       Skip identifier (will need to be changed for parallel)
-        READ(1, *) iprt
+    j = 0
+    DO
+        j = j+1
+
+!       Read particle id
+        READ(1, *, END=20) idtmp
+
+!       If it's the first time through, we need to give each particle
+!       id from mupfes a numerical value
+        IF(i.eq.1) THEN
+            ids(idtmp(1), idtmp(2)) = j
+        ENDIF
+
+!       Get the index associated with this particle
+        iprt = ids(idtmp(1), idtmp(2))
+
 !       Each line read gives three values
         DO k = 1,3
-            READ(1, *) Gtmp(i,:,k, j)
+            READ(1, *) Gtmp(i,:,k, iprt)
         ENDDO
     ENDDO
-    CLOSE(1)
+    20 CLOSE(1)
     cur_int = cur_int + inc
 ENDDO
 

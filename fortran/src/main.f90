@@ -41,6 +41,14 @@ CLOSE(1)
 ! How many timesteps from G do we actually need?
 Gfac = nts*kfr/(prob%NT*prob%dt)
 nts = CEILING(nts/Gfac)
+
+! If we have fewer velocity gradient time steps than requested, set down to gradient
+IF(prob%NT .gt. nts) THEN
+        prob%NT = nts
+        print *, "Warning: Fewer gradient time steps than requested total time steps"
+        print *, "Setting total timesteps to "
+        print *, nts
+ENDIF
 ! To prevent only having 2 timesteps
 if(nts .eq. 1) THEN
         ALLOCATE(G(3, 3, 3))
