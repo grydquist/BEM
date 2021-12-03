@@ -79,7 +79,7 @@ ALLOCATE(Gtmp(nts,3,3,nprt), ids(nprt,procs))
 print *, "Looping over and reading txt files"
 
 ! Now do the loop again, but read the files 1 by
-cur_int = 1
+cur_int = start
 
 DO i = 1, nts
 
@@ -99,11 +99,11 @@ DO i = 1, nts
 !       If it's the first time through, we need to give each particle
 !       id from mupfes a numerical value
         IF(i.eq.1) THEN
-            ids(idtmp(1), idtmp(2)) = j
+            ids(idtmp(1), idtmp(2)+1) = j
         ENDIF
 
 !       Get the index associated with this particle
-        iprt = ids(idtmp(1), idtmp(2))
+        iprt = ids(idtmp(1), idtmp(2)+1)
 
 !       Each line read gives three values
         DO k = 1,3

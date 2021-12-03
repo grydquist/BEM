@@ -25,7 +25,7 @@ To install/compile lapack:
 To compile fftpack:
 1. Go to /fortran/FFTs
 2. Run
-    ifort -c fftpack.f90
+    ifort -c fftpack5.f90
 3. You should be good to go!
 
 There is also a dummy_mpi directory that needs to be compiled if you
