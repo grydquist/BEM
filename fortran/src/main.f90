@@ -82,8 +82,8 @@ DO i = 1,prob%NT
 !       Do interpolation to get current grad tensor, then normalize by kolm time
         prob%dU = VelInterp(G,prob%t,nts,kfr)*kdt
 !       Hardcoded shear
-        prob%dU = 0D0
-        prob%dU(1,3) = 1D0
+        ! prob%dU = 0D0
+        ! prob%dU(1,3) = 1D0
         ! prob%dU(1,1) =  1D0
         ! prob%dU(3,3) = -1D0
 !! ============================

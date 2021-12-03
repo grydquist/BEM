@@ -1,16 +1,10 @@
 % Reads the txt file output from the fortran code
 fclose all;
-% Get total timesteps outputted
 
-% dir = 'pap_dat/MeshIndNew/TT18/';
-% dir = 'pap_dat/TurbRes/Ca3/HITCa3_11/';
-% dir = 'fortran/dat/TT2821/';
-% dir = 'fortran/dat/ts16_006251/'; 
-dir = 'fortran/dat/ERAZURE1/';
-% dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
-% dir = 'pap_dat/DilInd/dil16_2001/';
-% dir = 'pap_dat/Time/ts16_00151/';
-% dir = 'pap_dat/TWZ/cmplTWZ/TWZp16F90pN/';
+% Path to data directory
+dir = 'fortran/dat/TEST1/';
+
+% Max timestep
 fid = fopen(strcat(dir,'maxdt'));
 tts = str2double(fgetl(fid));
 fclose(fid);
@@ -35,18 +29,15 @@ while ischar(tline)
 end
 fclose(fid);
 
-% tts = ceil(25/ts);
+% Time increment to plot results
+tincr = 0.125;
 
-% How many timesteps to skip
-incr = floor(.125/ts);%500;
+incr = floor(tincr/ts);%500;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
-% incr = dt_inc*10;
-
-
  
-
+% Tracking point along top
 tsteps = floor(tts/incr) + 1;
 xtop = zeros(tsteps,1);
 ytop = zeros(tsteps,1);
@@ -70,9 +61,9 @@ Yr = SpHarmTNew(p,tmpth,tmpph);
 tq = linspace(0,pi,15);pq = tq;
 [ttq,ppq] = meshgrid(tq,pq);
 Yqv = SpHarmTNew(p,ttq,ppq);
-% Spherical harmonic evaluated at right hand side of sphere
-% Ytrc = SpHarmTNew(p,pi/2,0);
+% Spherical harmonic evaluated at top of sphere
 Ytrc = SpHarmTNew(p,0,0);
+
 % Time
 t = zeros(tsteps,1);
 
@@ -83,9 +74,10 @@ for i = 1:incr:tts + 1
 % Current time
     t((i-1)/incr + 1) = i*ts - ts;
     
+%%  Reading in the files and separating into useful quantities
 %   Read in data file of current timestep, making exception for the first
     if(i == 1)
-        file = 'x_00001'; %%!! inconsistent with some older files (change to 1)
+        file = 'x_00000'; %%!! inconsistent with some older files (change to 1)
     else
         file = 'x_';
         for fl = 1:(4-floor(log10(i-1)))
@@ -113,10 +105,12 @@ for i = 1:incr:tts + 1
     x1 = real(SpHReconst(x1c,Yr));
     x2 = real(SpHReconst(x2c,Yr));
     x3 = real(SpHReconst(x3c,Yr));
-%   Same procedure for velocities
+    
+    
+%   Exact same procedure for velocity
 %   Read in data file of current timestep, making exception for the first
     if(i == 1)
-        file = 'u_00001'; %%!! inconsistent with some older files (change to 1)
+        file = 'u_00000'; %%!! inconsistent with some older files (change to 1)
     else
         file = 'u_';
         for fl = 1:(4-floor(log10(i-1)))
@@ -139,32 +133,69 @@ for i = 1:incr:tts + 1
     u1c = u1t(1:tot) + u1t(tot+1:end)*1i;
     u2c = u2t(1:tot) + u2t(tot+1:end)*1i;
     u3c = u3t(1:tot) + u3t(tot+1:end)*1i;
-    for n=0:p
-        if(n <= p)
-            Ex(n+1,(i-1)/incr + 1) = norm(norm([x1c(n^2+1:(n+1)^2),x2c(n^2+1:(n+1)^2),x3c(n^2+1:(n+1)^2)]));
-%           Ex(n+1,(i-1)/incr + 1) = norm(x3c(n^2+1:(n+1)^2));
-        end
-%         Eu(n+1,(i-1)/incr + 1) = norm(norm([u1c(n^2+1:(n+1)^2),u2c(n^2+1:(n+1)^2),u3c(n^2+1:(n+1)^2)]));
-        Eu(n+1,(i-1)/incr + 1) = norm(u1c(n^2+1:(n+1)^2));
-    end
     
-%   Interpolate these to physical positions
+%   Interpolate these to physical positions, as well as
     u1 = real(SpHReconst(u1c,Yqv));
     u2 = real(SpHReconst(u2c,Yqv));
     u3 = real(SpHReconst(u3c,Yqv));
     xq1 = real(SpHReconst(x1c,Yqv,p));
     xq2 = real(SpHReconst(x2c,Yqv,p));
     xq3 = real(SpHReconst(x3c,Yqv,p));
+    
+%   Uncomment for forces
+% %   Read in data file of current timestep, making exception for the first
+%     if(i == 1)
+%         file = 'f_00000'; %%!! inconsistent with some older files (change to 1)
+%     else
+%         file = 'f_';
+%         for fl = 1:(4-floor(log10(i-1)))
+%             file = strcat(file,'0');
+%         end
+%         file = strcat(file,num2str(i-1));
+%     end
+%     
+% %   All the data in the ts
+%     fID = fopen(strcat(dir,file));
+%     raw = fscanf(fID,'%f');
+%     fclose(fID);
+%     
+% %   Individual directional coefficients, not distinct between real/imag)
+%     f1t = raw(1:3:end);
+%     f2t = raw(2:3:end);
+%     f3t = raw(3:3:end);
+%     
+% %   Real and imaginary separation
+%     f1c = f1t(1:tot) + f1t(tot+1:end)*1i;
+%     f2c = f2t(1:tot) + f2t(tot+1:end)*1i;
+%     f3c = f3t(1:tot) + f3t(tot+1:end)*1i;
+% %   Interpolate these to physical positions
+%     f1 = real(SpHReconst(f1c,Yqv));
+%     f2 = real(SpHReconst(f2c,Yqv));
+%     f3 = real(SpHReconst(f3c,Yqv));
+    
+    
+%   Uncomment for spectra
+%     for n=0:p
+%         if(n <= p)
+%             Ex(n+1,(i-1)/incr + 1) = norm(norm([x1c(n^2+1:(n+1)^2),x2c(n^2+1:(n+1)^2),x3c(n^2+1:(n+1)^2)]));
+% %           Ex(n+1,(i-1)/incr + 1) = norm(x3c(n^2+1:(n+1)^2));
+%         end
+% %         Eu(n+1,(i-1)/incr + 1) = norm(norm([u1c(n^2+1:(n+1)^2),u2c(n^2+1:(n+1)^2),u3c(n^2+1:(n+1)^2)]));
+%         Eu(n+1,(i-1)/incr + 1) = norm(u1c(n^2+1:(n+1)^2));
+%     end
+    
 
+%%  Actual plotting of above quantities
     clf;
 %   Plot this timestep
+
+%   First subplot
     h1 = subplot(2,1,1);
     sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
     set(h1, 'Units', 'normalized');
     set(h1, 'Position', [-.1, 0.5, 1.15, .6]);
 
-    
-%     surf(xf1,xf2,xf3,squeeze(fmns(1,:,:,(i-1)/incr + 1)./fmns(1,:,:,2)),'edgecolor','none')
+%   Surface    
     surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 0 0], ...
          'FaceAlpha',0.75,'FaceLighting','gouraud')
     lightangle(gca,150,50)
@@ -179,9 +210,13 @@ for i = 1:incr:tts + 1
     xtop((i-1)/incr + 1) = real(SpHReconst(x1c,Ytrc));
     ytop((i-1)/incr + 1) = real(SpHReconst(x2c,Ytrc)); 
     ztop((i-1)/incr + 1) = real(SpHReconst(x3c,Ytrc)); 
+    
+%   Plot material point
     scatter3(xtop((i-1)/incr + 1),ytop((i-1)/incr + 1),ztop((i-1)/incr + 1),75,'go','filled');
+%   Plot velocity vectors
     quiver3(reshape(xq1,[1,numel(xq1)]),reshape(xq2,[1,numel(xq2)]),reshape(xq3,[1,numel(xq1)]),reshape(u1*2,[1,numel(xq1)]),reshape(u2*2,[1,numel(xq1)]),reshape(u3*2,[1,numel(xq1)]),'b')%,'AutoScale','off')
 
+%   Second subplot, just a different view.
     h2 = subplot(2,1,2);
     set(h2, 'Units', 'normalized');
     set(h2, 'Position', [0.05, 0, 1, .7]);
@@ -200,28 +235,19 @@ for i = 1:incr:tts + 1
     scatter3(real(SpHReconst(x1c,Ytrc)),real(SpHReconst(x2c,Ytrc)),real(SpHReconst(x3c,Ytrc)),75,'go','filled');
     quiver3(reshape(xq1,[1,numel(xq1)]),reshape(xq2,[1,numel(xq2)]),reshape(xq3,[1,numel(xq1)]),reshape(u1,[1,numel(xq1)]),reshape(u2,[1,numel(xq1)]),reshape(u3,[1,numel(xq1)]),'b')
 
-%     clf
-% %     loglog(Ex8(:,(i-1)/incr +  1),'o')
-% %     hold on
-% %     loglog(Ex10(:,(i-1)/incr + 1),'x')
-% %     loglog(Ex12(:,(i-1)/incr + 1),'p')
-% %     loglog(Ex14(:,(i-1)/incr + 1),'s')
-% %     loglog(Ex16(:,(i-1)/incr + 1),'.')
-%     semilogy(Eu(:,(i-1)/incr + 1),'^')
-% %     axis([2,q,1e-10,1e-1])
-% %     ytop((i-1)/incr + 1) = u1(8,1);
+% Extra stuff
 
-[cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
-% Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
-
-elx = vertcat(x1(:,1),flip(x1(:,51)));
-elz = vertcat(x3(:,1),flip(x3(:,51)));
-% elxa((i-1)/incr + 1,:) = elx;
-% elza((i-1)/incr + 1,:) = elz;
-rs = sqrt(elx.^2 + elz.^2);
-Dij((i-1)/incr + 1) = (max(rs)-min(rs))/(max(rs) + min(rs));
-incl((i-1)/incr + 1) = atan2(abs(angs(3,1)),abs(angs(1,1)))/4;
-incl(1) = 1/4; 
+% [cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
+% % Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
+% 
+% elx = vertcat(x1(:,1),flip(x1(:,51)));
+% elz = vertcat(x3(:,1),flip(x3(:,51)));
+% % elxa((i-1)/incr + 1,:) = elx;
+% % elza((i-1)/incr + 1,:) = elz;
+% rs = sqrt(elx.^2 + elz.^2);
+% Dij((i-1)/incr + 1) = (max(rs)-min(rs))/(max(rs) + min(rs));
+% incl((i-1)/incr + 1) = atan2(abs(angs(3,1)),abs(angs(1,1)))/4;
+% incl(1) = 1/4; 
 
 % 
 % clf

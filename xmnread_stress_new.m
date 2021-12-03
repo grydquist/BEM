@@ -52,8 +52,7 @@ myf = zeros(3,ntf,npf);
 fab = myf;
 
 % Read Param file to get simulation info
-% dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
-dir = 'fortran/dat/ERAZURE/';
+dir = 'fortran/dat/TEST1/';
 fid = fopen(strcat(dir,'Params'));
 tline = fgetl(fid);
 while ischar(tline)
@@ -98,19 +97,18 @@ fclose(fid);
 tts = floor(tts);
 
 % How many timesteps to skip
-incr = floor(.5/ts);%500;
+tincr = .5;
+
+incr = floor(tincr/ts);
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
-% incr = dt_inc*10;
-
-
-
 tsteps = floor(tts/incr) + 1;
 
 % Time
 t = zeros(tsteps,1);
 
+% Material point to track
 xtop = zeros(tsteps,1);
 ytop = zeros(tsteps,1);
 ztop = zeros(tsteps,1);
@@ -137,8 +135,7 @@ tq = linspace(0,pi,15);pq = tq;
 [ttq,ppq] = meshgrid(tq,pq);
 Yqv = SpHarmTNew(p,ttq,ppq);
 Ytf = SpHarmTNew(p,thf,phf);
-% Spherical harmonic evaluated at right hand side of sphere
-% Ytrc = SpHarmTNew(p,pi/2,0);
+% Spherical harmonic evaluated at top of sphere
 Ytrc = SpHarmTNew(p,0,0);
 
 % Max areal strain
@@ -202,7 +199,7 @@ for i = 1:incr:tts + 1
     x2c = x2t(1:tot) + x2t(tot+1:end)*1i;
     x3c = x3t(1:tot) + x3t(tot+1:end)*1i;
     
-%%  Actual calculation of things like area element, stresses, etc
+%%  Actual calculation of things like area element, stresses, etc after here
     ih = 0;
     it = 0;
     xf(:) = 0;
@@ -670,7 +667,9 @@ end
 % Some imaginary components may slip in, so let's make them real
 myf = real(myf);
 
-%% Post processing stuff    
+%% Post processing stuff
+%%% Note: the important things to track here are strains, which are, for
+%%% area, J./JR and for shear SH
 %   Interpolate these to physical positions
     x1 = real(SpHReconst(x1c,Yr));
     x2 = real(SpHReconst(x2c,Yr));
@@ -695,6 +694,7 @@ myf = real(myf);
     clf;
     sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
 %   Plot this timestep
+
     surf(squeeze(xf(1,:,:)),squeeze(xf(2,:,:)),squeeze(xf(3,:,:)), ...
         Sh,'edgecolor','none', ...
      'FaceAlpha',0.95,'FaceLighting','gouraud')
@@ -712,23 +712,18 @@ myf = real(myf);
     view(45,45);
     axis([-2,2,-2,2,-2,2])
     pbaspect([1,1,1])
-    hold on
-    xtop((i-1)/incr + 1) = real(SpHReconst(x1c,Ytrc));
-    ytop((i-1)/incr + 1) = real(SpHReconst(x2c,Ytrc)); 
-    ztop((i-1)/incr + 1) = real(SpHReconst(x3c,Ytrc)); 
-%     scatter3(xtop((i-1)/incr + 1),ytop((i-1)/incr + 1),ztop((i-1)/incr + 1),75,'go','filled');
 
-[cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
-% Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
-
-elx = vertcat(x1(:,1),flip(x1(:,51)));
-elz = vertcat(x3(:,1),flip(x3(:,51)));
-elxa((i-1)/incr + 1,:) = elx;
-elza((i-1)/incr + 1,:) = elz;
-rs = sqrt(elx.^2 + elz.^2);
-Dij((i-1)/incr + 1) = (max(rs)-min(rs))/(max(rs) + min(rs));
-incl((i-1)/incr + 1) = atan2(abs(angs(3,1)),abs(angs(1,1)))/4;
-incl(1) = 1/4;
+% [cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
+% % Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));
+% 
+% elx = vertcat(x1(:,1),flip(x1(:,51)));
+% elz = vertcat(x3(:,1),flip(x3(:,51)));
+% elxa((i-1)/incr + 1,:) = elx;
+% elza((i-1)/incr + 1,:) = elz;
+% rs = sqrt(elx.^2 + elz.^2);
+% Dij((i-1)/incr + 1) = (max(rs)-min(rs))/(max(rs) + min(rs));
+% incl((i-1)/incr + 1) = atan2(abs(angs(3,1)),abs(angs(1,1)))/4;
+% incl(1) = 1/4;
 % clf
 % plot(thtf, taup1(:,1))
 % plot(thtf,J(:,1)./JR(:,1)- J2(:,1)./JR(:,1))

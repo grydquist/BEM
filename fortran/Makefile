@@ -13,7 +13,7 @@ MYEXEC=harms
 
 # Normal, opt flags
 # Removing fast can make the last line of the compilation faster, whereas other way shape is slow
-FFLAGS = -O3 -funroll-loops -fomit-frame-pointer -DNDEBUG #-fast
+FFLAGS = -O3 -funroll-loops -fomit-frame-pointer -DNDEBUG #-fast -traceback 
 
 # Can specify debug flags with make dbg=1
 ifeq ($(dbg),1)

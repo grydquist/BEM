@@ -278,8 +278,8 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
 !       First, we need to get the reference shape for the shear stress
         ! cell(ic)%xmn = RBCcoeff(cell(ic)%Y)
         ! cell(ic)%xmn = Cubecoeff(cell(ic)%Y)
-        cell(ic)%xmn = Bactcoeff(cell(ic)%Y, 1D0)
-        ! cell(ic)%xmn = Spherecoeff(cell(ic)%Y, .76D0) !1D0)!!!! Reduced volume .997, .98, .95-> .9,.76,.65
+        ! cell(ic)%xmn = Bactcoeff(cell(ic)%Y, 1D0)
+        cell(ic)%xmn = Spherecoeff(cell(ic)%Y, .76D0) !1D0)!!!! Reduced volume .997, .98, .95-> .9,.76,.65
 
 !       Initial surfce derivatives/reference state
         CALL cell(ic)%Derivs()
