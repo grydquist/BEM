@@ -26,8 +26,9 @@ cell = cellType(filein, .false., prob)
 prob%cell => cell
 
 ! Info about flow time scales/vel grad file
-kdt = READ_GRINT_DOUB(filein, 'Kolm_time')
-kfr = READ_GRINT_DOUB(filein, 'Kolm_frac')
+kdt = READ_GRINT_DOUB(filein, 'Shear_dim_time')
+kfr = READ_GRINT_DOUB(filein, 'Gradient_timestep')
+kfr = kfr/kdt ! Fraction of ts between velgrads
 pthline = READ_GRINT_INT(filein, 'Path_line')
 
 IF(cm%mas()) print *, 'Reading in velocity gradient...'
@@ -39,16 +40,17 @@ READ(1) Gtmp
 CLOSE(1)
 
 ! How many timesteps from G do we actually need?
-Gfac = nts*kfr/(prob%NT*prob%dt)
-nts = CEILING(nts/Gfac)
-
+Gfac = nts*kfr/(prob%NT*prob%dt) ! Gfac: Ratio of total time in velgrad to total time requested
 ! If we have fewer velocity gradient time steps than requested, set down to gradient
-IF(prob%NT .gt. nts) THEN
-        prob%NT = nts
+IF(Gfac .lt. 1) THEN
+        prob%NT = FLOOR(prob%NT*Gfac)
         print *, "Warning: Fewer gradient time steps than requested total time steps"
         print *, "Setting total timesteps to "
-        print *, nts
+        print *, prob%NT
+ELSE
+        nts = CEILING(nts/Gfac)
 ENDIF
+
 ! To prevent only having 2 timesteps
 if(nts .eq. 1) THEN
         ALLOCATE(G(3, 3, 3))

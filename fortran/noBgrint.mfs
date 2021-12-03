@@ -1,4 +1,4 @@
-All properties nondimensional (even time step, based on Kolm time)
+All properties nondimensional (even time step, based on shear time)
 Max_time_steps 10000
 Number_cells 1
 Time_step 0.005
@@ -16,6 +16,6 @@ Refinement_factor 2
 Restart Yes
 Restart_Loc xrp16v98b03cm2.txt
 Continue nYes
-Kolm_time 2e-6
-Kolm_frac 0.1
+Shear_dim_time 2e-6
+Gradient_timestep 2e-7
 Path_line 1
