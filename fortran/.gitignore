@@ -1,6 +1,10 @@
 *txt
 *mat
-fortran/lib/lapack-3.9.0
+lib/lapack/liblapack.a
+lib/lapack/obj
+lib/FFT/fftpack.o
+lib/dummy_mpi/libmpi.a
+lib/dummy_mpi/mpi.o
 *mod
 *gif
 GU_1.bin

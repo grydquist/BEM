@@ -2,7 +2,9 @@
 *mat
 fortran/lib/dummy_mpi/libmpi.a
 fortran/lib/dummy_mpi/mpi.o
-fortran/lib/lapack-3.9.0
+fortran/lib/lapack/liblapack.a
+fortran/lib/lapack/obj
+fortran/lib/FFT/fftpack.o
 fortran/obj
 fortran/dat
 *mod
