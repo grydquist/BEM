@@ -38,7 +38,7 @@ endif
 MYFUN = UTIL.o\
 		COMU.o\
 		HARMONICS.o\
-		SHAPE_interp.o\
+		SHAPE.o\
 		main.o
 
 # Modules
@@ -75,9 +75,9 @@ $(OBJDIR)COMU.o : $(SRC)COMU.f90 $(SRC)UTIL.f90
 
 $(OBJDIR)HARMONICS.o : $(SRC)HARMONICS.f90 $(SRC)COMU.f90 $(SRC)UTIL.f90
 
-$(OBJDIR)SHAPE_interp.o : $(SRC)SHAPE_interp.f90 $(SRC)HARMONICS.f90 $(SRC)COMU.f90 $(SRC)UTIL.f90
+$(OBJDIR)SHAPE.o : $(SRC)SHAPE.f90 $(SRC)HARMONICS.f90 $(SRC)COMU.f90 $(SRC)UTIL.f90
 
-$(OBJDIR)main.o : $(SRC)main.f90 $(SRC)SHAPE_interp.f90 $(SRC)HARMONICS.f90 $(SRC)COMU.f90 $(SRC)UTIL.f90
+$(OBJDIR)main.o : $(SRC)main.f90 $(SRC)SHAPE.f90 $(SRC)HARMONICS.f90 $(SRC)COMU.f90 $(SRC)UTIL.f90
 
 .PHONY : clean
 clean:

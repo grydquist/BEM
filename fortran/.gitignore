@@ -5,6 +5,7 @@ lib/lapack/obj
 lib/FFT/fftpack5.o
 lib/dummy_mpi/libmpi.a
 lib/dummy_mpi/mpi.o
+src/oldSHPS
 *mod
 *gif
 GU_1.bin

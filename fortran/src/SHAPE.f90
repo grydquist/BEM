@@ -3,26 +3,32 @@ USE HARMMOD
 IMPLICIT NONE
 
 !==============================================================================!
+!              The purpose of this module is perform calculations              !
+!            on the actual cell, including calculations of internal            !
+!               stress and the forcing of the fluid on the cell                !
+!==============================================================================!
+
+!==============================================================================!
 !================================= CONTAINERS =================================!
 !==============================================================================!
 
 ! The actual cell shape object
 TYPE cellType
 
-!   Time
-    INTEGER :: cts, NT
-    REAL(KIND = 8) :: dt
+!   Current cell
+    INTEGER :: id
 
 !   Material Properties
-    REAL(KIND = 8) :: mu, lam, B, C, Eb
+    REAL(KIND = 8) :: mu, lam, B, C, Eb, c0, Ca, int_pres
 
 !   Harmonics info
     INTEGER :: p, q, ftot
-    TYPE(YType) :: Y, Yf
-    COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:), xmnR(:,:)
+    TYPE(YType), POINTER :: Y, Yf, Ys
+    COMPLEX(KIND = 8), ALLOCATABLE :: xmn(:,:)
 
 !   Geometric info
     REAL(KIND = 8), ALLOCATABLE :: J(:,:), x(:,:,:), xf(:,:,:), k(:,:)
+    REAL(KIND = 8) :: V0, h
 !   Derivatives
     REAL(KIND = 8), ALLOCATABLE :: dxt(:,:,:), dxp(:,:,:), dxp2(:,:,:), &
     dxt2(:,:,:), dxtp(:,:,:), dxp3(:,:,:), dxt3(:,:,:), dxt2p(:,:,:), &
@@ -35,143 +41,491 @@ TYPE cellType
 
 !   Force variables
     REAL(KIND = 8), ALLOCATABLE :: fab(:,:,:), ff(:,:,:), fc(:,:,:)
-    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:)
-
-!   Velocity gradient
-    REAL(KIND = 8) :: dU(3,3)
+    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:), nkmn(:,:), fmn2(:,:), nkt(:,:)
 
 !   Cell velocity constants
     COMPLEX(KIND = 8), ALLOCATABLE :: umn(:,:)    
 
 !   Has this object been initialized?
     LOGICAL :: init = .false.
+    LOGICAL :: writ = .false.
 
 !   Name of output file
-    CHARACTER(len = 15) fileout
+    CHARACTER(:), ALLOCATABLE :: fileout
     
     CONTAINS
-    PROCEDURE :: Write   => Writecell
     PROCEDURE :: Derivs  => Derivscell
     PROCEDURE :: Stress  => Stresscell
     PROCEDURE :: Fluid   => Fluidcell
+    PROCEDURE :: Relax   => RelaxCell
     PROCEDURE :: Dealias => Dealiascell
+    PROCEDURE :: Vol     => Volcell
+    PROCEDURE :: SA      => SAcell
+    PROCEDURE :: Intg    => Intgcell
 END TYPE cellType
 
+! -------------------------------------------------------------------------!
+! Contains all the miscellaneous info about the problem
+TYPE probType
+    INTEGER :: cts, NT, dtinc, NCell, Nmat, NmatT
+    REAL(KIND = 8) :: dt, t
+!   Velocity gradient & its file location
+    REAL(KIND = 8) :: dU(3,3)
+    CHARACTER(len = 15) gradfile
+
+!   Normalized Legendres/exp's at GPs
+    COMPLEX(KIND =8), ALLOCATABLE :: es(:,:), esf(:,:)
+    REAL(KIND = 8), ALLOCATABLE :: cPmn(:,:,:), cPmnf(:,:,:), xsf(:)
+
+!   Harmonics info
+    INTEGER :: p, q, ftot
+    TYPE(YType) :: Y, Yf, Ys
+    REAL(KIND = 8) :: thtc, k, h
+
+!   Pointer to the cells
+    TYPE(cellType), POINTER :: cell(:)
+
+!   MPI stuff
+    TYPE(cmType), POINTER :: cm
+    INTEGER :: PCells(2)
+
+!   Are we continuing from somewhere?
+    LOGICAL :: cont = .false.
+
+    CONTAINS
+    PROCEDURE :: Update  => UpdateProb
+    PROCEDURE :: Write   => WriteProb
+    PROCEDURE :: Output  => OutputProb
+    PROCEDURE :: Continue=> ContinueProb
+END TYPE probType
+
+! -------------------------------------------------------------------------!
 INTERFACE cellType
     PROCEDURE :: newcell
 END INTERFACE cellType
 
 CONTAINS
 !=============================================================================!
-!================================= ROUTIUNES =================================!
+!================================= ROUTINES ==================================!
 !=============================================================================!
 
-! Constructs cell object, takes in order and alias amount
-FUNCTION newcell(filein) RESULT(cell)
+! Constructs cell object, takes in order
+FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     CHARACTER(len = *), INTENT(IN) :: filein
-    TYPE(cellType) :: cell
+    LOGICAL, INTENT(IN) :: reduce
+    TYPE(probType), TARGET, INTENT(INOUT) :: prob
+    TYPE(cellType), ALLOCATABLE, TARGET :: cell(:)
+    CHARACTER(len = 3) :: restart, cont
+    CHARACTER(len = 30) :: restfile, icC, contfile, cfile2
+    CHARACTER(:), ALLOCATABLE :: fileout
+    REAL(KIND = 8), ALLOCATABLE :: cPt(:,:), ths(:,:), phs(:,:), thts(:), phis(:), xs(:), wg(:)
+    REAL(KIND = 8) lam, Ca, C, Eb, c0, dphi, int_pres
+    INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im, ic, stat
 
-    INTEGER :: nt, np, ntf, npf, fali,p
+!   General problem parameters
+    prob%NT = READ_GRINT_INT(filein, 'Max_time_steps')
+    prob%NCell = READ_GRINT_INT(filein, 'Number_cells')
+    prob%dt = READ_GRINT_DOUB(filein, 'Time_step')
+    prob%dtinc = READ_GRINT_INT(filein, 'Time_inc')
+    prob%cts = 0
+    prob%t = 0D0
+!   Gradient file location
+    prob%gradfile = READ_GRINT_CHAR(filein, 'Gradient_file')
+
+!   Check if there are more processors than cells (can't handle)
+    IF(prob%cm%np() .gt. prob%NCell) THEN
+        print *, 'ERROR: More processors than cells'
+        STOP
+    ENDIF
 
 !   Material properties from input
-    cell%mu = READ_GRINT_DOUB(filein, 'Viscosity')
-    cell%lam = READ_GRINT_DOUB(filein, 'Viscosity_ratio')
-    cell%B = READ_GRINT_DOUB(filein, 'Shear_Modulus')
-    cell%C = READ_GRINT_DOUB(filein, 'Dilatation_Modulus')
-    cell%Eb = READ_GRINT_DOUB(filein, 'Bending_Modulus')
-    cell%NT = READ_GRINT_INT(filein, 'Max_time_steps')
-    cell%dt = READ_GRINT_DOUB(filein, 'Time_step')
-    cell%fileout = READ_GRINT_CHAR(filein, 'Output')
+    lam = READ_GRINT_DOUB(filein, 'Viscosity_Ratio')
+    Ca = READ_GRINT_DOUB(filein, 'Capillary')
+    C = READ_GRINT_DOUB(filein, 'Dilatation_Ratio')
+    Eb = READ_GRINT_DOUB(filein, 'Bending_Modulus')
+    c0 = READ_GRINT_DOUB(filein, 'Spont_Curvature')
+    int_pres = READ_GRINT_DOUB(filein, 'Internal_Pressure')
 
-    cell%cts = 1
+!   Write location
+    fileout = TRIM(READ_GRINT_CHAR(filein, 'Output'))
+
 !   Coarse and fine grids    
     p = READ_GRINT_INT(filein, 'Harmonic_order')
-    cell%p = p
+    prob%p = p
     fali   = READ_GRINT_INT(filein, 'Refinement_factor')
-    cell%q = cell%p*fali
+    prob%q = p*fali
 
-    cell%Y = YType(p, 1)
-    cell%Yf = YType(p*fali, 4)
-    print *, 'Harmonics made'
+!   Restart location
+    restart = READ_GRINT_CHAR(filein, 'Restart')
+!   Choose file to restart from (assuming that this is after deflation)
+    restfile = READ_GRINT_CHAR(filein, 'Restart_Loc')
+!   Should we continue from a  previous file?
+    cont = READ_GRINT_CHAR(filein, 'Continue')
 
-    nt  = cell%Y%nt
-    np  = cell%Y%np
-    ntf = cell%Yf%nt
-    npf = cell%Yf%np
+!   Note that the file MUST be in the restart directory!
+    restfile = 'restart/'//trim(restfile)
 
-!   Velocity gradient (from input eventually)
-    cell%dU = 0D0
-    ! cell%dU(1,3) = 1D0
-    cell%dU(1,1) = -1D0
-    cell%dU(3,3) = 1D0
+!   Make harmonics(order, # of derivs, if we'll rotate or not)
+    prob%Y = YType(p, 1, .true.)
+    prob%Yf = YType(p*fali, 4, .true., p)
+    nt  = prob%Y%nt
+    np  = prob%Y%np
+    ntf = prob%Yf%nt
+    npf = prob%Yf%np
 
-!   Allocating everything, starting with derivatives
-    ALLOCATE(cell%dxt(3,ntf,npf), cell%dxp(3,ntf,npf), cell%dxp2(3,ntf,npf), &
-             cell%dxt2(3,ntf,npf), cell%dxtp(3,ntf,npf), cell%dxp3(3,ntf,npf), &
-             cell%dxt3(3,ntf,npf), cell%dxt2p(3,ntf,npf), cell%dxtp2(3,ntf,npf), &
-             cell%dxp4(3,ntf,npf), cell%dxtp3(3,ntf,npf), cell%dxt2p2(3,ntf,npf), &
-             cell%dxt3p(3,ntf,npf), cell%dxt4(3,ntf,npf), &
-             cell%J(ntf,npf), cell%x(3,nt,np), cell%xf(3,ntf,npf), &
-             cell%xmn(3,(p+1)*(p+1)), cell%xmnR(3,(p+1)*(p+1)), cell%umn(3,(p+1)*(p+1)))
-!   Reference items
-    ALLOCATE(cell%kR(ntf,npf), cell%kdR(2,ntf,npf), cell%kd2R(3,ntf,npf), &
-             cell%c1R(3,ntf,npf), cell%c2R(3,ntf,npf), cell%c1tR(3,ntf,npf), &
-             cell%c1pR(3,ntf,npf), cell%c2tR(3,ntf,npf), cell%c2pR(3,ntf,npf))
+!   Harmonics for the singular integration, slightly trickier
+!   Construct the singular integration grid, with patch. Essentially 2 grids at once,
+!   a fine patch with a sinh transform and a coarse one.
+    IF(prob%NCell.gt.1) THEN
+        ALLOCATE(thts(nt + ntf), phis(np + npf), &
+                 ths (nt + ntf, np + npf), phs(nt + ntf, np + npf))
+!       Cutoff theta, can affect accuracy. Depends on spacing, but want consistent. Just hardcode for now
+        prob%thtc = pi/6D0 !!!
 
-!   Force items
-    ALLOCATE(cell%fab(3,ntf,npf), cell%ff(3,ntf,npf), cell%fc(3,nt,np), &
-             cell%fmn(3,(cell%q+1)*(cell%q+1)))
-    cell%ff = 0D0  
-    cell%umn = 0D0
+!       Coarser part away from near-singularity
+        ALLOCATE(xs(nt), wg(nt))
+        CALL lgwt(nt, xs, wg)
+        thts(1:nt) = xs*(pi - prob%thtc)/2D0 + (pi + prob%thtc)/2D0
+        DEALLOCATE(xs, wg)
 
-!   Get the harmonic constants to start out
-    ! cell%xmn = RBCcoeff(cell%Y)
-    cell%xmn = Spherecoeff(cell%Y)
+!       Finer part near near-singularity
+        ALLOCATE(xs(ntf), wg(ntf))
+        CALL lgwt(ntf, xs, wg)
+!       The integration rule is based on the separation distance. However, this changes and
+!       we don't want to recalculate the grid every time. Instead, just choose a distance
+!       where it's accurate (approx spacing/10 here)
+        prob%h = SQRT(PI)/10D0/nt
+!       Sinh normalizing constant (to get -1, 1 range)
+        prob%k = -0.5D0*LOG(prob%thtc/prob%h + sqrt((prob%thtc/prob%h)**2D0 + 1D0));
+        thts(nt + 1:nt + ntf) = prob%h*SINH(prob%k*(xs - 1D0))
+        prob%xsf = xs
+        DEALLOCATE(xs, wg)
+
+!       Calculate phis and construct mesh grid
+        phis(1) = 0D0
+        dphi = prob%Y%dphi
+        DO ic = 1,(np + npf)
+            IF(ic .gt. 1) phis(ic) = phis(ic - 1) + dphi
+
+            IF(ic .eq. np + 1) THEN
+                dphi = prob%Yf%dphi
+                phis(ic) = 0D0
+            ENDIF
+            phs(:,ic) = phis(ic)
+            ths(:,ic) = thts
+        ENDDO
+
+!       Create a bare harmonics object evaluated at this grid
+        prob%Ys = YType(ths, phs, p)
+    ENDIF
+
+    ALLOCATE(prob%es(2*(p-1)+1, np), prob%cPmn(p, 2*(p-1)+1, nt), cPt(nt, p*(p+1)/2))
+    ALLOCATE(prob%esf(2*(p-1)+1, npf + np), prob%cPmnf(p, 2*(p-1)+1, ntf + nt))
+
+!   Matrix size
+    prob%Nmat = 3*(prob%Y%p)*(prob%Y%p)
+    prob%NmatT= prob%Nmat*prob%NCell
+
+    ALLOCATE(cell(prob%NCell))
+
+    DO ic = 1, prob%NCell
+        cell(ic)%id = ic
+        cell(ic)%mu = 1D0
+        cell(ic)%lam = lam
+
+!       To fit dimesnionless parameters, we set a0 = 1, flow timescale = 1, mu = 1
+!       and fit the rest from there
+!       Ca = (shear rate)*mu*(cell radius)/(B/2)
+        cell(ic)%Ca = Ca
+        cell(ic)%B = 2D0/Ca
+!       A note on the dilation modulus: many papers use (B*C) in the spot where
+!       I use C, so I just make that correction here
+        cell(ic)%C = C*cell(ic)%B
+!       Similar situation for beinding modulus: the input is the non-dim
+!       parameter E*b = Eb/(a_0^2*(B/2))
+        cell(ic)%Eb = Eb*2D0*cell(ic)%B
+        cell(ic)%c0 = c0
+        write(icC, "(I0.1)") ic
+        cell(ic)%fileout = TRIM(fileout//icC)
+!       Internal (osmotic) pressure
+        cell(ic)%int_pres = int_pres
+
+!       Coarse and fine grids/harms
+        cell(ic)%p = p
+        cell(ic)%q = p*fali
+        cell(ic)%Y => prob%Y
+        cell(ic)%Yf => prob%Yf
+        cell(ic)%Ys => prob%Ys
+
+!       Allocating everything, starting with derivatives
+        ALLOCATE(cell(ic)%dxt(3,ntf,npf), cell(ic)%dxp(3,ntf,npf), cell(ic)%dxp2(3,ntf,npf), &
+                cell(ic)%dxt2(3,ntf,npf), cell(ic)%dxtp(3,ntf,npf), cell(ic)%dxp3(3,ntf,npf), &
+                cell(ic)%dxt3(3,ntf,npf), cell(ic)%dxt2p(3,ntf,npf), cell(ic)%dxtp2(3,ntf,npf), &
+                cell(ic)%dxp4(3,ntf,npf), cell(ic)%dxtp3(3,ntf,npf), cell(ic)%dxt2p2(3,ntf,npf), &
+                cell(ic)%dxt3p(3,ntf,npf), cell(ic)%dxt4(3,ntf,npf), &
+                cell(ic)%J(ntf,npf), cell(ic)%x(3,nt,np), cell(ic)%xf(3,ntf,npf), &
+                cell(ic)%xmn(3,(p+1)*(p+1)), cell(ic)%umn(3,(p+1)*(p+1)))
+!       Reference items
+        ALLOCATE(cell(ic)%kR(ntf,npf), cell(ic)%kdR(2,ntf,npf), cell(ic)%kd2R(3,ntf,npf), &
+                cell(ic)%c1R(3,ntf,npf), cell(ic)%c2R(3,ntf,npf), cell(ic)%c1tR(3,ntf,npf), &
+                cell(ic)%c1pR(3,ntf,npf), cell(ic)%c2tR(3,ntf,npf), cell(ic)%c2pR(3,ntf,npf))
+
+!       Force items
+        ALLOCATE(cell(ic)%fab(3,ntf,npf), cell(ic)%ff(3,ntf,npf), cell(ic)%fc(3,nt,np), &
+                 cell(ic)%fmn(3,(cell(ic)%q+1)*(cell(ic)%q+1)), cell(ic)%nkmn(3,(cell(ic)%q+1)*(cell(ic)%q+1)), &
+                 cell(ic)%fmn2(3,(cell(ic)%q+1)*(cell(ic)%q+1)), cell(ic)%nkt(3,(cell(ic)%q+1)*(cell(ic)%q+1)))
+
+        cell(ic)%ff = 0D0
+        cell(ic)%fmn = 0D0
+        cell(ic)%umn = 0D0
+
+!       For a = 1, V = 4.18904795321178, SA = 16.8447913187040, sphere 6.50088174342271
+
+!       First, we need to get the reference shape for the shear stress
+        ! cell(ic)%xmn = RBCcoeff(cell(ic)%Y)
+        ! cell(ic)%xmn = Cubecoeff(cell(ic)%Y)
+        ! cell(ic)%xmn = Bactcoeff(cell(ic)%Y, 1D0)
+        cell(ic)%xmn = Spherecoeff(cell(ic)%Y, .76D0) !1D0)!!!! Reduced volume .997, .98, .95-> .9,.76,.65
+
+!       Initial surfce derivatives/reference state
+        CALL cell(ic)%Derivs()
+        CALL cell(ic)%Stress()
+
+!       Now scale to get an equivalent radius of 1
+        IF(.not. reduce) THEN
+            cell(ic)%xmn = cell(ic)%xmn/(3D0*cell(ic)%vol()/(4D0*pi))**(1D0/3D0)
+!       If we want to do deflation, comment the above and scale to get right SA
+        ELSE
+            cell(ic)%xmn = cell(ic)%xmn*(16.8447913187040D0/cell(ic)%SA())**(1D0/2D0) 
+        ENDIF
+
+!       Initialize derivs again... I do this because I need the derivs to get the volume
+        CALL cell(ic)%Derivs()
+        CALL cell(ic)%Stress()
+
+!       Now with a reference shape made, should we choose an intermediate point
+!       to restart from?
+        IF (restart .eq. "Yes") THEN
+!           This gives us the right surface area with a blown up volume
+!           The 16.8 is for equiv radius of 1
+            cell(ic)%xmn = cell(ic)%xmn*sqrt(16.8447913187040D0/cell(ic)%SA())
+!           Get referennce state
+            CALL cell(ic)%Derivs()
+            CALL cell(ic)%Stress()
+
+!           And just set the constants equal, scaling for equiv radius
+!           This assumes the equiv radius in input is 1.
+            cell(ic)%xmn = Readcoeff(restfile, cell(ic)%Y%p)
+        ENDIF
+
+!       Should we continue from a spot where we left off? !! Not working right now,
+        !! doesn't return the same values for some reason
+        IF(cont .eq. "Yes") prob%cont = .true.
+
+        !! Test                                        !!!!!
+        ! SELECT CASE(ic)
+        ! CASE(1)
+        !     cell(ic)%xmn(3,1) =  0D0!  5D0*SQRT(pi)*3D0/5D0
+        !     cell(ic)%xmn(1,1) = -5D0*SQRT(pi)*3D0/5D0
+        ! CASE(2)
+        !     cell(ic)%xmn(3,1) = 0D0!  5D0*SQRT(pi)*3D0/5D0
+        !     cell(ic)%xmn(1,1) = 5D0*SQRT(pi)*3D0/5D0
+        ! CASE(3)
+        !     cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/5D0
+        !     cell(ic)%xmn(1,1) = -5D0*SQRT(pi)*3D0/2D0
+        ! CASE(4)
+        !     cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/5D0
+        !     cell(ic)%xmn(1,1) =  0D0! -5D0*SQRT(pi)*3D0/3D0
+        ! CASE(5)
+        !     cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/5D0
+        !     cell(ic)%xmn(1,1) =  5D0*SQRT(pi)*3D0/2D0
+        ! CASE(6)
+        !     cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/5D0
+        !     cell(ic)%xmn(1,1) = -5D0*SQRT(pi)*3D0/2D0
+        ! CASE(7)
+        !     cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/5D0
+        !     cell(ic)%xmn(1,1) =  0D0! -5D0*SQRT(pi)*3D0/3D0
+        ! CASE(8)
+        !     cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/5D0
+        !     cell(ic)%xmn(1,1) =  5D0*SQRT(pi)*3D0/2D0
+        ! END SELECT
+
+!       Initial positions
+        cell(ic)%x(1,:,:) = cell(ic)%Y%backward(cell(ic)%xmn(1,:))
+        cell(ic)%x(2,:,:) = cell(ic)%Y%backward(cell(ic)%xmn(2,:))
+        cell(ic)%x(3,:,:) = cell(ic)%Y%backward(cell(ic)%xmn(3,:))
+
+!       Characteristic grid spacing
+        cell(ic)%h = SQRT(cell(ic)%SA()/nt**2D0)
+    ENDDO
     
-!   Initial positions
-    cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
-    cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
-    cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+!   Exponential calculation part (coarse and fine)
+    DO m = -(p-1),(p-1)
+        ind = m + p
+        prob%es(ind,:) = EXP(ii*DBLE(m)*prob%Y%phi)*prob%Y%dphi
+    ENDDO
 
-!   Initial surfce derivatives
-    CALL cell%Derivs()
+!   Legendre polynomial calculation part (coarse and fine)
+    cPt = Alegendre(p-1,COS(prob%Y%tht))
+    it = 0
+    DO n = 0, p-1
+        ind = n+1
+        im = 0
+        DO m = -(p-1),p-1
+            im = im + 1
+            IF(ABS(m) .gt. n) THEN
+                prob%cPmn(ind,im,:) = 0D0
+            ELSEIF(m .le. 0) THEN
+                it = it + 1
+                IF(m.eq.-n) im2 = it
+                prob%cPmn(ind,im,:) = (-1D0)**m*cPt(:, im2 + abs(m))
+            ELSE
+                prob%cPmn(ind,im,:) = (-1D0)**m*prob%cPmn(ind, im - 2*m, :)
+            ENDIF
+        ENDDO
+    ENDDO
 
-!   Initial forces. Forces aren't needed and should be zero, but this serves
-!   the important function of getting reference state variables
-    CALL cell%Stress()
+    IF(prob%NCell .gt. 1) THEN
+!   Fine part, essentially done on 2 grids
+!   Technically the grid goes up to order q, but we only calculate up to p
+    DO m = -(p-1),(p-1)
+        ind = m + p
+        prob%esf(ind,:) = EXP(ii*DBLE(m)*prob%Ys%ph(1,:))
+    ENDDO
 
-!   Write initial configuration
-    CALL cell%write()    
-    
+!   Manage the dphi
+    DO ic = 1,np + npf
+        IF(ic .le. np) THEN
+            prob%esf(:,ic) = prob%esf(:,ic)*prob%Y%dphi
+        ELSE
+            prob%esf(:,ic) = prob%esf(:,ic)*prob%Yf%dphi
+        ENDIF
+    ENDDO
+    DEALLOCATE(cPt)
+!   Technically the grid goes up to order q, but we only calculate up to p
+    ALLOCATE(cPt(nt + ntf, p*(p+1)/2))
+    cPt = Alegendre(p-1,COS(prob%Ys%th(:,1)))
+    it = 0
+    DO n = 0, p-1
+        ind = n+1
+        im = 0
+        DO m = -(p-1),p-1
+            im = im + 1
+            IF(ABS(m) .gt. n) THEN
+                prob%cPmnf(ind,im,:) = 0D0
+            ELSEIF(m .le. 0) THEN
+                it = it + 1
+                IF(m.eq.-n) im2 = it
+                prob%cPmnf(ind,im,:) = (-1D0)**m*cPt(:, im2 + abs(m))
+            ELSE
+                prob%cPmnf(ind,im,:) = (-1D0)**m*prob%cPmnf(ind, im - 2*m, :)
+            ENDIF
+        ENDDO
+    ENDDO
+    ENDIF
+
+!   Which cells will the current processor handle? Integer div. rounds down
+    n = MOD(prob%NCell, prob%cm%np())
+    m = prob%NCell/prob%cm%np()
+
+!   Get the top and bottom cell indices for this processor,
+!   giving the remainder to the first processors
+    IF (prob%cm%id() .lt. n) THEN
+        prob%PCells(1) = (prob%cm%id()    )*(m + 1) + 1
+        prob%PCells(2) = (prob%cm%id() + 1)*(m + 1)
+    ELSE
+        prob%PCells(1) = n*(m + 1) + (prob%cm%id()     - n)*m + 1
+        prob%PCells(2) = n*(m + 1) + (prob%cm%id() + 1 - n)*m
+    ENDIF
+
     cell%init = .true.
-END FUNCTION
+END FUNCTION newcell
 
 ! -------------------------------------------------------------------------!
 ! Writes xmn to a text file. Could be better
-SUBROUTINE Writecell(cell)
-    CLASS(cellType), INTENT(IN) ::cell
-    IF(cell%init) THEN
-        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = cell%fileout)
-    ELSE
-        OPEN (UNIT = 88, FILE = cell%fileout)
+SUBROUTINE WriteProb(prob)
+    TYPE(cellType), POINTER :: cell
+    CLASS(probType), INTENT(IN) :: prob
+    CHARACTER (LEN = 25) ctsst, datdir, filename
+    INTEGER ic
+    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:)
+
+    IF(prob%cm%slv()) RETURN
+!   Don't write if it's not a timestep to write
+    IF(.not.((prob%cts .eq. 1) .or. &
+         (MOD(prob%cts,prob%dtinc)) .eq. 0)) RETURN
+
+    DO ic = 1,prob%NCell
+    cell => prob%cell(ic)
+    IF(NOT(ALLOCATED(fmn))) THEN
+        ALLOCATE(fmn(3,(cell%q+1)*(cell%q+1)))
     ENDIF
+
+!   Formatting pain
+    write(ctsst, "(I0.5)") prob%cts
+    datdir = TRIM('dat/'//cell%fileout//'/')
+    filename = TRIM('x_'//ctsst)
+
+!   Write position - first half - real, x,y,z groups, second half imag
+    IF(.not. cell%writ) THEN
+        CALL MAKEDIRQQ(datdir)
+    ENDIF
+    OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
     WRITE(88,*) REAL(cell%xmn)
     WRITE(88,*) AIMAG(cell%xmn)
-    WRITE(88,*) cell%cts
+    CLOSE(88)
+
+!   Write velocity
+    filename = TRIM('u_'//ctsst)
+    OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
+    WRITE(88,*) REAL(cell%umn)!REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1)))) !
+    WRITE(88,*) AIMAG(cell%umn)!AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))!
+    CLOSE(88)
+
+!   Write force
+    ! fmn(1,:) = cell%Yf%forward(cell%ff(1,:,:), cell%q)
+    ! fmn(2,:) = cell%Yf%forward(cell%ff(2,:,:), cell%q)
+    ! fmn(3,:) = cell%Yf%forward(cell%ff(3,:,:), cell%q)
+
+    ! filename = TRIM('f_'//ctsst)
+    ! OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
+    ! WRITE(88,*) REAL(fmn(:,1:((cell%p+1)*(cell%p+1))))
+    ! WRITE(88,*) AIMAG(fmn(:,1:((cell%p+1)*(cell%p+1))))
+    ! CLOSE(88)
+
+!   Another file that just has all the material constants for the simulation
+    IF(.not. cell%writ) THEN
+        filename = 'Params'
+        OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
+        WRITE(88,*) "p"
+        WRITE(88,*) cell%p
+        WRITE(88,*) "dt"
+        WRITE(88,*) prob%dt
+        WRITE(88,*) "dt_inc"
+        WRITE(88,*) prob%dtinc
+        WRITE(88,*) "Ed"
+        WRITE(88,*) cell%C/cell%B
+        WRITE(88,*) "Eb"
+        WRITE(88,*) cell%Eb/2D0/cell%B
+        WRITE(88,*) "Ca"
+        WRITE(88,*) cell%Ca
+        WRITE(88,*) "c0"
+        WRITE(88,*) cell%c0
+        WRITE(88,*) "lambda"
+        WRITE(88,*) cell%lam
+        CLOSE(88)
+    ENDIF
+    
+!   Not optimal, but just a file for the max timestep
+    filename = 'maxdt'
+    OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
+    WRITE(88,*) prob%cts
     CLOSE(88)
     
-    IF(cell%init) THEN
-        OPEN (UNIT = 88, STATUS = "old", POSITION = "append", FILE = 'u_'//cell%fileout)
-    ELSE
-        OPEN (UNIT = 88, FILE = 'u_'//cell%fileout)
-    ENDIF
-    WRITE(88,*) REAL(cell%umn)
-    WRITE(88,*) AIMAG(cell%umn)
-    WRITE(88,*) cell%cts
-    CLOSE(88)
+    IF(.not. cell%writ) cell%writ = .true.
+    ENDDO
 
-END SUBROUTINE Writecell
-
+END SUBROUTINE WriteProb
 
 ! -------------------------------------------------------------------------!
 ! Updates the values of the derivatives on the surface of the cell on fine grid.
@@ -189,7 +543,8 @@ SUBROUTINE Derivscell(cell)
     ALLOCATE(vcur(Y%nt, Y%np), td1(Y%nt, Y%np), td2(Y%nt, Y%np), &
     td3(Y%nt, Y%np), td4(Y%nt, Y%np))
 
-!   Initialize variables    
+!   Initialize variables
+    cell%xf     = 0D0
     cell%dxt    = 0D0
     cell%dxp    = 0D0
     cell%dxt2   = 0D0
@@ -214,7 +569,7 @@ SUBROUTINE Derivscell(cell)
 
 !       Values at current order        
         nm =>Y%nm(ih)
-        DO m = -n,n
+        DO m = -n,n ! Could exploit symmetry here... but it isn't a big deal since it takes so little time
             it = it + 1
             im = im + 1
 
@@ -332,22 +687,19 @@ SUBROUTINE Stresscell(cell)
     REAL(KIND = 8) :: c111,  c112,  c122,  c222,  c221,  c211, &
                       c111t, c112t, c122t, c222t, c221t, &
                       c111p, c112p,        c222p, c221p, c211p
-    REAL(KIND = 8) :: mab(2,2), mabt(2,2), mabp(2,2), dmab2(2,2), &
-                      q1, q2, dq(2), Fd(3,3), Prj(3,3), V2(3,3), &
+    REAL(KIND = 8) :: Fd(3,3), Prj(3,3), V2(3,3), &
                       lams(3), es(2), ev(3,3), ev1(3), ev2(3), I1, I2, &
                       tau(3,3), tauab(2,2), B, C, Eb, wrk(102), tV2(3,3)
     REAL(KIND = 8) :: Fdt(3,3), Fdp(3,3), V2t(3,3), V2p(3,3), lam1dV2(3,3), &
                       lam2dV2(3,3), es1t, es1p, es2t, es2p, I1t, I1p, I2t, I2p, &
                       Prjt(3,3), Prjp(3,3), taut(3,3), taup(3,3), dtauab(2,2), &
-                      bv(2,2), bm(2,2), cvt, cvp, cq, normev1, normev2
-                      
-
-
-                      COMPLEX(KIND = 8), allocatable :: tmp(:), tmp2(:,:)
+                      bv(2,2), bm(2,2), cvt, cvp, &
+                      fb, LBk, kG, c0, fbt(3)
     
     B = cell%B
     C = cell%C
     Eb = cell%Eb
+    c0 = cell%c0
     
 !   Big loop over all points in grid
     DO i = 1, cell%Yf%nt
@@ -369,6 +721,8 @@ SUBROUTINE Stresscell(cell)
 !           Curvature numerator
             D = E*N - 2D0*F*M + G*L
             k = 0.5D0*D/(cell%J(i,j)*cell%J(i,j))
+!           Gaussian curvature
+            kG = (L*N - M*M)/(cell%J(i,j)*cell%J(i,j))
 
 !           We need several cross products in the below equations
 !           so I do them all here
@@ -529,6 +883,12 @@ SUBROUTINE Stresscell(cell)
             c2p = cell%dxtp(:,i,j)*gn(1,2) + cell%dxp2(:,i,j)*gn(2,2) &
                 + cell%dxt(:,i,j)*dgp(1,2) + cell%dxp(:,i,j)*dgp(2,2)
 
+!           Laplace-Beltrami of mean curvature. Three chain rules with 4 things to sum each
+!           First: deriv of J
+            LBk = 1D0/cell%J(i,j)*(Jt*gn(1,1)*kt + Jt*gn(1,2)*kp + Jp*gn(2,1)*kt + Jp*gn(2,2)*kp) &
+                + dgt(1,1)*kt + dgt(1,2)*kp + dgp(2,1)*kt + dgp(2,2)*kp &
+                + gn(1,1)*kt2 + gn(1,2)*ktp + gn(2,1)*ktp + gn(2,2)*kp2
+
 !           We can finally get the reference shapes. Cycle loop if we're getting them
             IF(.not. cell%init) THEN
                 cell%c1R(:,i,j) = c1
@@ -545,6 +905,7 @@ SUBROUTINE Stresscell(cell)
                 cell%c1pR(:,i,j) = c1p;
                 cell%c2tR(:,i,j) = c2t;
                 cell%c2pR(:,i,j) = c2p;
+
                 CYCLE inner
             ENDIF
 
@@ -569,45 +930,28 @@ SUBROUTINE Stresscell(cell)
             c221p = dot(cell%dxtp2(:,i,j),c2) + dot(cell%dxtp(:,i,j),c2p)
             c222p = dot(cell%dxp3(:,i,j) ,c2) + dot(cell%dxp2(:,i,j),c2p)
 
-!           Now finally some mechanics, starting with bending moments/derivs
-            mab = (k - cell%kR(i,j))*gn
-            mabt = (kt - cell%kdR(1,i,j))*gn + (k - cell%kR(i,j))*dgt
-            mabp = (kp - cell%kdR(2,i,j))*gn + (k - cell%kR(i,j))*dgp
-            
-            dmab2(1,1) = (kt2 - cell%kd2R(1,i,j))*gn(1,1) + 2D0*(kt - cell%kdR(1,i,j))*dgt(1,1) &
-                       + (k - cell%kR(i,j))*dgt2(1,1)
-            dmab2(1,2) = (ktp - cell%kd2R(3,i,j))*gn(1,2) + (kt - cell%kdR(1,i,j))*dgp(1,2) &
-                       + (kp  - cell%kdR(2,i,j))*dgt(1,2) + (k  - cell%kR(i,j))*dgtp(1,2)
-            dmab2(2,1) = (ktp - cell%kd2R(3,i,j))*gn(2,1) + (kt - cell%kdR(1,i,j))*dgp(2,1) &
-                       + (kp  - cell%kdR(2,i,j))*dgt(2,1) + (k  - cell%kR(i,j))*dgtp(2,1)
-            dmab2(2,2) = (kp2 - cell%kd2R(2,i,j))*gn(2,2) + 2D0*(kp - cell%kdR(2,i,j))*dgp(2,2) &
-                       + (k - cell%kR(i,j))*dgp2(2,2)
-
-!           Transverse shears and partials
-            q1 = Eb*(mabt(1,1) + mabp(2,1) + mab(1,1)*(2D0*c111 + c221) &
-               + mab(2,1)*(2D0*c112 + c222) + mab(1,2)*c112 + mab(2,2)*c122)
-            q2 = Eb*(mabt(1,2) + mabp(2,2) + mab(1,2)*(c111 + 2D0*c221) &
-               + mab(2,2)*(c112 + 2D0*c222) + mab(1,1)*c211 + mab(2,1)*c221)
-            
-!           Partials of q
-            dq(1) = Eb*(dmab2(1,1) + dmab2(2,1) &
-                  + mabt(1,1)*(2D0*c111 + c221) + mab(1,1)*(2D0*c111t + c221t) &
-                  + mabt(2,1)*(2D0*c112 + c222) + mab(2,1)*(2D0*c112t + c222t) &
-                  + mabt(1,2)*c112 + mab(1,2)*c112t + mabt(2,2)*c122 + mab(2,2)*c122t)
-            
-            dq(2) = Eb*(dmab2(1,2) + dmab2(2,2) &
-                  + mabp(1,2)*(c111 + 2D0*c221) + mab(1,2)*(c111p + 2D0*c221p) &
-                  + mabp(2,2)*(c112 + 2D0*c222) + mab(2,2)*(c112p + 2D0*c222p) &
-                  + mabp(1,1)*c211 + mab(1,1)*c211p + mabp(2,1)*c221 + mab(2,1)*c221p)
-
-!           In plane tension and derivatives
-!           Deformation gradient tensor                  
-            Fd = outer(cell%dxt(:,i,j), cell%c1R(:,i,j)) + outer(cell%dxp(:,i,j), cell%c2R(:,i,j))
-
 !           Surface projection operator
             Prj = 0D0
             FORALL(q = 1:3) Prj(q,q) = 1D0
             Prj = Prj - outer(nk,nk)
+
+!           Now finally some mechanics
+!           New Bending: Helfrich
+!           Normal component (commented part assumes homogeneous spontaneous curvature)
+            fb = Eb*(2D0*LBk + (2D0*k + c0)*(2D0*k*k - 2D0*kG  - c0*k)) ! + Eb*cell%LBc0(i,j)
+
+!           Tangential component (in Cartesian). Just surface gradient of curvature.
+!           Start w/ just gradient, Prjt is just temp storage
+!           Most people ignore, really doesn't do  much
+            fbt(1) = 4D0*k*(kt*c1(1) + kp*c2(1))
+            fbt(2) = 4D0*k*(kt*c1(2) + kp*c2(2))
+            fbt(3) = 4D0*k*(kt*c1(3) + kp*c2(3))
+            Prjt = TRANSPOSE(Prj)
+            fbt = INNER3_33(fbt, Prjt)
+            
+!           In plane tension and derivatives
+!           Deformation gradient tensor                  
+            Fd = outer(cell%dxt(:,i,j), cell%c1R(:,i,j)) + outer(cell%dxp(:,i,j), cell%c2R(:,i,j))
 
 !           Left Cauchy-Green
             V2 = MATMUL(Fd, TRANSPOSE(Fd))
@@ -686,11 +1030,11 @@ SUBROUTINE Stresscell(cell)
                  + 0.5D0*es(1)*es(2)*(I2 - B)*Prjp
                  
 !           Put into local surface coordinates, keeping only needed derivs
-            dtauab(1,1) = DOT(INNER3_33(c1,taut), c1)
-            dtauab(1,2) = DOT(INNER3_33(c1,taut), c2)
-            dtauab(2,1) = DOT(INNER3_33(c2,taup), c1)
-            dtauab(2,2) = DOT(INNER3_33(c2,taup), c2)
-
+            dtauab(1,1) = DOT(INNER3_33(c1t,tau), c1) + DOT(INNER3_33(c1,taut), c1) + DOT(INNER3_33(c1,tau), c1t)
+            dtauab(1,2) = DOT(INNER3_33(c1t,tau), c2) + DOT(INNER3_33(c1,taut), c2) + DOT(INNER3_33(c1,tau), c2t)
+            dtauab(2,1) = DOT(INNER3_33(c2p,tau), c1) + DOT(INNER3_33(c2,taup), c1) + DOT(INNER3_33(c2,tau), c1p)
+            dtauab(2,2) = DOT(INNER3_33(c2p,tau), c2) + DOT(INNER3_33(c2,taup), c2) + DOT(INNER3_33(c2,tau), c2p)
+                 
 !           Covariant curvature tensor
             bv(1,:) = (/L,M/)
             bv(2,:) = (/M,N/)
@@ -707,91 +1051,97 @@ SUBROUTINE Stresscell(cell)
             cvp = dtauab(1,2) + dtauab(2,2) + tauab(1,2)*(c111 + 2D0*c221) &
                 + tauab(2,2)*(c112 + 2D0*c222) + tauab(1,1)*c211 + tauab(2,1)*c221
 
-!           Covariant divergence of q 
-            cq = dq(1) + dq(2) + c111*q1 + c112*q2 + c221*q1 + c222*q2
 
 !           Forces in surface coordinates
-            cell%fab(1, i, j) = bm(1,1)*q1 + bm(2,1)*q2 - cvt
-            cell%fab(2, i, j) = bm(1,2)*q1 + bm(2,2)*q2 - cvp
-            cell%fab(3, i, j) = -cq - tauab(1,1)*bv(1,1) - tauab(1,2)*bv(1,2) &
-                                    - tauab(2,1)*bv(2,1) - tauab(2,2)*bv(2,2)
+            cell%fab(1, i, j) = -cvt !   + bm(1,1)*q1 + bm(2,1)*q2
+            cell%fab(2, i, j) = -cvp !   + bm(1,2)*q1 + bm(2,2)*q2
+            cell%fab(3, i, j) =     - tauab(1,1)*bv(1,1) - tauab(1,2)*bv(1,2) &
+                                    - tauab(2,1)*bv(2,1) - tauab(2,2)*bv(2,2) &
+                                    + fb - cell%int_pres
+                                    !  - cq
 
 !           Forces in Cartesian, on fine grid
             cell%ff(:, i, j) = cell%fab(1, i, j)*cell%dxt(:,i,j) &
                               + cell%fab(2, i, j)*cell%dxp(:,i,j) &
-                              + cell%fab(3, i, j)*(-nk)
+                              + cell%fab(3, i, j)*(-nk) &
+                              + 0D0 !fbt
+            
+!           This is pretty lazy, but I need to save the normal vector and not the
+!           surface forces, when it was opposite at one time, so I just swap them
+            cell%fab(:,i,j) = -nk
+
         ENDDO inner
     ENDDO
-
-!!!! Either my thetder algorithm or harmonics algorithm appears to be slightly unstable.
-    ! At higher order harmonics, they start to differ by about 1e-14 from matlab, which
-    ! gets exacerbated by the eigenvalue algorithm. Perhaps the problem is in the legendre
-    ! algorithm?
 
 !   Now we need to filter for anti-aliasing. Do the transform of the force into spectral
 !   space, cut the highest modes, and transform back into physical space
     IF(cell%init) THEN
-        cell%fmn(1,:) = cell%Yf%forward(cell%ff(1,:,:), cell%q)
-        cell%fmn(2,:) = cell%Yf%forward(cell%ff(2,:,:), cell%q)
-        cell%fmn(3,:) = cell%Yf%forward(cell%ff(3,:,:), cell%q)
+        cell%fmn(1,:) = cell%Yf%forward(cell%ff(1,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
+        cell%fmn(2,:) = cell%Yf%forward(cell%ff(2,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
+        cell%fmn(3,:) = cell%Yf%forward(cell%ff(3,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
 
-        cell%fc(1,:,:) = cell%Y%backward(cell%fmn(1,:), cell%p)
-        cell%fc(2,:,:) = cell%Y%backward(cell%fmn(2,:), cell%p)
-        cell%fc(3,:,:) = cell%Y%backward(cell%fmn(3,:), cell%p)
+!       Normal vector for volume correction
+        cell%nkmn(1,:) = cell%Yf%forward(cell%fab(1,:,:), cell%q) 
+        cell%nkmn(2,:) = cell%Yf%forward(cell%fab(2,:,:), cell%q)
+        cell%nkmn(3,:) = cell%Yf%forward(cell%fab(3,:,:), cell%q)
 
-        ! tmp = cell%fmn(1,:)
-        ! tmp2 = cell%ff(1,:,:)
-        ! print *, tmp !!!!!!! precision dips: from cvt=>tauab,dtauab, I2t,es1t, FROM C=100!
+!       Normal and area for fluid
+        cell%nkt(1,:) = cell%Yf%forward(cell%fab(1,:,:)*cell%J/SIN(cell%Yf%th), cell%q) 
+        cell%nkt(2,:) = cell%Yf%forward(cell%fab(2,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
+        cell%nkt(3,:) = cell%Yf%forward(cell%fab(3,:,:)*cell%J/SIN(cell%Yf%th), cell%q)
     ENDIF
 END SUBROUTINE Stresscell
 
 ! -------------------------------------------------------------------------!
 ! Knowing the force jump get the velocity on the surface of the cell via
 ! the fluid problem
-SUBROUTINE Fluidcell(cell)
+SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
+    TYPE(probType), INTENT(IN), TARGET :: prob
+    COMPLEX(KIND = 8), INTENT(OUT), ALLOCATABLE :: A2(:,:), b2(:)
+    TYPE(cellType), INTENT(IN), POINTER, OPTIONAL :: celli
 
-    INTEGER :: ip, ic, i, j, i2, j2, n, m, ih, it, im, row, col, im2, n2, m2, &
-               Nmat, iter, info
-    COMPLEX(KIND = 8) :: At(3,3), bt(3), td1, vcur, v(3,3)
-    REAL(KIND = 8) :: dxtg(3), dxpg(3), Uc(3), t1(3,3), t2(3,3), t3(3,3), Tx(3,3), &
-                      xcr(3), gp(3), Utmp(3,3), nkg(3), r(3), eye(3,3) , Vtt(3,3), Vtg(3,3)
-    COMPLEX(KIND = 8), ALLOCATABLE :: A(:,:), A2(:,:), b(:), b2(:), ut(:), wrk(:)
-    REAL(KIND = 8), ALLOCATABLE :: thet(:,:), phit(:,:), Jg(:,:), frot(:,:,:), &
-                                   vT(:,:,:,:), vG(:,:,:,:), xcg(:,:,:), Jgf(:,:), &
-                                   rwrk(:)
-    COMPLEX, ALLOCATABLE :: swrk(:)
-    INTEGER, ALLOCATABLE :: IPIV(:)
-    COMPLEX(KIND = 8), POINTER :: vcurn(:,:), vcurt(:,:)
-    TYPE(YType), POINTER :: Y, Yf
-    TYPE(Ytype), TARGET :: Yt
-    TYPE(nmType), POINTER :: nm, nmt
-    
-            COMPLEX(KIND = 8), allocatable :: tmp(:)
+    INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
+               colm, ind, im3, nt ,np, indi = 1, indj = 1
+    LOGICAL sing
+    COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
+    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3), minr, dphi
+    COMPLEX(KIND = 8), ALLOCATABLE :: b(:), Ci(:,:,:,:), Ei(:,:,:,:), & 
+                                      Dr(:,:,:), Fi(:,:,:,:), Ai(:,:,:,:,:,:), &
+                                      fmnR(:,:), xmnR(:,:), nmnR(:,:)
+    REAL(KIND = 8), ALLOCATABLE :: frot(:,:,:), xcg(:,:,:), nJt(:,:,:), &
+                                   ft(:),ft2(:,:), Bi(:,:,:,:), wgi(:)
+    COMPLEX(KIND = 8), POINTER :: vcurn(:,:), es(:,:)
+    REAL(KIND = 8), POINTER :: cPmn(:,:, :)
+    TYPE(YType), POINTER :: Y
+    TYPE(nmType), POINTER :: nm
+    INTEGER(KIND = 8) :: tic, toc, rate
 
     Y => cell%Y
-    Yf=> cell%Yf
-
-!   Big matrix size    
-    Nmat = 3*(Y%p + 1)*(Y%p + 1)
 
 !   Allocate things
-    ALLOCATE(A(3*Y%nt*Y%np, Nmat), &
-             A2(Nmat, Nmat), &
+    ALLOCATE(A2(prob%Nmat, prob%Nmat), &
              b(3*Y%nt*Y%np), &
-             b2(Nmat), &
-             thet(Y%nt, Y%np), &
-             phit(Y%nt, Y%np), &
-             Jg(Y%nt, Y%np), &
+             b2(prob%Nmat), &
              frot(3, Y%nt, Y%np), &
-             vT(3,3,Y%nt, Y%np), &
-             vG(3,3,Y%nt, Y%np), &
              xcg(3, Y%nt, Y%np), &
-             Jgf(Yf%nt, Yf%np), &
-             ut(Nmat), &
-             IPIV(Nmat), wrk(Nmat), swrk(Nmat*(Nmat+1)), rwrk(Nmat))
+             nJt(3, Y%nt, Y%np), &
+             ft(3), ft2(3,3), &
+             Bi(3,3,Y%nt,Y%np), &
+             Ci(3,3, 2*(Y%p-1)+1, Y%nt), &
+             Ei(3,3, 2*(Y%p-1)+1, Y%p), &
+             Fi(3,3, 2*(Y%p-1)+1, Y%nt), &
+             Ai(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
+             Dr(3,3,Y%p*Y%p),  &
+             es(2*(Y%p-1)+1, Y%np), &
+             cPmn(Y%p, 2*(Y%p-1)+1, Y%nt), &
+             fmnR(3, (cell%p+1)*(cell%p+1)), &
+             nmnR(3, (cell%p+1)*(cell%p+1)), &
+             xmnR(3, (cell%p+1)*(cell%p+1)), &
+             wgi(Y%nt))
 
     eye = 0D0
+    Ai = 0D0
     FORALL(j = 1:3) eye(j,j) = 1D0
 !   We need to do two integral loops: the first calculates the integral 
 !   that is the convolution of the Stokeslets and stresslets. We need those
@@ -799,237 +1149,656 @@ SUBROUTINE Fluidcell(cell)
 !   Galerkin integral over a sphere, using the inner integrals calculated
 !   in the previous step
 
+!   Doing the Galerkin projection of the single/double layer integrals could require
+!   O(p^5) operations if we did it all at once (it's a p^4 size matrix), the two
+!   integrals require p^2 sized sums each. However, some of these sums have components
+!   that are independent of each other, so we can do them 1 at a time and store them
+!   in temporary arrays, leading down to O(p^5). The 1st big matrix is the components of
+!   the spherical harmonic functions evaluated at the Gauss points (rows=>GP,
+!   cols=>Sph fns).
+
     ip = 0
     ic = 0
-    A = 0D0
-    b = 0D0
-!   First loop: inner integrals at GPs
-    DO i = 1, Y%nt
+    CALL SYSTEM_CLOCK(tic,rate)
+!   First loops: singular integral points
+    DO i = 1,Y%nt
         DO j = 1,Y%np
-!           Total Galerkin mode count
+!           Bookkeeping
             ic = ic + 1
-
-!           Velocity at integration point
-            Utmp = TRANSPOSE(cell%dU)
-            Uc = INNER3_33(cell%x(:,i,j), Utmp)
-            IF(cell%cts.gt.15) UC = 0D0
-! !           Pouiseille!
-!             Uc = 0D0
-!             rt = sqrt(cell%x(1,i,j)*cell%x(1,i,j) + cell%x(2,i,j)*cell%x(2,i,j))
-!             Uc(3) = rt*rt - 1D0/3D0
-
-!           To integrate these nasty integrals, we need to rotate the 
-!           spherical harmonic coefficients so the integration point is at
-!           the north pole. Process as follows:
-
-!           Construct rotation matrix
-            t1(1,:) = (/COS( Y%phi(j)), -SIN( Y%phi(j)), 0D0/)
-            t2(1,:) = (/COS(-Y%tht(i)), 0D0, SIN(-Y%tht(i))/)
-            t3(1,:) = (/COS(-Y%phi(j)), -SIN(-Y%phi(j)), 0D0/)
-
-            t1(2,:) = (/SIN( Y%phi(j)), COS( Y%phi(j)), 0D0/)
-            t2(2,:) = (/0D0, 1D0, 0D0/)
-            t3(2,:) = (/SIN(-Y%phi(j)), COS(-Y%phi(j)), 0D0/)
-
-            t1(3,:) = (/0D0, 0D0, 1D0/)
-            t2(3,:) = (/-SIN(-Y%tht(i)), 0D0, COS(-Y%tht(i))/)
-            t3(3,:) = (/0D0, 0D0, 1D0/)
-
-            Tx = MATMUL(MATMUL(t1,t2),t3)
-
-!           Get the rotated constants
-            cell%xmnR(1,:) = Y%rotate(cell%xmn(1,:), Y%phi(j), -Y%tht(i), -Y%phi(j))
-            cell%xmnR(2,:) = Y%rotate(cell%xmn(2,:), Y%phi(j), -Y%tht(i), -Y%phi(j))
-            cell%xmnR(3,:) = Y%rotate(cell%xmn(3,:), Y%phi(j), -Y%tht(i), -Y%phi(j))
-
-!           Rotated integration points in unrotated frame
-            xcg(1,:,:) = Y%backward(cell%xmnR(1,:))
-            xcg(2,:,:) = Y%backward(cell%xmnR(2,:))
-            xcg(3,:,:) = Y%backward(cell%xmnR(3,:))
+            row = 3*(ic - 1)  + 1
 
 !           Location of north pole in unrotated frame (just current integration point)
             xcr = cell%x(:,i,j)
-            
-!           Area element, needed for integration, in rotated reference frame
-!           Additionally, we want rotated points in nonrotated reference frame
-            DO i2 = 1,Yf%nt
-                DO j2 = 1,Yf%np
-                    IF(i2 .le. Y%nt .and. j2 .le. Y%np) THEN
-!                   Gauss point rotated in parameter space
-                    gp = (/SIN(Y%tht(i2))*COS(Y%phi(j2)), &
-                           SIN(Y%tht(i2))*SIN(Y%phi(j2)), &
-                           COS(Y%tht(i2))/)
 
-!                   Rotate this Gauss point to nonrotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! check this is right
-                    gp = INNER3_33(gp, Tx)
-!                   Sometimes precision can be an issue...!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Don't need to do this everytime (calcs same spot always)
-                    IF(gp(3).gt.1)  gp(3) =  1D0
-                    IF(gp(3).lt.-1) gp(3) = -1D0
-                    phit(i2, j2) = ATAN2(gp(2), gp(1))
-                    thet(i2, j2) = ACOS(gp(3))
-                    ENDIF
-
-!                   We need the basis vectors in the rotated parameter space !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Perhaps theres a way to speed this up
-!                   to get the area element
-                    it = 0
-                    ih = 0
-                    dxtg = 0
-                    dxpg = 0
-                    DO n = 0,Y%p
-                        ih = ih + 1
-                        nm => Yf%nm(ih)
-                        im = 0
-                        DO m = -n,n
-                            im = im + 1
-                            it = it + 1
-                            
-                            td1 = nm%dY(1,im,i2,j2)
-                            dxtg(1) = dxtg(1) + REAL(cell%xmnR(1,it)*td1)
-                            dxtg(2) = dxtg(2) + REAL(cell%xmnR(2,it)*td1)
-                            dxtg(3) = dxtg(3) + REAL(cell%xmnR(3,it)*td1)
-
-                            vcur = nm%v(im,i2,j2)
-                            dxpg(1) = dxpg(1) + REAL(cell%xmnR(1,it)*ii*m*vcur)
-                            dxpg(2) = dxpg(2) + REAL(cell%xmnR(2,it)*ii*m*vcur)
-                            dxpg(3) = dxpg(3) + REAL(cell%xmnR(3,it)*ii*m*vcur)
-                        ENDDO
+            sing = .false.
+!           If the integration and target surfaces are different, check minimum spacing
+            IF(PRESENT(celli)) THEN
+                minr = celli%h + 1D0
+                DO i2 = 1,celli%Yf%nt
+                    DO j2 = 1,celli%Yf%np
+                        r = celli%xf(:,i2,j2) - xcr
+                        minr = MIN(norm2(r), minr)
+!                       Save indices of min spacing
+                        IF(minr .eq. norm2(r)) THEN
+                            indi = i2
+                            indj = j2
+                        ENDIF
                     ENDDO
-!                   Inward normal                    
-                    nkg = CROSS(dxtg, dxpg)
-                    nkg = -nkg/(sqrt(nkg(1)*nkg(1) + nkg(2)*nkg(2) + nkg(3)*nkg(3)))
+                ENDDO
 
-!                   Jacobian via fundamental forms
-                    Jgf(i2,j2) = sqrt(DOT(dxtg,dxtg)*DOT(dxpg,dxpg) &
-                              -      DOT(dxtg,dxpg)*DOT(dxtg,dxpg))
+!               If min spacing is small, we need to do near-singular integration
+                IF(minr .lt. celli%h) THEN
+                    sing = .true.
 
-!                   Calculate kernels now, since we're already looping over these points
-                    ! r = xcr - xcg(:,i2,j2)
-                    ! vG(:,:,i2,j2) = Gij(r, eye)
-                    ! vT(:,:,i2,j2) = Tij(r, nkg)
+!                   Need to integrate on finer grid
+                    nt = cell%Yf%nt + cell%Y%nt
+                    np = cell%Yf%np + cell%Y%np
+
+!                   Deallocate integ. quants
+                    DEALLOCATE(frot, xcg, nJt, Bi, Ci, wgi)
+                    ALLOCATE( &
+                    frot(3, nt, np), &
+                    xcg(3,  nt, np), &
+                    nJt(3,  nt, np), &
+                    Bi(3,3, nt, np), &
+                    Ci(3,3, 2*(Y%p-1)+1, nt), &
+                    wgi(nt))
+
+                    es   => prob%esf
+                    cPmn => prob%cPmnf
+                    dphi = celli%Y%dphi
+
+!                   Manage the additional prefactors stemming from the integrals
+                    wgi(1:Y%nt)  = celli%Y%wg*(pi - prob%thtc)/2D0
+                    wgi(Y%nt + 1:Y%nt + celli%Yf%nt)  = celli%Yf%wg*prob%h*-prob%k*COSH(prob%k*prob%xsf - prob%k)
+
+!                   We don't do cosine transformation to cluster points near near-singularity, mult sine back in
+                    wgi = wgi*SIN(celli%Ys%th(:,1))
+
+!                   The below formulation is slightly inefficient. To remain general, I want to just have a single
+!                   grid. However, the singular integral is calculated on 2 grids, one fine and one coarse.
+!                   I put this in one grid and there is some overlap, so that there are points that aren't used.
+!                   When calculating the integrals, I just cycle past these points.
+
+!                   Rotate about nearest point to projected singularity
+                    xmnR(1,:) = celli%Yf%rotate(celli%xmn(1,:), indi, indj, -celli%Yf%phi(indj))
+                    xmnR(2,:) = celli%Yf%rotate(celli%xmn(2,:), indi, indj, -celli%Yf%phi(indj))
+                    xmnR(3,:) = celli%Yf%rotate(celli%xmn(3,:), indi, indj, -celli%Yf%phi(indj))
+
+                    xcg(1,:,:) = celli%Ys%backward(xmnR(1,:))
+                    xcg(2,:,:) = celli%Ys%backward(xmnR(2,:))
+                    xcg(3,:,:) = celli%Ys%backward(xmnR(3,:))
+
+!                   Forces on rotated grid
+                    fmnR(1,:) = celli%Yf%rotate(celli%fmn(1,1:(celli%p+1)*(celli%p+1)), indi, indj, -celli%Yf%phi(indj))
+                    fmnR(2,:) = celli%Yf%rotate(celli%fmn(2,1:(celli%p+1)*(celli%p+1)), indi, indj, -celli%Yf%phi(indj))
+                    fmnR(3,:) = celli%Yf%rotate(celli%fmn(3,1:(celli%p+1)*(celli%p+1)), indi, indj, -celli%Yf%phi(indj))
+
+                    frot(1,:,:) = celli%Ys%backward(fmnR(1,:), celli%p)
+                    frot(2,:,:) = celli%Ys%backward(fmnR(2,:), celli%p)
+                    frot(3,:,:) = celli%Ys%backward(fmnR(3,:), celli%p)
+
+!                   Rotate the normal vector total constants
+                    nmnR(1,:) = celli%Yf%rotate(celli%nkt(1,1:(celli%p+1)*(celli%p+1)), indi, indj, -celli%Yf%phi(indj))
+                    nmnR(2,:) = celli%Yf%rotate(celli%nkt(2,1:(celli%p+1)*(celli%p+1)), indi, indj, -celli%Yf%phi(indj))
+                    nmnR(3,:) = celli%Yf%rotate(celli%nkt(3,1:(celli%p+1)*(celli%p+1)), indi, indj, -celli%Yf%phi(indj))
+
+                    nJt(1,:,:) = celli%Ys%backward(nmnR(1,:), celli%p)
+                    nJt(2,:,:) = celli%Ys%backward(nmnR(2,:), celli%p)
+                    nJt(3,:,:) = celli%Ys%backward(nmnR(3,:), celli%p)
+!               Well-separated, normal grid/integration
+                ELSE
+                    sing = .false.
+
+!                   We can use the coarse grid
+                    nt = Y%nt
+                    np = Y%np
+
+!                   Deallocate integ. quants
+                    DEALLOCATE(frot, xcg, nJt, Bi, Ci, wgi)
+                    ALLOCATE( &
+                    frot(3, nt, np), &
+                    xcg(3,  nt, np), &
+                    nJt(3,  nt, np), &
+                    Bi(3,3, nt, np), &
+                    Ci(3,3, 2*(Y%p-1)+1, nt), &
+                    wgi(nt))
+                    
+                    es   => prob%es
+                    cPmn => prob%cPmn
+                    dphi = celli%Y%dphi
+                    wgi  = celli%Y%wg
+
+                    xcg(1,:,:) = celli%x(1,:,:)
+                    xcg(2,:,:) = celli%x(2,:,:)
+                    xcg(3,:,:) = celli%x(3,:,:)
+
+                    fmnR(1,:) = celli%fmn(1,1:(cell%p+1)*(cell%p+1))
+                    fmnR(2,:) = celli%fmn(2,1:(cell%p+1)*(cell%p+1))
+                    fmnR(3,:) = celli%fmn(3,1:(cell%p+1)*(cell%p+1))
+
+                    frot(1,:,:) = Y%backward(fmnR(1,:), cell%p)
+                    frot(2,:,:) = Y%backward(fmnR(2,:), cell%p)
+                    frot(3,:,:) = Y%backward(fmnR(3,:), cell%p)
+    
+                    nmnR(1,:) = celli%nkt(1,1:(cell%p+1)*(cell%p+1))
+                    nmnR(2,:) = celli%nkt(2,1:(cell%p+1)*(cell%p+1))
+                    nmnR(3,:) = celli%nkt(3,1:(cell%p+1)*(cell%p+1))
+
+                    nJt(1,:,:) = Y%backward(nmnR(1,:), cell%p)
+                    nJt(2,:,:) = Y%backward(nmnR(2,:), cell%p)
+                    nJt(3,:,:) = Y%backward(nmnR(3,:), cell%p)
+                ENDIF
+
+!           Fully singular integration on same cell: Get rotated constants
+            ELSE
+                sing = .false.
+
+!               Velocity at integration point
+                Utmp = TRANSPOSE(prob%dU)
+                Uc = INNER3_33(cell%x(:,i,j), Utmp)
+
+!               For integration (changes if need a finer grid)
+                dphi = Y%dphi
+
+!               Exponential  part
+                es   => prob%es
+!               Legendre polynomial part
+                cPmn => prob%cPmn
+
+                nt = Y%nt
+                np = Y%np
+
+                xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
+                xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
+                xmnR(3,:) = Y%rotate(cell%xmn(3,:), i, j, -Y%phi(j))
+
+!               Rotated integration points in unrotated frame
+                xcg(1,:,:) = Y%backward(xmnR(1,:))
+                xcg(2,:,:) = Y%backward(xmnR(2,:))
+                xcg(3,:,:) = Y%backward(xmnR(3,:))
+
+!               Forces on rotated grid
+                fmnR(1,:) = Y%rotate(cell%fmn(1,1:(cell%p+1)*(cell%p+1)), i, j, -Y%phi(j))
+                fmnR(2,:) = Y%rotate(cell%fmn(2,1:(cell%p+1)*(cell%p+1)), i, j, -Y%phi(j))
+                fmnR(3,:) = Y%rotate(cell%fmn(3,1:(cell%p+1)*(cell%p+1)), i, j, -Y%phi(j))
+
+                frot(1,:,:) = Y%backward(fmnR(1,:), cell%p)
+                frot(2,:,:) = Y%backward(fmnR(2,:), cell%p)
+                frot(3,:,:) = Y%backward(fmnR(3,:), cell%p)
+
+!               Rotate the normal vector total constants
+                nmnR(1,:) = Y%rotate(cell%nkt(1,1:(cell%p+1)*(cell%p+1)), i, j, -Y%phi(j))
+                nmnR(2,:) = Y%rotate(cell%nkt(2,1:(cell%p+1)*(cell%p+1)), i, j, -Y%phi(j))
+                nmnR(3,:) = Y%rotate(cell%nkt(3,1:(cell%p+1)*(cell%p+1)), i, j, -Y%phi(j))
+
+                nJt(1,:,:) = Y%backward(nmnR(1,:), cell%p)
+                nJt(2,:,:) = Y%backward(nmnR(2,:), cell%p)
+                nJt(3,:,:) = Y%backward(nmnR(3,:), cell%p)
+
+                wgi = Y%ws
+            ENDIF
+
+!           First matrix: integral components at the i,jth - i2,j2 grid.
+            Bi = 0D0
+            bt = 0D0
+
+            DO j2 = 1,np
+                DO i2 = 1,nt
+!                   Need an exception for near-singular int for if we're in mis-matched grids
+                    IF(sing .and. ((i2.gt.Y%nt .and. j2.le.Y%np) .or. (i2.le.Y%nt .and. j2.gt.Y%np))) CYCLE
+                    IF(sing .and. j2 .eq. Y%np + 1) dphi = celli%Yf%dphi
+
+                    r = xcg(:,i2,j2) - xcr
+!                   Matrix of integration grid about i,j-th point 
+                    Bi(1:3,1:3,i2,j2) = Tij(r, nJt(:,i2,j2))
+                    
+!                   RHS vector
+                    ft = frot(:,i2,j2)
+                    ft2 = Gij(r, eye)
+                    bt = bt + INNER3_33(ft,ft2)*wgi(i2)*dphi
                 ENDDO
             ENDDO
-            Jg = cell%dealias(Jgf)
-!           Harmonics of integration points of rotated frame in nonrotated frame
-            Yt = Ytype(thet, phit)
 
-!           Forces on rotated grid
-            frot(1,:,:) = Yt%backward(cell%fmn(1,:))
-            frot(2,:,:) = Yt%backward(cell%fmn(2,:))
-            frot(3,:,:) = Yt%backward(cell%fmn(3,:))
+            b(row:row+2) = bt/(1D0 + cell%lam)
+            IF(.not. PRESENT(celli)) b(row:row+2) = b(row:row+2) &
+                                                  - Uc*8D0*pi/(1D0 + cell%lam)
 
-!           Bookkeeping
-            row = 3*(ic - 1)  + 1
-            bt = 0
-            ih = 0
+!           Next intermediate matrices: over phi's and theta's
+            im2 = 0
+            DO m2 = -(Y%p-1), Y%p-1
+                im2 = im2 + 1
+                DO i2 = 1, nt
+                    tmpsum = 0D0
+                    DO j2 = 1, np
+                        IF(sing .and. ((i2.gt.Y%nt .and. j2.le.Y%np) .or. (i2.le.Y%nt .and. j2.gt.Y%np))) CYCLE
+                        tmpsum = tmpsum + Bi(1:3, 1:3, i2, j2)*es(im2, j2) ! dphis incorporated into es
+                    ENDDO
+                    Ci(1:3,1:3,im2,i2) = tmpsum
+                ENDDO
+            ENDDO
 
-!           Loop over harmonics
-            DO n = 0, Y%p
-                nm  => Y%nm(n+1)
-                nmt => Yt%nm(n+1)
+            DO n = 0, Y%p-1
+                ind = n+1
+                im2 = Y%p-1
+                DO m2 = 0,(Y%p-1)
+                    im2 = im2+1
+                    colm = im2 - 2*m2
+                    tmpsum = 0D0
+                    DO i2 = 1,nt
+                        tmpsum = tmpsum + Ci(1:3,1:3, im2, i2)*cPmn(ind,im2,i2)*wgi(i2)
+                    ENDDO
+                    Ei(1:3,1:3, im2, ind) = tmpsum
+!                   Symmetry
+                    IF(m2.gt.0) THEN
+                        Ei(1:3,1:3, colm, ind) = CONJG(tmpsum)*(-1D0)**m2
+                    ENDIF
+                ENDDO
+            ENDDO
+
+!           Last loop to bring it all together and get the row
+            it = 0
+            Dr = 0D0
+            DO n = 0,Y%p-1
+                ind = n + 1
                 im = 0
                 DO m = -n,n
-                    ih = ih + 1
                     im = im + 1
-                    col = 3*(ih-1) + 1
-                    vcurn => nm%v(im,:,:)
-                    vcurt => nmt%v(im,:,:)
-                    At = 0
-                    
-!                   Here's where the actul integral is performed,
-!                   centered on point i, j
-                    DO i2 = 1,Y%nt
-                        DO j2 = 1,Y%np
-!                           Add in integral parts
-                            r = xcr - xcg(:,i2,j2)
-                            vtT = Tij(r, nkg)!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! this is the wrong nk
-                            At = At + vtT*vcurt(i2,j2)*Jg(i2,j2)&
-                              * cell%Y%ws(i2)*cell%Y%dphi
-!                           RHS part, only need to do once
-                            IF(n .eq. 0) THEN
-                                vtG = Gij(r, eye)
-                                bt = bt + INNER3_33(frot(:,i2,j2),vtG) &
-                                   * Jg(i2,j2)*cell%Y%ws(i2)
-                            ENDIF
+                    it = it + 1
+                    tmpsum = 0D0
+                    im3 = 0
+!                   If this is a self-integral, we need to rotate.
+!                   If not, and not near-singular, just do normal SpHarms
+                    IF(PRESENT(celli) .and. .not. sing) THEN
+                        im2 = im + Y%p - n - 1
+                        tmpsum = Ei(1:3,1:3, im2, ind)
+                    ELSE
+!                       The near-singular integral has a rotation, need to account for                        
+                        IF(sing) THEN
+                        DO m2 = -n,n
+                            im2 = Y%p + im3 - n
+                            im3 = im3 + 1
+                            tmpsum = tmpsum &
+                                + Ei(1:3,1:3, im2, ind) &
+                                * prob%Yf%rot(indi,indj,ind)%dmms(im,im3) &
+                                * EXP(ii*(m-m2)*prob%Yf%phi(indj))
                         ENDDO
-                    ENDDO
-!                   Add in the rest of the LHS that isn't an integral
-                    At = At*(1D0-cell%lam)/(1D0+cell%lam) - vcurn(i,j)*4D0*pi*eye
-
-!                   LHS at integration point/harmonic combo, put in big matrix
-                    A(row:row+2, col:col+2) = A(row:row+2, col:col+2) + At
+                        ELSE
+                        DO m2 = -n,n
+                            im2 = Y%p + im3 - n
+                            im3 = im3 + 1
+                            tmpsum = tmpsum &
+                                + Ei(1:3,1:3, im2, ind) &
+                                * Y%rot(i,j,ind)%dmms(im,im3) &
+                                * EXP(ii*(m-m2)*Y%phi(j))
+                        ENDDO
+                        ENDIF
+                    ENDIF
+                    Dr(1:3,1:3,it) = tmpsum
                 ENDDO
             ENDDO
-!           Put RHS into big vector
-            b(row:row+2) = b(row:row+2) + bt*cell%Y%dphi/cell%mu/(1+cell%lam) &
-                         - Uc*8D0*pi/(1+cell%lam)
+
+!           Now let's put this in the matrix
+            it = 0
+            ind = 0
+            DO n = 0,Y%p-1
+                ind = ind+1
+                nm  => Y%nm(n+1)
+                im = 0
+                DO m = -n,n
+                    im = im + 1
+                    im2 = m + (Y%p)
+                    vcurn => nm%v(im,:,:)
+                    it = it+1
+                    col = 3*(it-1) + 1
+                    Ai(1:3,1:3,im2, ind, i, j) = Dr(1:3,1:3, it)*(1D0-cell%lam)/(1D0+cell%lam)
+                    IF(.not. PRESENT(celli)) Ai(1:3,1:3, im2, ind, i, j) = &
+                                             Ai(1:3,1:3, im2, ind, i, j) - vcurn(i,j)*4D0*pi*eye
+                ENDDO
+            ENDDO
+
         ENDDO
     ENDDO
 
-!   Second integral loop, Galerkin
-    A2 = 0D0
-    b2 = 0D0
+!   Second loop is over just the normal grid, redo pre-allocated parts for this grid
+    es   => prob%es
+    cPmn => prob%cPmn
+
+!   Second integral: The outer loops go over the order and degree of the previous integrals
     it = 0
-
-!   Loop over outer product harmonics
-    DO n = 0,Y%p
+    DO n = 0,Y%p - 1
         nm => cell%Y%nm(n+1)
-        im = 0
+        ! it = it + n
         DO m = -n,n
-            im = im + 1
+            im = m + Y%p
             it = it + 1
-            row = 3*it - 2
-            bt(:) = 0D0
-            vcurn => nm%v(im,:,:)
-            im2 = 0
-            
-!           Loop over inner harmonics (constant value is a column)
-            DO n2 = 0,Y%p
-                DO m2 = -n2,n2
-                    im2 = im2 + 1
-                    col = 3*im2 - 2
-                    At = 0D0
-                    ic = 0
-!                   Loop over integration points to calc integral
-                    DO i =1,Y%nt
-                        DO j = 1,Y%np
-                            ic = ic+1
-!                           Value of inner integral at IP
-                            v = A(3*ic-2:3*ic, 3*im2-2:3*im2)
-                            At = At + v*CONJG(vcurn(i,j))*cell%Y%wg(i)*cell%Y%dphi
+            col = 3*it - 2
+            ! colm= col - 2*3*m
 
-!                           Intg. b (essentially forward transform of RHS!)
-                            IF(n2 .eq. 0) THEN
-                                bt = bt + b(3*ic-2:3*ic)*CONJG(vcurn(i,j)) &
-                                   *cell%Y%wg(i)*cell%Y%dphi
-                            ENDIF
-                        ENDDO
+!           First loop: m2 (Galerkin order), theta, sum phi, 
+            DO m2 = -(Y%p-1), Y%p-1
+                im2 = m2 + Y%p
+                DO i2 = 1,Y%nt
+                    tmpsum = 0D0
+                    DO j2 = 1,Y%np
+                        tmpsum = tmpsum + Ai(1:3,1:3, im, n+1, i2, j2)*CONJG(es(im2,j2))
+                    ENDDO
+                    Fi(1:3,1:3,im2,i2) = tmpsum
+                ENDDO
+            ENDDO
+
+!           Second loop: n2, m2, sum theta
+            im2 = 0
+            DO n2 = 0, Y%p-1
+                DO m2 = -n2, n2
+                    im3 = m2 + Y%p
+                    im2 = im2 + 1
+                    row = 3*im2 - 2
+                    ! rowm= row - 2*3*m2
+                    At = 0D0
+                    ! At2 = 0D0
+                    DO i2 = 1,Y%nt
+                        At  = At  + Fi(1:3,1:3,im3, i2)*cPmn(n2+1,im3,i2)*cell%Y%wg(i2)
+                        ! At2 = At2 + CONJG(Fi(1:3,1:3,im3, i2))*cPmn(n2+1,im3,i2)*cell%Y%wg(i2)*(-1D0)**m2
                     ENDDO
                     A2(row:row+2,col:col+2) = At
+
+!                   Can't get symmetry working as before, because I loop over cols, then rows now...
+!                   Exploit symmetry (This and the calculation of At2 are a little overkill,
+!                   but it's finnicky to get the right if statements so I'll just leave them)
+                    ! A2(rowm:rowm+2, col :col +2) = At2
+                    ! A2(row :row +2, colm:colm+2) = (-1D0)**(m - m2)*CONJG(At2)
+                    ! A2(rowm:rowm+2, colm:colm+2) = (-1D0)**(m + m2)*CONJG(At)
                 ENDDO
             ENDDO
-            b2(row:row+2) = bt
+
+            ic = 0
+!           Loop over integration points to calc integral
+            bt = 0D0
+            vcurn => nm%v(m + n + 1,:,:)
+            DO i =1,Y%nt
+                DO j = 1,Y%np
+                ic = ic+1
+
+!               Intg. b (essentially forward transform of RHS!)
+                bt = bt + b(3*ic-2:3*ic)*CONJG(vcurn(i,j)) &
+                    *cell%Y%wg(i)*cell%Y%dphi
+                ENDDO
+            ENDDO
+            b2(col:col+2) = bt
+
+        ENDDO
+    ENDDO
+    CALL SYSTEM_CLOCK(toc)
+    ! print *, REAL(toc-tic)/REAL(rate)
+END SUBROUTINE Fluidcell
+
+! -------------------------------------------------------------------------!
+! Problem advancement
+SUBROUTINE UpdateProb(prob, ord, reduce)
+    CLASS(probType), INTENT(INOUT) :: prob
+    TYPE(cellType), POINTER :: cell, celli
+    INTEGER, INTENT(IN) :: ord
+    LOGICAL, INTENT(IN) :: reduce
+    REAL(KIND = 8) :: zm
+    COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:), ut(:), wrk(:), &
+                                      A2(:,:), b2(:), A(:,:), b(:)
+    INTEGER :: ic, ic2, i, row, col, iter, info
+    REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:)
+    COMPLEX, ALLOCATABLE :: swrk(:)
+    COMPLEX(KIND = 8), POINTER :: xmn(:,:)
+    INTEGER, ALLOCATABLE :: IPIV(:)
+    INTEGER(KIND = 8) tic, toc, rate
+    
+    ALLOCATE(ut(prob%NmatT), &
+             uti(prob%NmatT), &
+             utr(prob%NmatT), &
+             IPIV(prob%NmatT), wrk(prob%NmatT), &
+             swrk(prob%NmatT*(prob%NmatT+1)), &
+             rwrk(prob%NmatT), &
+             A(prob%NmatT, prob%NmatT), &
+             b(prob%NmatT))
+    
+    CALL SYSTEM_CLOCK(tic,rate)
+
+    A = 0D0
+    b = 0D0
+    b2 = 0D0
+    A2 = 0D0
+!   Construct the matrix
+!   First loop: velocity surface
+    DO ic = prob%PCells(1), prob%PCells(2)
+        row = (ic -1)*prob%Nmat + 1
+        cell => prob%cell(ic)
+
+!       Second loop: integral surface
+        DO ic2 = 1,prob%NCell
+            celli => prob%cell(ic2)
+            
+!           Get geometric info about new state, get stress in new state if first go round
+            IF(ic.eq.prob%PCells(1)) THEN
+                CALL celli%derivs()
+                CALL celli%stress()
+!               Characteristic grid spacing
+                celli%h = SQRT(celli%SA()/celli%Y%nt**2D0)
+            ENDIF
+
+            col = (ic2-1)*prob%Nmat + 1
+!           Get velocity sub-matrix for cell-cell combo (Same or diff cell)
+            IF(ic .eq. ic2) THEN
+                CALL cell%fluid(prob, A2, b2)
+            ELSE
+                CALL cell%fluid(prob, A2, b2, celli)
+            ENDIF
+
+!           Put sub matrix into big matrix
+            A(row:row + prob%Nmat - 1, col:col + prob%Nmat - 1) = A2
+!           Sum over all the integrals
+            b(row:row + prob%Nmat - 1) = b(row:row + prob%Nmat - 1) + b2
         ENDDO
     ENDDO
 
-!   The highest order coefficients are calculated with large error,
-!   so we need to throw them out
-!   We could just not even calculate these at all to save some time!!!!!!!!!!!!!!!!!!!!!!!!!!
-    b2(3*(Y%p)*(Y%p)+1:3*(Y%p+1)*(Y%p+1)) = 0D0
+    DO i = 1,prob%NmatT
+        A(:,i) = prob%cm%reduce(REAL(A(:,i))) + prob%cm%reduce(AIMAG(A(:,i)))*ii
+    ENDDO
+    b = prob%cm%reduce(REAL(b)) + prob%cm%reduce(AIMAG(b))*ii
 
-    CALL zcgesv(Nmat, 1, A2, Nmat, IPIV, b2, Nmat, ut, Nmat, wrk, swrk, rwrk, iter, info)
-    cell%umn(1,:) = b2((/(i, i=1,3*(Y%p+1)*(Y%p+1)-2, 3)/))/(-4D0*pi)
-    cell%umn(2,:) = b2((/(i, i=2,3*(Y%p+1)*(Y%p+1)-1, 3)/))/(-4D0*pi)
-    cell%umn(3,:) = b2((/(i, i=3,3*(Y%p+1)*(Y%p+1)  , 3)/))/(-4D0*pi)
-    ! cell%umn(1,:) = ut((/(i, i=1,3*(Y%p+1)*(Y%p+1)-2, 3)/))
-    ! cell%umn(2,:) = ut((/(i, i=2,3*(Y%p+1)*(Y%p+1)-1, 3)/))
-    ! cell%umn(3,:) = ut((/(i, i=3,3*(Y%p+1)*(Y%p+1), 3)/))
+!   Invert big matrix to get a list of all the vel constants of all cells
+    ut = 0D0
+    IF(prob%cm%mas()) THEN
+        CALL zcgesv(prob%NmatT, 1, A, prob%NmatT, IPIV, b, prob%NmatT, &
+                    ut, prob%NmatT, wrk, swrk, rwrk, iter, info)
+    ENDIF
 
-    ! tmp = cell%umn(3,:)
-    ! print *, tmp
+!   Broadcast to all processors
+    IF(prob%cm%np() .gt. 1) THEN
+        utr = REAL(ut)
+        uti = AIMAG(ut)
+        CALL prob%cm%bcast(utr)
+        CALL prob%cm%bcast(uti)
+        ut = utr + uti*ii
+    ENDIF
 
-!   Velocity doesn't match after first time step. Surface derivs are ok though. Could be in SpT
-END SUBROUTINE Fluidcell
+!   Advance in time now
+    DO ic = 1, prob%NCell
+        cell => prob%cell(ic)
 
+!       Reconstruct individual vels
+        row = (ic-1)*prob%Nmat + 1
+        cell%umn = 0D0
+        cell%umn(1,1:prob%Nmat/3) = ut((/(i, i=row    , row + prob%Nmat-2, 3)/))
+        cell%umn(2,1:prob%Nmat/3) = ut((/(i, i=row + 1, row + prob%Nmat-1, 3)/))
+        cell%umn(3,1:prob%Nmat/3) = ut((/(i, i=row + 2, row + prob%Nmat  , 3)/))
+
+!       Volume correction: small, inward normal velocity based off current volume/SA/time step
+!       Removed for reduce, because that keeps things at constant volume
+        if(.not. reduce) THEN
+            zm = -(cell%Vol() - cell%V0)/(cell%SA()*prob%dt)
+            cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+        ENDIF
+
+        umnt = cell%umn
+        xmnt = cell%xmn
+
+!       Volume reduction (add small inward normal vel every timestep)
+        IF(reduce) THEN
+            IF(cell%Vol().gt. 4.22  ) umnt = umnt - 0.10D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+            IF(cell%Vol().lt. 4.185 ) umnt = umnt + 0.01D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+            IF(cell%Vol().gt. 4.1894) umnt = umnt - 0.01D0*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+        ENDIF
+    
+!       Second part for midpoint
+        IF(ord .eq. 1) THEN
+            ! CALL cell%derivs()
+            ! CALL cell%stress()
+            ! CALL cell%fluid(prob, A2, b2)
+            ! zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*prob%dt)
+            ! cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
+            ! umnt = 0.5D0*(umnt + cell%umn)
+            ! cell%xmn = xmnt + umnt*prob%dt
+            ! cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
+            ! cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
+            ! cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+        ELSEIF(ord .ne. 1) THEN
+            print*, "ERROR: time advancement of order >1 not supported"
+            stop
+        ENDIF
+    
+!       Update position and current time step
+        cell%xmn = xmnt + umnt*prob%dt
+
+! !       Simple periodic
+!         IF(REAL(cell%xmn(1,1)).lt.-12D0*sqrt(pi)) THEN
+!             cell%xmn(1,1) = cell%xmn(1,1) + 24D0*sqrt(PI)
+!         ELSEIF(REAL(cell%xmn(1,1)).gt.12D0*sqrt(pi)) THEN
+!             cell%xmn(1,1) = cell%xmn(1,1) - 24D0*sqrt(PI)
+!         ENDIF
+
+        cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
+        cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
+        cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+    ENDDO
+
+    CALL SYSTEM_CLOCK(toc)
+    !print *, REAL(toc-tic)/REAL(rate)
+
+    prob%cts = prob%cts + 1
+    prob%t = prob%t + prob%dt
+
+!   Check if there's any funny business
+    IF(isNaN(MAXVAL(ABS(cell%umn))) .or. MAXVAL(ABS(cell%umn)) .gt. HUGE(zm)) THEN
+            print *, 'ERROR: inftys or NaNs'
+            STOP
+    ENDIF
+END SUBROUTINE UpdateProb
+
+! -------------------------------------------------------------------------!
+! Continue from where we left off at? 
+!!! Should make this more robust (read Params, but at the top, etc.)
+SUBROUTINE ContinueProb(prob)
+    CLASS(probType), INTENT(INOUT) :: prob
+    TYPE(cellType), POINTER :: cell
+    CHARACTER (LEN = 25) ctsst, contfile, cfile2
+    INTEGER ic, endt, stat, p, i, jmp
+    REAL(KIND = 8), ALLOCATABLE :: xmnraw(:,:)
+    REAL(KIND = 8) :: xmnrawind
+    LOGICAL :: exist_in
+
+    DO ic = 1,prob%NCell
+        cell => prob%cell(ic)
+        INQUIRE(FILE = TRIM('dat/'//TRIM(cell%fileout)//'/maxdt'), EXIST = exist_in)
+        IF(.not. exist_in) THEN
+            print *, "ERROR: Files not found for continue. Have you run previous cases with the same number of cells?"
+            stop
+        ENDIF
+
+!       Get the timestep of where we left off
+        contfile = TRIM('dat/'//TRIM(cell%fileout))
+        cfile2 = TRIM('dat/'//TRIM(cell%fileout)//'/maxdt')
+        OPEN(unit = 13, file = TRIM(cfile2), action = 'read')
+        READ(13, '(I16)', iostat = stat) endt
+        CLOSE(13)
+        prob%cts = endt
+
+!       Open the file of where we left off and get the shape
+        write(cfile2, "(I0.5)") endt
+        cfile2 = TRIM('dat/'//TRIM(cell%fileout)//'/x_'//TRIM(cfile2))
+
+!       Read in the files
+        p = (cell%p + 1)*(cell%p + 1)*2
+        ALLOCATE(xmnraw(3,p))
+        OPEN(unit = 13, file = cfile2, action = 'read')
+        DO i = 1,p
+            READ(13, *, iostat = stat) xmnraw(:,i)
+        ENDDO
+        CLOSE(13)
+
+!       Text file format: all real, then imag
+        p = cell%p
+        jmp = (p+1)*(p+1)
+    
+        cell%xmn = 0D0
+
+        cell%xmn(1,1:(p+1)*(p+1)) = xmnraw(1,1:(p+1)*(p+1))
+        cell%xmn(2,1:(p+1)*(p+1)) = xmnraw(2,1:(p+1)*(p+1))
+        cell%xmn(3,1:(p+1)*(p+1)) = xmnraw(3,1:(p+1)*(p+1))
+
+        cell%xmn(1,1:(p+1)*(p+1)) = cell%xmn(1,1:(p+1)*(p+1)) + xmnraw(1, jmp+1: 2*jmp)*ii
+        cell%xmn(2,1:(p+1)*(p+1)) = cell%xmn(2,1:(p+1)*(p+1)) + xmnraw(2, jmp+1: 2*jmp)*ii
+        cell%xmn(3,1:(p+1)*(p+1)) = cell%xmn(3,1:(p+1)*(p+1)) + xmnraw(3, jmp+1: 2*jmp)*ii
+        
+    ENDDO
+    prob%t = prob%cts*prob%dt
+END SUBROUTINE ContinueProb
+
+! -------------------------------------------------------------------------!
+! Runs until initial cell is relaxed
+SUBROUTINE RelaxCell(cell, prob, tol)
+    CLASS(cellType), INTENT(INOUT) :: cell
+    TYPE(probType), INTENT(IN) :: prob
+    REAL(KIND = 8), INTENT(IN) :: tol
+    COMPLEX(KIND = 8), ALLOCATABLE :: A2(:,:), b2(:), ut(:), wrk(:)
+    INTEGER iter, info, i
+    REAL(KIND = 8), ALLOCATABLE :: rwrk(:)
+    COMPLEX, ALLOCATABLE :: swrk(:)
+    INTEGER, ALLOCATABLE :: IPIV(:)
+
+    ALLOCATE(ut(prob%Nmat), &
+             IPIV(prob%Nmat), wrk(prob%Nmat), &
+             swrk(prob%Nmat*(prob%Nmat+1)), &
+             rwrk(prob%Nmat))
+
+    cell%umn(1,1) = 1/cell%Ca
+    DO WHILE(MAXVAL(ABS(cell%umn))*cell%Ca .gt. tol)
+            CALL cell%derivs()
+            CALL cell%stress() 
+            CALL cell%fluid(prob, A2, b2)
+            CALL zcgesv(prob%Nmat, 1, A2, prob%Nmat, IPIV, b2, prob%Nmat, ut, prob%Nmat, wrk, swrk, rwrk, iter, info)
+            cell%umn = 0D0
+            cell%umn(1,1:prob%Nmat/3) = ut((/(i, i=1,prob%Nmat-2, 3)/))
+            cell%umn(2,1:prob%Nmat/3) = ut((/(i, i=2,prob%Nmat-1, 3)/))
+            cell%umn(3,1:prob%Nmat/3) = ut((/(i, i=3,prob%Nmat  , 3)/))
+            cell%umn(:,1) = 0D0
+            cell%xmn = cell%xmn + cell%umn*prob%dt
+            cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
+            cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:)) 
+            cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+            write(*,'(F8.6)') MAXVAL(ABS(cell%umn))*cell%Ca
+    ENDDO
+END SUBROUTINE RelaxCell
+! -------------------------------------------------------------------------!
+! Some output
+SUBROUTINE OutputProb(prob)
+    CLASS(probType), INTENT(IN) :: prob
+    INTEGER ic
+    IF(prob%cm%slv()) RETURN
+
+    DO ic = 1, prob%NCell
+        write(*,'(I5,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
+        prob%cts, prob%t, 1D0*2D0*MAXVAL(ABS(prob%cell(ic)%ff))/prob%cell(ic)%B, &
+        MAXVAL(ABS(prob%cell(ic)%umn)), prob%cell(ic)%vol(), prob%cell(ic)%SA()
+    ENDDO
+END SUBROUTINE OutputProb
 
 ! -------------------------------------------------------------------------!
 ! Takes an input and cell and de-alises it
@@ -1051,35 +1820,110 @@ FUNCTION DealiasCell(cell, f) RESULT(fc)
 END FUNCTION
 
 ! -------------------------------------------------------------------------!
-! Functions to calculate the kernels
-FUNCTION Gij(r,eye) RESULT(A)
-    REAL(KIND = 8) r(3), A(3,3), eye(3,3), mri
-    mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
-    A(1,1) = r(1)*r(1)
-    A(2,2) = r(2)*r(2)
-    A(3,3) = r(3)*r(3)
-    A(1,2) = r(1)*r(2)
-    A(1,3) = r(1)*r(3)
-    A(2,3) = r(2)*r(3)
-    A(3,2) = A(2,3)
-    A(3,1) = A(1,3)
-    A(2,1) = A(1,2)
-    A = A*mri*mri*mri + eye*mri
-END FUNCTION Gij
+! Calculate the surface area of a cell
+FUNCTION SAcell(cell) RESULT(SA)
+    CLASS(cellType), INTENT(IN) :: cell
+    REAL(KIND = 8) :: SA
+    INTEGER :: i, j
+    SA = 0D0
 
-FUNCTION Tij(r, n) RESULT(A)
-    REAL(KIND = 8) r(3), A(3,3), n(3), mri
-    mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
-    A(1,1) = r(1)*r(1)
-    A(2,2) = r(2)*r(2)
-    A(3,3) = r(3)*r(3)
-    A(1,2) = r(1)*r(2)
-    A(1,3) = r(1)*r(3)
-    A(2,3) = r(2)*r(3)
-    A(3,2) = A(2,3)
-    A(3,1) = A(1,3)
-    A(2,1) = A(1,2)
-    A = -6D0*A*(mri*mri*mri*mri*mri)*(r(1)*n(1) + r(2)*n(2) + r(3)*n(3))
-END FUNCTION Tij
+!   Basically the integrand is just the infinitesimal area element
+    DO i = 1,cell%Yf%nt
+        DO j = 1,cell%Yf%np
+!           Integrate via Gauss quad
+            SA = SA + cell%Yf%wg(i)*cell%J(i,j)*cell%Yf%dphi/sin(cell%Yf%tht(i))
+        ENDDO
+    ENDDO
+END FUNCTION SAcell
+
+! -------------------------------------------------------------------------!
+! Calculate volume of the cell
+! https://math.stackexchange.com/questions/709566/compute-the-volume-bounded-by-a-parametric-surface
+FUNCTION Volcell(cell) RESULT(V)
+    CLASS(cellType), INTENT(IN), TARGET :: cell
+    REAL(KIND = 8):: V, intgd
+    REAL(KIND = 8), POINTER :: x(:,:,:), xt(:,:,:), xp(:,:,:)
+    INTEGER :: i, j
+
+!   Integral we need is int_0^2pi int_0^pi r(theta)^3/3 sin(theta) d theta d phi.
+!   Calculate r at int points
+    V = 0D0
+
+    x  => cell%xf
+    xt => cell%dxt
+    xp => cell%dxp
+
+    DO i = 1,cell%Yf%nt
+        DO j = 1,cell%Yf%np
+!           Integrand
+            intgd = x(3,i,j)*(xt(1,i,j)*xp(2,i,j) - xp(1,i,j)*xt(2,i,j))
+
+!           Integrate via Gauss quad
+            V = V + intgd* &
+            cell%Yf%wg(i)*cell%Yf%dphi/sin(cell%Yf%tht(i))
+        ENDDO
+    ENDDO
+END FUNCTION Volcell
+
+! -------------------------------------------------------------------------!
+! Integrates quantity over the surface of the cell (fine grid)
+FUNCTION Intgcell(cell, x) RESULT(intg)
+    CLASS(cellType), INTENT(IN), TARGET :: cell
+    REAL(KIND = 8), INTENT(IN) :: x(:,:)
+    TYPE(YType), POINTER :: Y
+    REAL(KIND = 8) :: intg
+    INTEGER :: i, j
+    Y => cell%Yf
+    intg = 0D0
+
+!   Basically the integrand is just the infinitesimal area element
+    DO i = 1,Y%nt
+        DO j = 1,Y%np
+!           Integrate via Gauss quad
+            intg = intg + x(i,j)*Y%wg(i)*cell%J(i,j)*Y%dphi/sin(Y%tht(i))
+        ENDDO
+    ENDDO
+END FUNCTION Intgcell
+
+! -------------------------------------------------------------------------!
+! Periodic functions to calculate the kernels
+! Arguments are (in order) distance vector, wavenumber vector, lattice vectors,
+!   inverse lattice vectors, Ewald parameter, cutoff point (for loop), dij
+! FUNCTION PGij(r, k, lv, ilv, xi, cut, eye) RESULT(A)
+!     REAL(KIND = 8) r(3), k(3), lv(3,3), ilv(3,3), xi, &
+!                    eye(3,3), A(3,3), rcur(3), kcur(3), V
+!     INTEGER cut, i, j, k
+
+! !   Calculate volume
+
+! !   We do the real and Fourier sums in the same loops
+!     DO i = -cut, cut
+!         DO j = -cut,cut
+!             DO k = -cut cut
+! !               Skip current box(???)
+
+! !               Real part (get current vector first)
+!                 rcur = r + i*lv(:,1) + j*lv(:,2) + k*lv(:,3)
+
+! !               Fourier part
+!                 kcur = k + i*ilv(:,1) + j*ilv(:,2) + k*ilv(:,3)
+
+
+!             ENDDO
+!         ENDDO
+!     ENDDO
+
+!     mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
+!     A(1,1) = r(1)*r(1)
+!     A(2,2) = r(2)*r(2)
+!     A(3,3) = r(3)*r(3)
+!     A(1,2) = r(1)*r(2)
+!     A(1,3) = r(1)*r(3)
+!     A(2,3) = r(2)*r(3)
+!     A(3,2) = A(2,3)
+!     A(3,1) = A(1,3)
+!     A(2,1) = A(1,2)
+!     A = A*mri*mri*mri + eye*mri
+! END FUNCTION PGij
 
 END MODULE SHAPEMOD
