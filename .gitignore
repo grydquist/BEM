@@ -4,7 +4,7 @@ fortran/lib/dummy_mpi/libmpi.a
 fortran/lib/dummy_mpi/mpi.o
 fortran/lib/lapack/liblapack.a
 fortran/lib/lapack/obj
-fortran/lib/FFT/fftpack.o
+fortran/lib/FFT/fftpack5.o
 fortran/obj
 fortran/dat
 *mod
