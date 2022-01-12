@@ -5,36 +5,13 @@ following link will walk you through downloading free versions:
 https://software.intel.com/content/www/us/en/develop/tools/oneapi/all-toolkits.html#gs.dn0nmn
 
 You will need the base kit and the HPC kit. Once that is finished, you
-can move onto the compilation. First, this program uses 2 outside
-libraries: fftpack and lapack. Both of these are in the git repository.
-
-To install/compile lapack:
-1. Go to /fortran/lib
-2. Unzip the lapack.tgz file with
-    tar -xzvf lapack.tgz
-    This will likely take a minute.
-3. Compile: copy the make.inc file in /lib into the new directory
-    (lapack-3.9.0). Move into this directory and run:
-    make
-    There might be some issues. If so, there's some compilation tips in
-    the /lib folder under comp_tips. likely you will need to run
-    the command
-    ulimit -s unlimited
-4. The compilation will likely take quite a while (maybe up to 15 min)
-
-To compile fftpack:
-1. Go to /fortran/FFTs
-2. Run
-    ifort -c fftpack5.f90
-3. You should be good to go!
-
-There is also a dummy_mpi directory that needs to be compiled if you
-want to run this sequentially. To do this:
-1. Go to /fortran/lib/dummy_mpi
+can move onto the compilation. First, you need to compile the external libraries.
+To do this:
+1. Navigate to /fortran/lib/
 2. run
     make
 
-To compile the code, simply navigate to /fortran/ and run
+Next, to compile the code, simply navigate to /fortran/ and run
     make
 
 If you don't have access to MPI (e.g. you have a Mac), you can still

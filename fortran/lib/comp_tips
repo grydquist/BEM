@@ -1,4 +1,0 @@
-Change to ifort, get rid of frecursive.
-Switch Timer
-May need to do: ulimit -s unlimited    if you get seg faults/errors
-If it hangs, may need to reduce optimization (-O1, -O2, -O3)

@@ -1,13 +1,12 @@
 FC=mpiifort
-LDIR=./lib/lapack-3.9.0/
-IDIR=./FFTs/
-LIBS= -llapack -lrefblas
+LA_LDIR= ./lib/lapack/
+IDIR= ./lib/FFT/
+LA_LIBS= -llapack
 OBJDIR=obj/
 MODDIR=mod/
 DATDIR=dat/
 DEPS=$(IDIR)fftpack5.o
 MPI_DIR=./lib/dummy_mpi
-
 SRC=./src/
 MYEXEC=harms
 
@@ -27,14 +26,12 @@ ifeq ($(prof),1)
 	FFLAGS = -prof-use -ipo
 endif
 
-# Compile in sequenctial
+# Compile in sequential
 ifeq ($(seq),1)
 	FC = ifort
 	MPI_LIBS = -L$(MPI_DIR) -lmpi
-	MPI_INCS = -I$(MPI_DIR)
 else
 	MPI_LIBS =
-	MPI_INCS =
 endif
 
 # Functions
@@ -54,10 +51,10 @@ OBJ = $(patsubst %,$(OBJDIR)%,$(MYFUN))
 MOD = $(patsubst %,$(MODDIR)%,$(MYMOD))
 
 $(OBJDIR)%.o : $(SRC)%.f90 | $(OBJDIR) $(MODDIR) $(DATDIR)
-	$(FC) $(FFLAGS) $(MPI_INCS) -module $(MODDIR) -o $@ -c $<
+	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ -c $<
 
 $(MYEXEC): $(OBJ)
-	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ $^ $(DEPS) $(MPI_LIBS) -L$(LDIR) $(LIBS)
+	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ $^ $(DEPS) $(MPI_LIBS) -L$(LA_LDIR) $(LA_LIBS)
 	@echo "-----------------------"
 	@echo "Compiled successfully!!"
 	@echo "-----------------------"
