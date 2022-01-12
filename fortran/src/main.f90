@@ -27,7 +27,7 @@ prob%cell => cell
 
 ! Info about flow time scales/vel grad file
 kdt = READ_GRINT_DOUB(filein, 'Shear_dim_time')
-kfr = READ_GRINT_DOUB(filein, 'Gradient_timestep')
+kfr = READ_GRINT_DOUB(filein, 'Gradient_timestep') !!! Check, think about more. Doesn't always end up like this, esp biologically
 kfr = kfr/kdt ! Fraction of ts between velgrads
 pthline = READ_GRINT_INT(filein, 'Path_line')
 

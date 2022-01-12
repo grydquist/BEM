@@ -3,12 +3,6 @@ USE HARMMOD
 IMPLICIT NONE
 
 !==============================================================================!
-!              The purpose of this module is perform calculations              !
-!            on the actual cell, including calculations of internal            !
-!               stress and the forcing of the fluid on the cell                !
-!==============================================================================!
-
-!==============================================================================!
 !================================= CONTAINERS =================================!
 !==============================================================================!
 
@@ -37,7 +31,7 @@ TYPE cellType
 !   Reference state variables
     REAL(KIND = 8), ALLOCATABLE :: kR(:,:), kdR(:,:,:), kd2R(:,:,:), &
     c1R(:,:,:), c2R(:,:,:), c1tR(:,:,:), c1pR(:,:,:), c2tR(:,:,:), &
-    c2pR(:,:,:)
+    c2pR(:,:,:), JR(:,:)
 
 !   Force variables
     REAL(KIND = 8), ALLOCATABLE :: fab(:,:,:), ff(:,:,:), fc(:,:,:)
@@ -695,6 +689,11 @@ SUBROUTINE Stresscell(cell)
                       Prjt(3,3), Prjp(3,3), taut(3,3), taup(3,3), dtauab(2,2), &
                       bv(2,2), bm(2,2), cvt, cvp, &
                       fb, LBk, kG, c0, fbt(3)
+
+!!  Integrating strain energy
+    REAL(KIND = 8), ALLOCATABLE :: Ws(:,:), Wb(:,:)
+    ALLOCATE(Ws(cell%Yf%nt, cell%Yf%np), Wb(cell%Yf%nt, cell%Yf%np))
+    IF(.not.ALLOCATED(cell%JR)) ALLOCATE(cell%JR(cell%Yf%nt,cell%Yf%np))
     
     B = cell%B
     C = cell%C
@@ -905,6 +904,8 @@ SUBROUTINE Stresscell(cell)
                 cell%c1pR(:,i,j) = c1p;
                 cell%c2tR(:,i,j) = c2t;
                 cell%c2pR(:,i,j) = c2p;
+                
+                cell%JR(i,j) = cell%J(i,j)
 
                 CYCLE inner
             ENDIF
@@ -939,6 +940,7 @@ SUBROUTINE Stresscell(cell)
 !           New Bending: Helfrich
 !           Normal component (commented part assumes homogeneous spontaneous curvature)
             fb = Eb*(2D0*LBk + (2D0*k + c0)*(2D0*k*k - 2D0*kG  - c0*k)) ! + Eb*cell%LBc0(i,j)
+            Wb(i,j) = Eb/2D0*(2D0*k-c0)*(2D0*k-c0)
 
 !           Tangential component (in Cartesian). Just surface gradient of curvature.
 !           Start w/ just gradient, Prjt is just temp storage
@@ -972,6 +974,8 @@ SUBROUTINE Stresscell(cell)
 !           Strain invariants
             I1 = es(1)*es(1) + es(2)*es(2) - 2D0
             I2 = es(1)*es(1)*es(2)*es(2) - 1D0
+
+            Ws(i,j) = 0.5D0*B*(I1*I1 + 2D0*I2*I2 - 2D0*I2 + C*I2*I2/B)
 
 !           In plane tension (Cartesian)
             tau = 0.5D0*(B/(es(1)*es(2))*(I1 + 1)*V2 &
@@ -1073,6 +1077,17 @@ SUBROUTINE Stresscell(cell)
         ENDDO inner
     ENDDO
 
+    ! cvt = 0D0
+
+!     DO i = 1,cell%Yf%nt
+!         DO j = 1,cell%Yf%np
+! !           Integrate via Gauss quad
+!             cvt = cvt + Ws(i,j)*cell%Yf%wg(i)*cell%JR(i,j)*cell%Yf%dphi/sin(cell%Yf%tht(i))
+!         ENDDO
+!     ENDDO
+
+!     print *, cvt, cell%intg(Wb), cvt + cell%intg(Wb), cell%intg(Ws)
+
 !   Now we need to filter for anti-aliasing. Do the transform of the force into spectral
 !   space, cut the highest modes, and transform back into physical space
     IF(cell%init) THEN
@@ -1156,6 +1171,16 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
 !   in temporary arrays, leading down to O(p^5). The 1st big matrix is the components of
 !   the spherical harmonic functions evaluated at the Gauss points (rows=>GP,
 !   cols=>Sph fns).
+
+!!! Net force calculation - should be zero with no external force
+    ! Uc = 0D0
+    ! DO i = 1,cell%Yf%nt
+    !     DO j = 1,cell%Yf%np
+    !         Uc = Uc + cell%Yf%wg(i)*cell%J(i,j)*cell%Yf%dphi*cell%ff(:,i,j)
+    !     ENDDO
+    ! ENDDO
+    ! print *, Uc
+    ! Uc = 0D0
 
     ip = 0
     ic = 0
@@ -1667,6 +1692,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !       Update position and current time step
         cell%xmn = xmnt + umnt*prob%dt
 
+
 ! !       Simple periodic
 !         IF(REAL(cell%xmn(1,1)).lt.-12D0*sqrt(pi)) THEN
 !             cell%xmn(1,1) = cell%xmn(1,1) + 24D0*sqrt(PI)
@@ -1886,6 +1912,37 @@ FUNCTION Intgcell(cell, x) RESULT(intg)
 END FUNCTION Intgcell
 
 ! -------------------------------------------------------------------------!
+! Functions to calculate the kernels
+FUNCTION Gij(r,eye) RESULT(A)
+    REAL(KIND = 8) r(3), A(3,3), eye(3,3), mri
+    mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
+    A(1,1) = r(1)*r(1)
+    A(2,2) = r(2)*r(2)
+    A(3,3) = r(3)*r(3)
+    A(1,2) = r(1)*r(2)
+    A(1,3) = r(1)*r(3)
+    A(2,3) = r(2)*r(3)
+    A(3,2) = A(2,3)
+    A(3,1) = A(1,3)
+    A(2,1) = A(1,2)
+    A = A*mri*mri*mri + eye*mri
+END FUNCTION Gij
+
+FUNCTION Tij(r, n) RESULT(A)
+    REAL(KIND = 8) r(3), A(3,3), n(3), mri
+    mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
+    A(1,1) = r(1)*r(1)
+    A(2,2) = r(2)*r(2)
+    A(3,3) = r(3)*r(3)
+    A(1,2) = r(1)*r(2)
+    A(1,3) = r(1)*r(3)
+    A(2,3) = r(2)*r(3)
+    A(3,2) = A(2,3)
+    A(3,1) = A(1,3)
+    A(2,1) = A(1,2)
+    A = -6D0*A*(mri*mri*mri*mri*mri)*(r(1)*n(1) + r(2)*n(2) + r(3)*n(3))
+END FUNCTION Tij
+! -------------------------------------------------------------------------!
 ! Periodic functions to calculate the kernels
 ! Arguments are (in order) distance vector, wavenumber vector, lattice vectors,
 !   inverse lattice vectors, Ewald parameter, cutoff point (for loop), dij
@@ -1912,6 +1969,8 @@ END FUNCTION Intgcell
 !             ENDDO
 !         ENDDO
 !     ENDDO
+
+
 
 !     mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
 !     A(1,1) = r(1)*r(1)

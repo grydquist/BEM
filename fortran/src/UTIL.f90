@@ -3,6 +3,11 @@ IMPLICIT NONE
 REAL(KIND = 8), PARAMETER :: ispi = 0.56418958354775627928D0, pi = 3.1415926535897932384626433D0
 COMPLEX(KIND = 8), PARAMETER :: ii = (0D0,1D0)
 
+!==============================================================================!
+!                   This module has a bunch of random, extra,                  !
+!                                useful functions                              !
+!==============================================================================!
+
 CONTAINS
 
 ! -------------------------------------------------------------------------!
@@ -442,5 +447,46 @@ FUNCTION READ_GRINT_CHAR(filen, srch) RESULT(x)
     ENDDO
 END FUNCTION READ_GRINT_CHAR
 
+! -------------------------------------------------------------------------!
+! Functions to calculate the kernels
+FUNCTION Gij(r,eye) RESULT(A)
+    REAL(KIND = 8) r(3), A(3,3), eye(3,3), mri
+    mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
+    A(1,1) = r(1)*r(1)
+    A(2,2) = r(2)*r(2)
+    A(3,3) = r(3)*r(3)
+    A(1,2) = r(1)*r(2)
+    A(1,3) = r(1)*r(3)
+    A(2,3) = r(2)*r(3)
+    A(3,2) = A(2,3)
+    A(3,1) = A(1,3)
+    A(2,1) = A(1,2)
+    A = A*mri*mri*mri + eye*mri
+END FUNCTION Gij
+
+FUNCTION Tij(r, n) RESULT(A)
+    REAL(KIND = 8) r(3), A(3,3), n(3), mri
+    mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
+    A(1,1) = r(1)*r(1)
+    A(2,2) = r(2)*r(2)
+    A(3,3) = r(3)*r(3)
+    A(1,2) = r(1)*r(2)
+    A(1,3) = r(1)*r(3)
+    A(2,3) = r(2)*r(3)
+    A(3,2) = A(2,3)
+    A(3,1) = A(1,3)
+    A(2,1) = A(1,2)
+    A = -6D0*A*(mri*mri*mri*mri*mri)*(r(1)*n(1) + r(2)*n(2) + r(3)*n(3))
+END FUNCTION Tij
+
+!!! Net force calculation - should be zero with no external force
+    ! Uc = 0D0
+    ! DO i = 1,cell%Yf%nt
+    !     DO j = 1,cell%Yf%np
+    !         Uc = Uc + cell%Yf%wg(i)*cell%J(i,j)*cell%Yf%dphi*cell%ff(:,i,j)
+    !     ENDDO
+    ! ENDDO
+    ! print *, Uc
+    ! Uc = 0D0
 
 END MODULE UTILMOD
