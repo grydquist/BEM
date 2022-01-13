@@ -115,11 +115,11 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     LOGICAL, INTENT(IN) :: reduce
     TYPE(probType), TARGET, INTENT(INOUT) :: prob
     TYPE(cellType), ALLOCATABLE, TARGET :: cell(:)
-    CHARACTER(:), ALLOCATABLE :: restart, cont, restfile, contfile, cfile2, fileout
+    CHARACTER(:), ALLOCATABLE :: restart, cont, restfile, fileout
     CHARACTER(len = 30) icC
     REAL(KIND = 8), ALLOCATABLE :: cPt(:,:), ths(:,:), phs(:,:), thts(:), phis(:), xs(:), wg(:)
     REAL(KIND = 8) lam, Ca, C, Eb, c0, dphi, int_pres
-    INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im, ic, stat
+    INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im, ic
 
 !   General problem parameters
     CALL READ_MFS(prob%NT, filein, 'Max_time_steps')
@@ -531,7 +531,6 @@ END SUBROUTINE WriteProb
 ! Updates the values of the derivatives on the surface of the cell on fine grid.
 SUBROUTINE Derivscell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
-
     TYPE(nmType), POINTER :: nm
     TYPE(YType), POINTER :: Y
     INTEGER :: ih, it, im, n, m, p
@@ -669,7 +668,6 @@ END SUBROUTINE Derivscell
 ! Gets the force jump at the locations on the cell, de-aliased!
 SUBROUTINE Stresscell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
-
     INTEGER :: i, j, q, rc
     REAL(KIND = 8) :: nk(3), E, F, G, L, M, N, D, k, dnt(3), dnp(3), &
                       dnt2(3), dnp2(3), dntp(3), gv(2,2), gn(2,2), &
@@ -1102,7 +1100,7 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
     TYPE(cellType), INTENT(IN), POINTER, OPTIONAL :: celli
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
-               colm, ind, im3, nt ,np, indi = 1, indj = 1
+               colm, ind, im3, nt, np, indi = 1, indj = 1
     LOGICAL sing
     COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
     REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3), minr, dphi
@@ -1110,7 +1108,7 @@ SUBROUTINE Fluidcell(cell, prob, A2, b2, celli)
                                       Dr(:,:,:), Fi(:,:,:,:), Ai(:,:,:,:,:,:), &
                                       fmnR(:,:), xmnR(:,:), nmnR(:,:)
     REAL(KIND = 8), ALLOCATABLE :: frot(:,:,:), xcg(:,:,:), nJt(:,:,:), &
-                                   ft(:),ft2(:,:), Bi(:,:,:,:), wgi(:)
+                                   ft(:), ft2(:,:), Bi(:,:,:,:), wgi(:)
     COMPLEX(KIND = 8), POINTER :: vcurn(:,:), es(:,:)
     REAL(KIND = 8), POINTER :: cPmn(:,:, :)
     TYPE(YType), POINTER :: Y
@@ -1698,10 +1696,9 @@ END SUBROUTINE UpdateProb
 SUBROUTINE ContinueProb(prob)
     CLASS(probType), INTENT(INOUT) :: prob
     TYPE(cellType), POINTER :: cell
-    CHARACTER (LEN = 25) ctsst, contfile, cfile2
+    CHARACTER (LEN = 25) contfile, cfile2
     INTEGER ic, endt, stat, p, i, jmp
     REAL(KIND = 8), ALLOCATABLE :: xmnraw(:,:)
-    REAL(KIND = 8) :: xmnrawind
     LOGICAL :: exist_in
 
     DO ic = 1,prob%NCell
