@@ -401,9 +401,9 @@ FUNCTION READ_GRINT_DOUB(filen, srch) RESULT(x)
         IF (word == srch) THEN ! found search string at beginning of line
            READ (text,*) word,x
            EXIT
-           CLOSE(88)
         ENDIF
     ENDDO
+    CLOSE(88)
 END FUNCTION READ_GRINT_DOUB
 
 FUNCTION READ_GRINT_INT(filen, srch) RESULT(x)
@@ -421,9 +421,9 @@ FUNCTION READ_GRINT_INT(filen, srch) RESULT(x)
         IF (word == srch) THEN ! found search string at beginning of line
            READ (text,*) word,x
            EXIT
-           CLOSE(88)
         ENDIF
     ENDDO
+    CLOSE(88)
 END FUNCTION READ_GRINT_INT
 
 FUNCTION READ_GRINT_CHAR(filen, srch) RESULT(x)
@@ -442,9 +442,9 @@ FUNCTION READ_GRINT_CHAR(filen, srch) RESULT(x)
            READ (text,*) word,word2
            x = trim(word2)
            EXIT
-           CLOSE(88)
         ENDIF
     ENDDO
+    CLOSE(88)
 END FUNCTION READ_GRINT_CHAR
 
 ! -------------------------------------------------------------------------!
