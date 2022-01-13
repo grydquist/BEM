@@ -1,12 +1,13 @@
 FC=mpiifort
-LA_LDIR= ./lib/lapack/
-IDIR= ./lib/FFT/
+LIBDIR= ./lib/
+LA_LDIR= $(LIBDIR)lapack/
+IDIR= $(LIBDIR)FFT/
 LA_LIBS= -llapack
 OBJDIR=obj/
 MODDIR=mod/
 DATDIR=dat/
 DEPS=$(IDIR)fftpack5.o
-MPI_DIR=./lib/dummy_mpi
+MPI_DIR=$(LIBDIR)dummy_mpi
 SRC=./src/
 MYEXEC=harms
 
