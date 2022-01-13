@@ -1,10 +1,10 @@
 PROGRAM MAIN
-USE SHAPEMOD
+USE PROBMOD
 IMPLICIT NONE
 REAL(KIND = 8) :: kdt, kfr, Gfac
-TYPE(cellType), ALLOCATABLE, TARGET :: cell(:)
 TYPE(probType) :: prob
 TYPE(cmType), TARGET :: cmM
+TYPE(sharedType), TARGET :: info
 CHARACTER(:), ALLOCATABLE :: filein
 INTEGER ::  i, argl, stat, nts, pthline, ic
 INTEGER(KIND = 8) rate, tic, toc
@@ -21,9 +21,9 @@ ALLOCATE(character(argl) :: filein)
 CALL get_command_argument(number=1, value=filein, status=stat)
 
 IF(cmM%mas()) print *, 'Initializing cell/harmonics...'
-prob%cm   => cmM
-cell = cellType(filein, .false., prob)
-prob%cell => cell
+! Shared info about the problem
+info = sharedType(filein)
+prob = probType(filein, .false., cmM, info)
 
 ! Info about flow time scales/vel grad file
 CALL READ_MFS(kdt, filein, 'Shear_dim_time')
@@ -67,15 +67,15 @@ print *, 'Getting initial shape -'
 print *,  'Max velocity coefficient w.r.t. membrane time (want less than 0.005*Ca):'
 prob%dU = 0D0
 DO ic = 1, prob%NCell
-        CALL cell(ic)%relax(0.005D0)
+        CALL prob%cell(ic)%relax(0.005D0)
 ENDDO
 !! ============================
 
 ! Get initial volumes
 DO ic = 1, prob%NCell
-        CALL cell(ic)%derivs()
-        CALL cell(ic)%stress() 
-        cell(ic)%V0 = cell(ic)%Vol()
+        CALL prob%cell(ic)%derivs()
+        CALL prob%cell(ic)%stress()
+        prob%cell(ic)%V0 = prob%cell(ic)%Vol()
 ENDDO
 
 ! Should we continue from where we left off
@@ -90,7 +90,7 @@ IF(cm%mas()) print*, 'Initialized!'
 DO i = 1,prob%NT
 !! ============================
 !       Do interpolation to get current grad tensor, then normalize by kolm time
-        prob%info%dU = VelInterp(G,prob%info%t,nts,kfr)*kdt
+        prob%info%dU = VelInterp(G,prob%t,nts,kfr)*kdt
 !       Hardcoded shear
         ! prob%dU = 0D0
         ! prob%dU(1,3) = 1D0

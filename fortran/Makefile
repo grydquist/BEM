@@ -39,13 +39,17 @@ endif
 MYFUN = UTIL.o\
 		COMU.o\
 		HARMONICS.o\
+		SHARED.o\
 		SHAPE.o\
+		PROBLEM.o\
 		main.o
 
 # Modules
 MYMOD = harmmod.mod\
 		cmmod.mod\
 		utilmod.mod\
+		sharedmod.mod\
+		probmod.mod\
 		shapemod.mod
 
 OBJ = $(patsubst %,$(OBJDIR)%,$(MYFUN))
@@ -76,9 +80,13 @@ $(OBJDIR)COMU.o : $(SRC)COMU.f90 $(OBJDIR)UTIL.o
 
 $(OBJDIR)HARMONICS.o : $(SRC)HARMONICS.f90 $(OBJDIR)COMU.o $(OBJDIR)UTIL.o
 
-$(OBJDIR)SHAPE.o : $(SRC)SHAPE.f90 $(OBJDIR)HARMONICS.o
+$(OBJDIR)SHARED.o : $(SRC)SHARED.f90 $(OBJDIR)HARMONICS.o
 
-$(OBJDIR)main.o : $(SRC)main.f90 $(OBJDIR)SHAPE.o 
+$(OBJDIR)SHAPE.o : $(SRC)SHAPE.f90 $(OBJDIR)SHARED.o
+
+$(OBJDIR)PROBLEM.o : $(SRC)PROBLEM.f90 $(OBJDIR)SHAPE.o
+
+$(OBJDIR)main.o : $(SRC)main.f90 $(OBJDIR)PROBLEM.o 
 
 .PHONY : clean
 clean:
