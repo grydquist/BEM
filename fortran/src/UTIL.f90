@@ -8,6 +8,10 @@ COMPLEX(KIND = 8), PARAMETER :: ii = (0D0,1D0)
 !                                useful functions                              !
 !==============================================================================!
 
+INTERFACE READ_MFS
+    PROCEDURE READ_GRINT_CHAR, READ_GRINT_DOUB, READ_GRINT_INT
+END INTERFACE
+
 CONTAINS
 
 ! -------------------------------------------------------------------------!
@@ -384,13 +388,12 @@ END FUNCTION VGradSetup
 
 ! -------------------------------------------------------------------------!
 ! Gets values after specified input
-! GENERIC, PUBLIC :: READ_GRINT => READ_GRINT_DOUB, READ_GRINT_INT, READ_GRINT_CHAR
 
-FUNCTION READ_GRINT_DOUB(filen, srch) RESULT(x)
-    CHARACTER (len=*) filen, srch
+SUBROUTINE READ_GRINT_DOUB(x, filen, srch)
+    CHARACTER (len=*), INTENT(IN) :: filen, srch
     CHARACTER (len=1000) :: text
     CHARACTER (len=20) :: word
-    REAL(KIND = 8) :: x
+    REAL(KIND = 8), INTENT(OUT)  :: x
     INTEGER ierr
 
     OPEN(unit = 88, file = filen, action = 'read')
@@ -404,13 +407,13 @@ FUNCTION READ_GRINT_DOUB(filen, srch) RESULT(x)
         ENDIF
     ENDDO
     CLOSE(88)
-END FUNCTION READ_GRINT_DOUB
+END SUBROUTINE READ_GRINT_DOUB
 
-FUNCTION READ_GRINT_INT(filen, srch) RESULT(x)
-    CHARACTER (len=*) filen, srch
+SUBROUTINE READ_GRINT_INT(x, filen, srch)
+    CHARACTER (len=*), INTENT(IN) :: filen, srch
     CHARACTER (len=1000) :: text
     CHARACTER (len=20) :: word
-    INTEGER :: x
+    INTEGER, INTENT(OUT)  :: x
     INTEGER ierr
 
     OPEN(unit = 88, file = filen, action = 'read')
@@ -424,13 +427,13 @@ FUNCTION READ_GRINT_INT(filen, srch) RESULT(x)
         ENDIF
     ENDDO
     CLOSE(88)
-END FUNCTION READ_GRINT_INT
+END SUBROUTINE READ_GRINT_INT
 
-FUNCTION READ_GRINT_CHAR(filen, srch) RESULT(x)
-    CHARACTER (len=*) filen, srch
+SUBROUTINE READ_GRINT_CHAR(x, filen, srch)
+    CHARACTER (len=*), INTENT(IN) :: filen, srch
     CHARACTER (len=1000) :: text
     CHARACTER (len=20) :: word, word2
-    CHARACTER (len=:), ALLOCATABLE :: x
+    CHARACTER (len=:), ALLOCATABLE, INTENT(OUT) :: x
     INTEGER ierr
 
     OPEN(unit = 88, file = filen, action = 'read')
@@ -445,7 +448,7 @@ FUNCTION READ_GRINT_CHAR(filen, srch) RESULT(x)
         ENDIF
     ENDDO
     CLOSE(88)
-END FUNCTION READ_GRINT_CHAR
+END SUBROUTINE READ_GRINT_CHAR
 
 ! -------------------------------------------------------------------------!
 ! Functions to calculate the kernels

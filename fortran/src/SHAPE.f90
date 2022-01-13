@@ -71,7 +71,7 @@ TYPE probType
     REAL(KIND = 8) :: dt, t
 !   Velocity gradient & its file location
     REAL(KIND = 8) :: dU(3,3)
-    CHARACTER(len = 15) gradfile
+    CHARACTER(:), ALLOCATABLE :: gradfile
 
 !   Normalized Legendres/exp's at GPs
     COMPLEX(KIND =8), ALLOCATABLE :: es(:,:), esf(:,:)
@@ -115,22 +115,21 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     LOGICAL, INTENT(IN) :: reduce
     TYPE(probType), TARGET, INTENT(INOUT) :: prob
     TYPE(cellType), ALLOCATABLE, TARGET :: cell(:)
-    CHARACTER(len = 3) :: restart, cont
-    CHARACTER(len = 30) :: restfile, icC, contfile, cfile2
-    CHARACTER(:), ALLOCATABLE :: fileout
+    CHARACTER(:), ALLOCATABLE :: restart, cont, restfile, contfile, cfile2, fileout
+    CHARACTER(len = 30) icC
     REAL(KIND = 8), ALLOCATABLE :: cPt(:,:), ths(:,:), phs(:,:), thts(:), phis(:), xs(:), wg(:)
     REAL(KIND = 8) lam, Ca, C, Eb, c0, dphi, int_pres
     INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im, ic, stat
 
 !   General problem parameters
-    prob%NT = READ_GRINT_INT(filein, 'Max_time_steps')
-    prob%NCell = READ_GRINT_INT(filein, 'Number_cells')
-    prob%dt = READ_GRINT_DOUB(filein, 'Time_step')
-    prob%dtinc = READ_GRINT_INT(filein, 'Time_inc')
+    CALL READ_MFS(prob%NT, filein, 'Max_time_steps')
+    CALL READ_MFS(prob%NCell, filein, 'Number_cells')
+    CALL READ_MFS(prob%dt, filein, 'Time_step')
+    CALL READ_MFS(prob%dtinc, filein, 'Time_inc')
     prob%cts = 0
     prob%t = 0D0
 !   Gradient file location
-    prob%gradfile = READ_GRINT_CHAR(filein, 'Gradient_file')
+    CALL READ_MFS(prob%gradfile, filein, 'Gradient_file')
 
 !   Check if there are more processors than cells (can't handle)
     IF(prob%cm%np() .gt. prob%NCell) THEN
@@ -139,28 +138,29 @@ FUNCTION newcell(filein, reduce, prob) RESULT(cell)
     ENDIF
 
 !   Material properties from input
-    lam = READ_GRINT_DOUB(filein, 'Viscosity_Ratio')
-    Ca = READ_GRINT_DOUB(filein, 'Capillary')
-    C = READ_GRINT_DOUB(filein, 'Dilatation_Ratio')
-    Eb = READ_GRINT_DOUB(filein, 'Bending_Modulus')
-    c0 = READ_GRINT_DOUB(filein, 'Spont_Curvature')
-    int_pres = READ_GRINT_DOUB(filein, 'Internal_Pressure')
+    CALL READ_MFS(lam, filein, 'Viscosity_Ratio')
+    CALL READ_MFS(Ca, filein, 'Capillary')
+    CALL READ_MFS(C, filein, 'Dilatation_Ratio')
+    CALL READ_MFS(Eb, filein, 'Bending_Modulus')
+    CALL READ_MFS(c0, filein, 'Spont_Curvature')
+    CALL READ_MFS(int_pres, filein, 'Internal_Pressure')
 
 !   Write location
-    fileout = TRIM(READ_GRINT_CHAR(filein, 'Output'))
+    CALL READ_MFS(fileout, filein, 'Output')
+    fileout = TRIM(fileout)
 
 !   Coarse and fine grids    
-    p = READ_GRINT_INT(filein, 'Harmonic_order')
+    CALL READ_MFS(p, filein, 'Harmonic_order')
     prob%p = p
-    fali   = READ_GRINT_INT(filein, 'Refinement_factor')
+    CALL READ_MFS(fali, filein, 'Refinement_factor')
     prob%q = p*fali
 
 !   Restart location
-    restart = READ_GRINT_CHAR(filein, 'Restart')
+    CALL READ_MFS(restart, filein, 'Restart')
 !   Choose file to restart from (assuming that this is after deflation)
-    restfile = READ_GRINT_CHAR(filein, 'Restart_Loc')
+    CALL READ_MFS(restfile, filein, 'Restart_Loc')
 !   Should we continue from a  previous file?
-    cont = READ_GRINT_CHAR(filein, 'Continue')
+    CALL READ_MFS(cont, filein, 'Continue')
 
 !   Note that the file MUST be in the restart directory!
     restfile = 'restart/'//trim(restfile)
@@ -1793,9 +1793,16 @@ SUBROUTINE OutputProb(prob)
     INTEGER ic
     IF(prob%cm%slv()) RETURN
 
+!   What the output means
+    IF(MOD(prob%cts,50).eq.1) THEN
+        PRINT *, "  CTS  Time    Cell  Max F     Max umn  Vol     SA"
+        PRINT *, "----------------------------------------------------"
+    ENDIF
+
+!   The output
     DO ic = 1, prob%NCell
-        write(*,'(I5,X,F8.4,X,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
-        prob%cts, prob%t, 1D0*2D0*MAXVAL(ABS(prob%cell(ic)%ff))/prob%cell(ic)%B, &
+        write(*,'(I5,X,F8.4,X,I5, X, F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
+        prob%cts, prob%t, ic, 1D0*2D0*MAXVAL(ABS(prob%cell(ic)%ff))/prob%cell(ic)%B, &
         MAXVAL(ABS(prob%cell(ic)%umn)), prob%cell(ic)%vol(), prob%cell(ic)%SA()
     ENDDO
 END SUBROUTINE OutputProb

@@ -26,10 +26,10 @@ cell = cellType(filein, .false., prob)
 prob%cell => cell
 
 ! Info about flow time scales/vel grad file
-kdt = READ_GRINT_DOUB(filein, 'Shear_dim_time')
-kfr = READ_GRINT_DOUB(filein, 'Gradient_timestep') !!! Check, think about more. Doesn't always end up like this, esp biologically
+CALL READ_MFS(kdt, filein, 'Shear_dim_time')
+CALL READ_MFS(kfr, filein, 'Gradient_timestep') !!! Check, think about more. Doesn't always end up like this, esp biologically
 kfr = kfr/kdt ! Fraction of ts between velgrads
-pthline = READ_GRINT_INT(filein, 'Path_line')
+CALL READ_MFS(pthline, filein, 'Path_line')
 
 IF(cm%mas()) print *, 'Reading in velocity gradient...'
 OPEN(1,FILE = prob%gradfile, ACCESS = 'stream', ACTION = 'read')
@@ -64,7 +64,7 @@ DEALLOCATE(Gtmp)
 ! Relax cell to get it into an equilibrium state
 !! ============================
 print *, 'Getting initial shape -'
-print *,  'Max velocity coefficient w.r.t. membrane time (want less than 0.0005*Ca):'
+print *,  'Max velocity coefficient w.r.t. membrane time (want less than 0.005*Ca):'
 prob%dU = 0D0
 DO ic = 1, prob%NCell
         CALL cell(ic)%relax(prob, 0.005D0)
