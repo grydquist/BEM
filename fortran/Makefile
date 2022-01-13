@@ -77,7 +77,7 @@ $(OBJDIR)HARMONICS.o : $(SRC)HARMONICS.f90 $(OBJDIR)COMU.o $(OBJDIR)UTIL.o
 
 $(OBJDIR)SHAPE.o : $(SRC)SHAPE.f90 $(OBJDIR)HARMONICS.o
 
-$(OBJDIR)main.o : $(SRC)main.f90 $(OBJDIR)PROBLEM.o 
+$(OBJDIR)main.o : $(SRC)main.f90 $(OBJDIR)SHAPE.o 
 
 .PHONY : clean
 clean:
