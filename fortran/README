@@ -5,14 +5,12 @@ following link will walk you through downloading free versions:
 https://software.intel.com/content/www/us/en/develop/tools/oneapi/all-toolkits.html#gs.dn0nmn
 
 You will need the base kit and the HPC kit. Once that is finished, you
-can move onto the compilation. First, you need to compile the external libraries.
-To do this:
-1. Navigate to /fortran/lib/
-2. run
-    make
+can move onto the compilation. 
 
-Next, to compile the code, simply navigate to /fortran/ and run
-    make
+To make, just go to the main directory (BEM/) and run make
+The solver will be in the fortran directory. You can run make
+in the individual directories as well. It will probably take
+5 minutes or so all told, give or take.
 
 If you don't have access to MPI (e.g. you have a Mac), you can still
 compile in sequential mode with
