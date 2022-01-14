@@ -16,3 +16,4 @@ fortran/FFTs/fftpack5.o
 *.png
 *.svg
 *.eps
+.vscode/
