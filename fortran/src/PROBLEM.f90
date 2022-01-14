@@ -15,11 +15,9 @@ IMPLICIT NONE
 
 ! Contains all the miscellaneous info about the problem
 TYPE probType
-    INTEGER :: cts, NT, dtinc, NCell
-    REAL(KIND = 8) :: t
-!   Velocity gradient file location
-    REAL(KIND = 8) :: dU(3,3)
-    CHARACTER(:), ALLOCATABLE :: gradfile
+    INTEGER :: cts, NT, dtinc, NCell, nts
+    REAL(KIND = 8) :: t, kdt, kfr
+    REAL(KIND = 8), ALLOCATABLE :: G(:,:,:)
 
 !   The location of the shared container
     TYPE(sharedType), POINTER :: info
@@ -59,9 +57,12 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     TYPE(sharedType), TARGET :: info
     TYPE(probType), TARGET :: prob
     TYPE(cellType) :: celltmp
-    CHARACTER(:), ALLOCATABLE :: fileout, cont
+    CHARACTER(:), ALLOCATABLE :: fileout, cont, gfile
     CHARACTER(len = 30) :: icC
-    INTEGER :: m, n, ic
+    INTEGER :: m, n, ic, pthline
+    REAL(KIND = 8) :: Gfac
+    REAL(KIND = 8), ALLOCATABLE :: Gtmp(:,:,:,:)
+    LOGICAL :: fl = .false.
 
     prob%cm => cm
     prob%info => info
@@ -70,9 +71,13 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     CALL READ_MFS(prob%NT, filein, 'Max_time_steps')
     CALL READ_MFS(prob%NCell, filein, 'Number_cells')
     CALL READ_MFS(prob%dtinc, filein, 'Time_inc')
-    CALL READ_MFS(prob%gradfile, filein, 'Gradient_file')
+    CALL READ_MFS(gfile, filein, 'Gradient_file')
     CALL READ_MFS(fileout, filein, 'Output')
     CALL READ_MFS(cont, filein, 'Continue')
+    CALL READ_MFS(prob%kdt, filein, 'Shear_dim_time')
+    CALL READ_MFS(prob%kfr, filein, 'Gradient_timestep') !!! Check, think about more. Doesn't always end up like this, esp biologically
+    prob%kfr = prob%kfr/prob%kdt ! Fraction of ts between velgrads
+    CALL READ_MFS(pthline, filein, 'Path_line')
     prob%cts = 0
     prob%t = 0D0
 
@@ -140,6 +145,63 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
         prob%PCells(1) = n*(m + 1) + (prob%cm%id()     - n)*m + 1
         prob%PCells(2) = n*(m + 1) + (prob%cm%id() + 1 - n)*m
     ENDIF
+
+!   Velocity gradient information
+    IF(prob%cm%mas()) print *, 'Reading in velocity gradient...'
+    OPEN(1,FILE = gfile, ACCESS = 'stream', ACTION = 'read')
+    READ(1) prob%nts, ic
+!   Read into a temporary array so we don't hold onto this big one
+    ALLOCATE(Gtmp(prob%nts,3,3,ic))
+    READ(1) Gtmp
+    CLOSE(1)
+
+!   How many timesteps from G do we actually need?
+    Gfac = prob%nts*prob%kfr/(prob%NT*prob%info%dt) ! Gfac: Ratio of total time in velgrad to total time requested
+!   If we have fewer velocity gradient time steps than requested, set down to gradient
+    IF(Gfac .lt. 1) THEN
+        prob%NT = FLOOR(prob%NT*Gfac)
+        print *, "Warning: Fewer gradient time steps than requested total time steps"
+        print *, "Setting total timesteps to "
+        print *, prob%NT
+        fl = .true.
+    ELSE
+        prob%nts = CEILING(prob%nts/Gfac)
+    ENDIF
+    
+!   To prevent only having 2 timesteps
+    IF(prob%nts .eq. 1) THEN
+        ALLOCATE(prob%G(3, 3, 3))
+        prob%G = Gtmp(1:3, :, :, pthline)
+    ELSE
+!       When we need to use the whole grad file
+        IF(.not. fl) THEN
+            ALLOCATE(prob%G(prob%nts+1, 3, 3))
+            prob%G = Gtmp(1:prob%nts+1, :, :, pthline)
+        ELSE
+            ALLOCATE(prob%G(prob%nts, 3, 3))
+            prob%G = Gtmp(1:prob%nts, :, :, pthline)
+        ENDIF
+    ENDIF
+
+!   Relax cell to get it into an equilibrium state, get volumes
+!!  ============================
+    print *, 'Getting initial shape -'
+    print *, 'Max velocity coefficient w.r.t. membrane time (want less than 0.005*Ca):'
+    DO ic = 1, prob%NCell
+            CALL prob%cell(ic)%relax(0.005D0)
+            CALL prob%cell(ic)%derivs()
+            CALL prob%cell(ic)%stress()
+            prob%cell(ic)%V0 = prob%cell(ic)%Vol()
+    ENDDO
+!    ============================
+    
+!   Should we continue from where we left off
+!!! Not working properly right now (doesn't return same result when restarting)
+    IF(prob%cont) CALL prob%Continue()
+    
+!   Write initial configuration
+    CALL prob%write()
+
 END FUNCTION newprob
 
 ! -------------------------------------------------------------------------!
@@ -255,6 +317,16 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
              b(prob%info%NmatT))
     
     CALL SYSTEM_CLOCK(tic,rate)
+
+!! ============================
+!       Do interpolation to get current grad tensor, then normalize by kolm time !!! Move this into update prob!!
+        prob%info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
+!       Hardcoded shear
+        ! prob%dU = 0D0
+        ! prob%dU(1,3) = 1D0
+        ! prob%dU(1,1) =  1D0
+        ! prob%dU(3,3) = -1D0
+!! ============================
 
     A = 0D0
     b = 0D0
@@ -385,6 +457,11 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             print *, 'ERROR: inftys or NaNs'
             STOP
     ENDIF
+    
+
+!   Write and display some output
+    CALL prob%write()
+    CALL prob%output()
 END SUBROUTINE UpdateProb
 
 ! -------------------------------------------------------------------------!
