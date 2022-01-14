@@ -75,13 +75,12 @@ CONTAINS
 ! Constructs cell object, takes in order
 FUNCTION newcell(filein, reduce, info) RESULT(cell)
     CHARACTER(len = *), INTENT(IN) :: filein
-    TYPE(sharedType), INTENT(INOUT), TARGET :: info
     LOGICAL, INTENT(IN) :: reduce
+    TYPE(sharedType), INTENT(INOUT), TARGET :: info
     TYPE(cellType) :: cell
-    CHARACTER(:), ALLOCATABLE :: restart, cont, restfile, fileout
-    CHARACTER(len = 30) icC
-    REAL(KIND = 8) lam, Ca, C, Eb, c0, dphi, int_pres
-    INTEGER :: nt, np, ntf, npf, fali, p, m, n
+    CHARACTER(:), ALLOCATABLE :: restart, restfile
+    REAL(KIND = 8) lam, Ca, C, Eb, c0, int_pres
+    INTEGER :: nt, np, ntf, npf
 
     cell%info => info
 
@@ -97,8 +96,6 @@ FUNCTION newcell(filein, reduce, info) RESULT(cell)
     CALL READ_MFS(restart, filein, 'Restart')
 !   Choose file to restart from (assuming that this is after deflation)
     CALL READ_MFS(restfile, filein, 'Restart_Loc')
-!   Should we continue from a  previous file?
-    CALL READ_MFS(cont, filein, 'Continue')
 
 !   Note that the file MUST be in the restart directory!
     restfile = 'restart/'//trim(restfile)
@@ -107,7 +104,6 @@ FUNCTION newcell(filein, reduce, info) RESULT(cell)
     np  = info%Y%np
     ntf = info%Yf%nt
     npf = info%Yf%np
-    p = info%p
 
     cell%mu = 1D0
     cell%lam = lam
@@ -134,7 +130,7 @@ FUNCTION newcell(filein, reduce, info) RESULT(cell)
             cell%dxp4(3,ntf,npf), cell%dxtp3(3,ntf,npf), cell%dxt2p2(3,ntf,npf), &
             cell%dxt3p(3,ntf,npf), cell%dxt4(3,ntf,npf), &
             cell%J(ntf,npf), cell%x(3,nt,np), cell%xf(3,ntf,npf), &
-            cell%xmn(3,(p+1)*(p+1)), cell%umn(3,(p+1)*(p+1)))
+            cell%xmn(3,(info%p+1)*(info%p+1)), cell%umn(3,(info%p+1)*(info%p+1)))
 !   Reference items
     ALLOCATE(cell%kR(ntf,npf), cell%kdR(2,ntf,npf), cell%kd2R(3,ntf,npf), &
             cell%c1R(3,ntf,npf), cell%c2R(3,ntf,npf), cell%c1tR(3,ntf,npf), &

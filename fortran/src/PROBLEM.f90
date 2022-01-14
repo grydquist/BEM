@@ -59,12 +59,9 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     TYPE(sharedType), TARGET :: info
     TYPE(probType), TARGET :: prob
     TYPE(cellType) :: celltmp
-    CHARACTER(:), ALLOCATABLE :: fileout
-    CHARACTER(len = 3) :: restart, cont
-    CHARACTER(len = 30) :: restfile, icC, contfile, cfile2
-    REAL(KIND = 8), ALLOCATABLE :: cPt(:,:), ths(:,:), phs(:,:), thts(:), phis(:), xs(:), wg(:)
-    REAL(KIND = 8) dphi
-    INTEGER :: nt, np, ntf, npf, fali, p, m, ind, n, it, im2, im, ic, stat
+    CHARACTER(:), ALLOCATABLE :: fileout, cont
+    CHARACTER(len = 30) :: icC
+    INTEGER :: m, n, ic
 
     prob%cm => cm
     prob%info => info
@@ -75,6 +72,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     CALL READ_MFS(prob%dtinc, filein, 'Time_inc')
     CALL READ_MFS(prob%gradfile, filein, 'Gradient_file')
     CALL READ_MFS(fileout, filein, 'Output')
+    CALL READ_MFS(cont, filein, 'Continue')
     prob%cts = 0
     prob%t = 0D0
 
@@ -87,12 +85,6 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
 !   Should we continue from a spot where we left off? !! Not working right now,
     !! doesn't return the same values for some reason
     IF(cont .eq. "Yes") prob%cont = .true.
-
-!   Make harmonics(order, # of derivs, if we'll rotate or not)
-    nt  = info%Y%nt
-    np  = info%Y%np
-    ntf = info%Yf%nt
-    npf = info%Yf%np
     
     ALLOCATE(prob%cell(prob%NCell))
 
@@ -473,6 +465,5 @@ SUBROUTINE OutputProb(prob)
         MAXVAL(ABS(prob%cell(ic)%umn)), prob%cell(ic)%vol(), prob%cell(ic)%SA()
     ENDDO
 END SUBROUTINE OutputProb
-
 
 END MODULE PROBMOD
