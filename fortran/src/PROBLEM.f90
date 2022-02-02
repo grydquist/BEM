@@ -29,9 +29,6 @@ TYPE probType
     TYPE(cmType), POINTER :: cm
     INTEGER :: PCells(2)
 
-!   Are we continuing from somewhere?
-    LOGICAL :: cont = .false.
-
     CONTAINS
     PROCEDURE :: Update  => UpdateProb
     PROCEDURE :: Write   => WriteProb
@@ -87,10 +84,6 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
         STOP
     ENDIF
     
-!   Should we continue from a spot where we left off? !! Not working right now,
-    !! doesn't return the same values for some reason
-    IF(cont .eq. "Yes") prob%cont = .true.
-    
     ALLOCATE(prob%cell(prob%NCell))
 
 !   Make a master cell of sorts
@@ -102,34 +95,6 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
         prob%cell(ic)%id = ic
         write(icC, "(I0.1)") ic
         prob%cell(ic)%fileout = TRIM(fileout//icC)
-        
-        !! Test                                        !!!!!
-        ! SELECT CASE(ic)
-        ! CASE(1)
-        !     cell(ic)%xmn(3,1) =  0D0!  5D0*SQRT(pi)*3D0/5D0
-        !     cell(ic)%xmn(1,1) = -5D0*SQRT(pi)*3D0/5D0
-        ! CASE(2)
-        !     cell(ic)%xmn(3,1) = 0D0!  5D0*SQRT(pi)*3D0/5D0
-        !     cell(ic)%xmn(1,1) = 5D0*SQRT(pi)*3D0/5D0
-        ! CASE(3)
-        !     cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/5D0
-        !     cell(ic)%xmn(1,1) = -5D0*SQRT(pi)*3D0/2D0
-        ! CASE(4)
-        !     cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/5D0
-        !     cell(ic)%xmn(1,1) =  0D0! -5D0*SQRT(pi)*3D0/3D0
-        ! CASE(5)
-        !     cell(ic)%xmn(3,1) =  5D0*SQRT(pi)*3D0/5D0
-        !     cell(ic)%xmn(1,1) =  5D0*SQRT(pi)*3D0/2D0
-        ! CASE(6)
-        !     cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/5D0
-        !     cell(ic)%xmn(1,1) = -5D0*SQRT(pi)*3D0/2D0
-        ! CASE(7)
-        !     cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/5D0
-        !     cell(ic)%xmn(1,1) =  0D0! -5D0*SQRT(pi)*3D0/3D0
-        ! CASE(8)
-        !     cell(ic)%xmn(3,1) = -5D0*SQRT(pi)*3D0/5D0
-        !     cell(ic)%xmn(1,1) =  5D0*SQRT(pi)*3D0/2D0
-        ! END SELECT
     ENDDO
     
 !   Which cells will the current processor handle? Integer div. rounds down
@@ -158,7 +123,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
 !   How many timesteps from G do we actually need?
     Gfac = prob%nts*prob%kfr/(prob%NT*prob%info%dt) ! Gfac: Ratio of total time in velgrad to total time requested
 !   If we have fewer velocity gradient time steps than requested, set down to gradient
-    IF(Gfac .lt. 1) THEN
+    IF(Gfac .le. 1) THEN
         prob%NT = FLOOR(prob%NT*Gfac)
         print *, "Warning: Fewer gradient time steps than requested total time steps"
         print *, "Setting total timesteps to "
@@ -192,12 +157,50 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
             CALL prob%cell(ic)%derivs()
             CALL prob%cell(ic)%stress()
             prob%cell(ic)%V0 = prob%cell(ic)%Vol()
+            !! Test                                        !!!!!
+            SELECT CASE(ic)
+            CASE(1)
+                prob%cell(ic)%xmn(1,1) = 0.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 0.75D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = 0.5D0/(ispi*0.5D0)
+            CASE(2)
+                prob%cell(ic)%xmn(1,1) = 1.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 0.75D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = 2D0/(ispi*0.5D0)
+            CASE(3)
+                prob%cell(ic)%xmn(1,1) = 2.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 0.75D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = 3.5D0/(ispi*0.5D0)
+            CASE(4)
+                prob%cell(ic)%xmn(1,1) = 2.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 3D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = 1.25D0/(ispi*0.5D0)
+            CASE(5)
+                prob%cell(ic)%xmn(1,1) = 3.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 3D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = 2.75D0/(ispi*0.5D0)
+            CASE(6)
+                prob%cell(ic)%xmn(1,1) = 4.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 3D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = 4.25D0/(ispi*0.5D0)
+            ! CASE(7)
+            !     prob%cell(ic)%xmn(1,1) = 1D0/(ispi*0.5D0)
+            !     prob%cell(ic)%xmn(2,1) = 0.1D0/(ispi*0.5D0)
+            !     prob%cell(ic)%xmn(3,1) = 1D0/(ispi*0.5D0)
+            ! CASE(8)
+            !     prob%cell(ic)%xmn(1,1) = 1D0/(ispi*0.5D0)
+            !     prob%cell(ic)%xmn(2,1) = 0.1D0/(ispi*0.5D0)
+            !     prob%cell(ic)%xmn(3,1) = 1D0/(ispi*0.5D0)
+            END SELECT
+            prob%cell(ic)%x(1,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(1,:))
+            prob%cell(ic)%x(2,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(2,:))
+            prob%cell(ic)%x(3,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(3,:))
     ENDDO
 !    ============================
     
-!   Should we continue from where we left off
-!!! Not working properly right now (doesn't return same result when restarting)
-    IF(prob%cont) CALL prob%Continue()
+!   Should we continue from a spot where we left off? !! Not working right now,
+    !! doesn't return the same values for some reason
+    IF(cont .eq. "Yes") CALL prob%Continue()
     
 !   Write initial configuration
     CALL prob%write()
@@ -322,8 +325,8 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !       Do interpolation to get current grad tensor, then normalize by kolm time !!! Move this into update prob!!
         prob%info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
 !       Hardcoded shear
-        ! prob%dU = 0D0
-        ! prob%dU(1,3) = 1D0
+        prob%info%dU = 0D0
+        prob%info%dU(1,3) = 1D0
         ! prob%dU(1,1) =  1D0
         ! prob%dU(3,3) = -1D0
 !! ============================
@@ -355,7 +358,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             IF(ic .eq. ic2) THEN
                 CALL cell%fluid(A2, b2)
             ELSE
-                CALL cell%fluid(A2, b2, celli)
+                CALL cell%fluid(A2, b2, prob%info%periodic, celli)
             ENDIF
 
 !           Put sub matrix into big matrix
@@ -434,17 +437,22 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !       Update position and current time step
         cell%xmn = xmnt + umnt*prob%info%dt
 
-! !       Simple periodic
-!         IF(REAL(cell%xmn(1,1)).lt.-12D0*sqrt(pi)) THEN
-!             cell%xmn(1,1) = cell%xmn(1,1) + 24D0*sqrt(PI)
-!         ELSEIF(REAL(cell%xmn(1,1)).gt.12D0*sqrt(pi)) THEN
-!             cell%xmn(1,1) = cell%xmn(1,1) - 24D0*sqrt(PI)
-!         ENDIF
+!       For periodic, check if cells are outside primary cell, and put them in if so
+        IF(prob%info%periodic) THEN
+            DO ic2 = 1, prob%NCell
+                CALL prob%cell(ic2)%inPrim()
+            ENDDO
+        ENDIF
 
         cell%x(1,:,:) = cell%info%Y%backward(cell%xmn(1,:))
         cell%x(2,:,:) = cell%info%Y%backward(cell%xmn(2,:))
         cell%x(3,:,:) = cell%info%Y%backward(cell%xmn(3,:))
     ENDDO
+
+!   Advance periodic basis vectors
+    IF(prob%info%periodic) THEN
+        CALL prob%info%bvAdvance()
+    ENDIF
 
     CALL SYSTEM_CLOCK(toc)
     !print *, REAL(toc-tic)/REAL(rate)
@@ -457,7 +465,6 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             print *, 'ERROR: inftys or NaNs'
             STOP
     ENDIF
-    
 
 !   Write and display some output
     CALL prob%write()

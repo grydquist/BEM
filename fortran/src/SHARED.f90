@@ -33,6 +33,14 @@ TYPE sharedType
 
 !   Velocity gradient
     REAL(KIND = 8) :: dU(3,3)
+
+!   Periodic information (using periodic, basis vecs, volume, etc)
+!   Basis vectors are in columns of bv
+    LOGICAL :: periodic
+    REAL(KIND = 8) :: eye(3,3), bv(3,3), tau, bvl
+
+    CONTAINS
+    PROCEDURE :: bvAdvance => bvAdvanceInfo
 END TYPE sharedType
 
 ! -------------------------------------------------------------------------!
@@ -62,6 +70,18 @@ FUNCTION newinfo(filein) RESULT (info)
 
 !   Number of cells
     CALL READ_MFS(NCell, filein, 'Number_cells')
+
+!   Periodic box length
+    info%eye = 0D0
+    FORALL(ic = 1:3) info%eye(ic,ic) = 1D0
+    CALL READ_MFS(info%bvl, filein, 'Periodic_box_size')
+    IF(info%bvl .eq. 0) THEN
+        info%periodic = .false.
+    ELSE
+        info%periodic = .true.
+!       Start with cube
+        info%bv = info%eye*info%bvl
+    ENDIF
 
 !   Make harmonics(order, # of derivs, if we'll rotate or not)
     info%Y = YType(p, 1, .true.)
@@ -194,4 +214,16 @@ FUNCTION newinfo(filein) RESULT (info)
 
 END FUNCTION newinfo
 
+! -------------------------------------------------------------------------!
+! Advances the basis vectors in time, reparameterizes if needed
+SUBROUTINE bvAdvanceInfo(info)
+    CLASS(sharedType), INTENT(INOUT) :: info
+
+    info%bv = info%bv + MATMUL(info%dU,info%bv)*info%dt
+
+!   temporary lees-edwards
+    IF(info%bv(1,3).gt.info%bvl) info%bv(1,3) = info%bv(1,3) - info%bvl
+
+END SUBROUTINE bvAdvanceInfo
+    
 END MODULE SHAREDMOD

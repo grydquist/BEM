@@ -60,6 +60,7 @@ TYPE cellType
     PROCEDURE :: Vol     => Volcell
     PROCEDURE :: SA      => SAcell
     PROCEDURE :: Intg    => Intgcell
+    PROCEDURE :: InPrim  => InPrimcell
 END TYPE cellType
 
 ! -------------------------------------------------------------------------!
@@ -764,17 +765,18 @@ END SUBROUTINE Stresscell
 ! -------------------------------------------------------------------------!
 ! Knowing the force jump get the velocity on the surface of the cell via
 ! the fluid problem
-SUBROUTINE Fluidcell(cell, A2, b2, celli)
+SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
     COMPLEX(KIND = 8), INTENT(OUT), ALLOCATABLE :: A2(:,:), b2(:)
     TYPE(cellType), INTENT(IN), POINTER, OPTIONAL :: celli
     TYPE(sharedType), POINTER :: info
+    LOGICAL, INTENT(IN), OPTIONAL :: periodic_in
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
                colm, ind, im3, nt, np, indi = 1, indj = 1
-    LOGICAL sing
+    LOGICAL sing, periodic
     COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
-    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), eye(3,3), minr, dphi
+    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), minr, dphi
     COMPLEX(KIND = 8), ALLOCATABLE :: b(:), Ci(:,:,:,:), Ei(:,:,:,:), & 
                                       Dr(:,:,:), Fi(:,:,:,:), Ai(:,:,:,:,:,:), &
                                       fmnR(:,:), xmnR(:,:), nmnR(:,:)
@@ -788,6 +790,11 @@ SUBROUTINE Fluidcell(cell, A2, b2, celli)
 
     info => cell%info
     Y    => info%Y
+    IF(PRESENT(periodic_in)) THEN
+        periodic = periodic_in
+    ELSE
+        periodic = info%periodic
+    ENDIF
 
 !   Allocate things
     ALLOCATE(A2(info%Nmat, info%Nmat), &
@@ -810,9 +817,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, celli)
              xmnR(3, (info%p+1)*(info%p+1)), &
              wgi(Y%nt))
 
-    eye = 0D0
     Ai = 0D0
-    FORALL(j = 1:3) eye(j,j) = 1D0
 !   We need to do two integral loops: the first calculates the integral 
 !   that is the convolution of the Stokeslets and stresslets. We need those
 !   values at the integration points for the next step. Next we do the
@@ -1021,12 +1026,18 @@ SUBROUTINE Fluidcell(cell, A2, b2, celli)
                     IF(sing .and. j2 .eq. Y%np + 1) dphi = celli%info%Yf%dphi
 
                     r = xcg(:,i2,j2) - xcr
-!                   Matrix of integration grid about i,j-th point 
-                    Bi(1:3,1:3,i2,j2) = Tij(r, nJt(:,i2,j2))
+!                   Use periodic Greens (or not)
+                    IF(periodic) THEN
+!                       Matrix of integration grid about i,j-th point
+                        Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye)
+!                       RHS vector
+                        ft2 = PGij(r,2,info%bv,info%eye)
+                    ELSE
+                        Bi(1:3,1:3,i2,j2) = Tij(r, nJt(:,i2,j2))
+                        ft2 =  Gij(r, info%eye)
+                    ENDIF
                     
-!                   RHS vector
                     ft = frot(:,i2,j2)
-                    ft2 = Gij(r, eye)
                     bt = bt + INNER3_33(ft,ft2)*wgi(i2)*dphi
                 ENDDO
             ENDDO
@@ -1124,7 +1135,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, celli)
                     col = 3*(it-1) + 1
                     Ai(1:3,1:3,im2, ind, i, j) = Dr(1:3,1:3, it)*(1D0-cell%lam)/(1D0+cell%lam)
                     IF(.not. PRESENT(celli)) Ai(1:3,1:3, im2, ind, i, j) = &
-                                             Ai(1:3,1:3, im2, ind, i, j) - vcurn(i,j)*4D0*pi*eye
+                                             Ai(1:3,1:3, im2, ind, i, j) - vcurn(i,j)*4D0*pi*info%eye
                 ENDDO
             ENDDO
 
@@ -1227,7 +1238,7 @@ SUBROUTINE RelaxCell(cell, tol)
     DO WHILE(MAXVAL(ABS(cell%umn))*cell%Ca .gt. tol)
             CALL cell%derivs()
             CALL cell%stress() 
-            CALL cell%fluid(A2, b2)
+            CALL cell%fluid(A2, b2, .false.)
             CALL zcgesv(info%Nmat, 1, A2, info%Nmat, IPIV, b2, info%Nmat, ut, info%Nmat, wrk, swrk, rwrk, iter, p_info)
             cell%umn = 0D0
             cell%umn(1,1:info%Nmat/3) = ut((/(i, i=1,info%Nmat-2, 3)/))
@@ -1328,44 +1339,70 @@ FUNCTION Intgcell(cell, x) RESULT(intg)
 END FUNCTION Intgcell
 
 ! -------------------------------------------------------------------------!
-! Periodic functions to calculate the kernels
-! Arguments are (in order) distance vector, wavenumber vector, lattice vectors,
-!   inverse lattice vectors, Ewald parameter, cutoff point (for loop), dij
-! FUNCTION PGij(r, k, lv, ilv, xi, cut, eye) RESULT(A)
-!     REAL(KIND = 8) r(3), k(3), lv(3,3), ilv(3,3), xi, &
-!                    eye(3,3), A(3,3), rcur(3), kcur(3), V
-!     INTEGER cut, i, j, k
+! Checks if the cell is in the primary cell, and gets the image that is if not
+SUBROUTINE InPrimcell(cell)
+    CLASS(cellType), INTENT(INOUT), TARGET :: cell
+    REAL(KIND = 8) :: xc(3), n(3), bv1(3), bv2(3), bv3(3), d, pd
+    INTEGER :: move(3)
+    TYPE(sharedType), POINTER:: info
+    LOGICAL :: in
 
-! !   Calculate volume
+    info => cell%info
 
-! !   We do the real and Fourier sums in the same loops
-!     DO i = -cut, cut
-!         DO j = -cut,cut
-!             DO k = -cut cut
-! !               Skip current box(???)
+!   Get center of cell
+    xc = REAL(cell%xmn(:,1)*0.5D0*ispi)
 
-! !               Real part (get current vector first)
-!                 rcur = r + i*lv(:,1) + j*lv(:,2) + k*lv(:,3)
+!   Now the actual calculation of if this point is in
+!   Here's how: the cell is composed of 6 planes, or
+!   3 pairs of parallel planes. We need to check if the point
+!   is between each pair of these planes. For each pair, one of
+!   the planes goes through (0,0) which are the ones we'll look at.
+!   There are 3 basis vectors, and two basis vectors define a plane.
+!   The projection of the third vector onto the normal defines the
+!   distance between the pair of parallel planes. We just need to
+!   check the points distance to this distance, and make sure it's
+!   smaller (paying attention to the sign)
 
-! !               Fourier part
-!                 kcur = k + i*ilv(:,1) + j*ilv(:,2) + k*ilv(:,3)
+!   Get each basis vector so it's a little easier to work with
+    bv1 = info%bv(:,1)
+    bv2 = info%bv(:,2)
+    bv3 = info%bv(:,3)
+
+!   Get normal vector to first plane
+    n = CROSS(bv1,bv2)
+    n = n/NORM2(n)
+!   Get projected distance of 3rd vector and point
+    d  = DOT(n, bv3)
+    pd = DOT(n, xc)
+
+!   Get number of boxes we need to go to get into the box
+    move(3) = FLOOR(pd/d)
+
+!   And just repeat for the other two directions
+    n = CROSS(bv2,bv3)
+    n = n/NORM2(n)
+    d  = DOT(n, bv1)
+    pd = DOT(n, xc)
+    move(1) = FLOOR(pd/d)
+
+    n = CROSS(bv3,bv1)
+    n = n/NORM2(n)
+    d  = DOT(n, bv2)
+    pd = DOT(n, xc)
+    move(2) = FLOOR(pd/d)
+    
+!   Now move them back the specified number of cells, accounting for spherical hamronics
+    cell%xmn(:,1) = cell%xmn(:,1) &
+                  - (REAL(move(1))*bv1)/(0.5D0*ispi) &
+                  - (REAL(move(2))*bv2)/(0.5D0*ispi) &
+                  - (REAL(move(3))*bv3)/(0.5D0*ispi)
 
 
-!             ENDDO
-!         ENDDO
-!     ENDDO
 
-!     mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
-!     A(1,1) = r(1)*r(1)
-!     A(2,2) = r(2)*r(2)
-!     A(3,3) = r(3)*r(3)
-!     A(1,2) = r(1)*r(2)
-!     A(1,3) = r(1)*r(3)
-!     A(2,3) = r(2)*r(3)
-!     A(3,2) = A(2,3)
-!     A(3,1) = A(1,3)
-!     A(2,1) = A(1,2)
-!     A = A*mri*mri*mri + eye*mri
-! END FUNCTION PGij
+
+    ! xc = REAL(cell%xmn(:,1)*0.5D0*ispi)
+    ! print *, xc
+
+END SUBROUTINE InPrimcell
 
 END MODULE SHAPEMOD

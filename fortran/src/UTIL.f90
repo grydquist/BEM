@@ -376,17 +376,6 @@ PURE FUNCTION VelInterp(G, t, nts, kfr) RESULT(dU)
 END FUNCTION VelInterp
 
 ! -------------------------------------------------------------------------!
-! Takes the velocity gradient file and gets it all setup
-PURE FUNCTION VGradSetup(x, y, xo) RESULT(yo)
-    REAL(KIND = 8), INTENT(IN) :: x(3), xo
-    REAL(KIND = 8), INTENT(IN), ALLOCATABLE :: y(:,:,:)
-    REAL(KIND = 8), ALLOCATABLE :: yo(:,:)
-    yo = y(1,:,:)*(xo - x(2))*(xo - x(3))/((x(1) - x(2))*(x(1) - x(3))) &
-       + y(2,:,:)*(xo - x(1))*(xo - x(3))/((x(2) - x(1))*(x(2) - x(3))) &
-       + y(3,:,:)*(xo - x(1))*(xo - x(2))/((x(3) - x(1))*(x(3) - x(2)))
-END FUNCTION VGradSetup
-
-! -------------------------------------------------------------------------!
 ! Gets values after specified input
 
 SUBROUTINE READ_GRINT_DOUB(x, filen, srch)
@@ -482,14 +471,132 @@ FUNCTION Tij(r, n) RESULT(A)
     A = -6D0*A*(mri*mri*mri*mri*mri)*(r(1)*n(1) + r(2)*n(2) + r(3)*n(3))
 END FUNCTION Tij
 
-!!! Net force calculation - should be zero with no external force
-    ! Uc = 0D0
-    ! DO i = 1,cell%Yf%nt
-    !     DO j = 1,cell%Yf%np
-    !         Uc = Uc + cell%Yf%wg(i)*cell%J(i,j)*cell%Yf%dphi*cell%ff(:,i,j)
-    !     ENDDO
-    ! ENDDO
-    ! print *, Uc
-    ! Uc = 0D0
+! -------------------------------------------------------------------------!
+! Periodic functions to calculate the kernels
+! Arguments:
+!   r:        Distance from eval point to source point in primary cell
+!   bxs:      Number of boxes to sum over
+!   bv:       Basis vectors representing original cell
+!   eye:      Identity matrix
+!   n (Tij):  Normal vector
+FUNCTION PGij(r, bxs, bv, eye) RESULT(A)
+    REAL(KIND = 8) :: r(3), bv(3,3), eye(3,3), A(3,3), xi, tau, kv(3,3), &
+                      rcur(3), kcur(3)
+    INTEGER :: bxs, i, j, k
+
+    A = 0D0
+
+!   Calculate the Ewald parameter (function of vol of primary cell, tau)
+    tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
+    xi = PI**0.5D0/tau**(1D0/3D0)    
+
+!   Reciprocal (Fourier) basis vectors
+    kv(:,1) = 2D0*PI/tau*CROSS(bv(:,2), bv(:,3));
+    kv(:,2) = 2D0*PI/tau*CROSS(bv(:,3), bv(:,1));
+    kv(:,3) = 2D0*PI/tau*CROSS(bv(:,1), bv(:,2));
+!!!!!!!! calculate all of above ahead, use as argument? !!!!!!!
+
+!   We do the real and Fourier sums in the same loops
+    DO i = -bxs, bxs
+        DO j = -bxs, bxs
+            DO k = -bxs, bxs
+
+!               Real part (get current vector first)
+                rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
+                A    = A + REAL_G_HAS(rcur, xi, eye)
+
+!               Fourier part
+                kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
+                IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
+                    A = A + FOURIER_G_HAS(kcur, xi, eye)/tau*COS(DOT(kcur,r))
+                ENDIF
+            ENDDO
+        ENDDO
+    ENDDO
+
+    CONTAINS
+!   Hasimotos
+    FUNCTION REAL_G_HAS(r, xi, eye) RESULT(A)
+        REAL(KIND = 8) :: r(3), mr, xi, A(3,3), C, D, eye(3,3), er
+        mr = SQRT(r(1)*r(1) + r(2)*r(2) + r(3)*r(3))
+        er = mr*xi
+        C = ERFC(er) - 2D0/SQRT(PI)*er*EXP(-er*er)
+        D = ERFC(er) + 2D0/SQRT(PI)*er*EXP(-er*er)
+        A = eye*C/mr + OUTER(r,r)*D/(mr*mr*mr)
+    END FUNCTION REAL_G_HAS
+
+    FUNCTION FOURIER_G_HAS(k, xi, eye) RESULT(A)
+        REAL(KIND = 8) k(3), xi, eye(3,3), A(3,3), kn, w
+        kn = SQRT(k(1)*k(1) + k(2)*k(2) + k(3)*k(3))
+        w = kn/xi;
+        A = 8D0*PI/(xi*xi*xi*xi)*(1D0/(w*w*w*w) + 0.25D0/(w*w) )*((kn*kn)*eye - OUTER(k,k))*exp(-0.25D0*w*w);
+    END FUNCTION FOURIER_G_HAS
+END FUNCTION PGij
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -!
+FUNCTION PTij(r, bxs, bv, n, eye) RESULT(A)
+    REAL(KIND = 8) :: r(3), bv(3,3), n(3), eye(3,3), A(3,3), xi, tau, kv(3,3), &
+                      rcur(3), kcur(3)
+    INTEGER :: bxs, i, j, k
+    COMPLEX(KIND = 8) Ai(3,3)
+
+    A  = 0D0
+    Ai = 0D0
+
+!   Calculate the Ewald parameter (function of vol of primary cell, tau)
+    tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
+    xi = PI**0.5D0/tau**(1D0/3D0)    
+
+!   Reciprocal (Fourier) basis vectors
+    kv(:,1) = 2D0*PI/tau*CROSS(bv(:,2), bv(:,3));
+    kv(:,2) = 2D0*PI/tau*CROSS(bv(:,3), bv(:,1));
+    kv(:,3) = 2D0*PI/tau*CROSS(bv(:,1), bv(:,2));
+!!!!!!!! calculate all of above ahead, use as argument? !!!!!!!
+
+!   We do the real and Fourier sums in the same loops
+    DO i = -bxs, bxs
+        DO j = -bxs, bxs
+            DO k = -bxs, bxs
+
+!               Real part (get current vector first)
+                rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
+                Ai   = Ai + REAL_T_HAS(rcur, xi, n, eye)
+
+!               Fourier part
+                kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
+                IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
+                    Ai = Ai + FOURIER_T_HAS(kcur, xi, n, eye)/tau*COS(DOT(kcur,r))
+                ENDIF
+            ENDDO
+        ENDDO
+    ENDDO
+    A = REAL(Ai)
+    
+    CONTAINS
+!   Hasimotos
+    FUNCTION REAL_T_HAS(r, xi, n, eye) RESULT(A)
+        REAL(KIND = 8) :: r(3), mr, xi, n(3), A(3,3), C, D, eye(3,3), er, rh(3), xer, rdn
+        mr = SQRT(r(1)*r(1) + r(2)*r(2) + r(3)*r(3))
+        rh = r/mr
+        er = mr*xi
+        xer = EXP(-er*er)
+        C = -6D0*ERFC(er)/(mr*mr) - xi*ispi/mr*(12D0 + 8D0*er*er - 16D0*er*er*er*er)*xer
+        D = 8D0*xi*xi*xi*ispi*(2D0 - er*er)*xer ! Disagreement in lit if there's extra r here. Don't think there should be tho
+        rdn = DOT(rh,n)
+        A = C*(OUTER(rh,rh)*rdn) + D*(eye*rdn + OUTER(n,rh) + OUTER(rh,n))
+    END FUNCTION REAL_T_HAS
+
+    FUNCTION FOURIER_T_HAS(k, xi, n, eye) RESULT(A)
+        REAL(KIND = 8) k(3), xi, n(3), eye(3,3), kn, w, kdn, Q2, xer
+        COMPLEX(KIND = 8) ::Q1(3,3), A(3,3)
+        kn = SQRT(k(1)*k(1) + k(2)*k(2) + k(3)*k(3))
+        w = kn/xi;
+        kdn = DOT(k,n);
+        Q1 = -ii*(-2D0/(kn*kn*kn*kn)*OUTER(k,k)*kdn + 1D0/(kn*kn)*(OUTER(k,n) + OUTER(n,k) + eye*kdn))
+        Q2 = 8D0 + 2D0*w*w + w*w*w*w
+        xer = EXP(-0.25D0*w*w)
+        A = PI*Q1*Q2*xer
+    END FUNCTION FOURIER_T_HAS
+END FUNCTION PTij
 
 END MODULE UTILMOD
