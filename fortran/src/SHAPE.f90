@@ -773,10 +773,10 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
     LOGICAL, INTENT(IN), OPTIONAL :: periodic_in
 
     INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
-               colm, ind, im3, nt, np, indi = 1, indj = 1
+               colm, ind, im3, nt, np, indi = 1, indj = 1, iper, jper, kper
     LOGICAL sing, periodic
     COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
-    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), minr, dphi
+    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), minr, dphi, rn, rcur(3)
     COMPLEX(KIND = 8), ALLOCATABLE :: b(:), Ci(:,:,:,:), Ei(:,:,:,:), & 
                                       Dr(:,:,:), Fi(:,:,:,:), Ai(:,:,:,:,:,:), &
                                       fmnR(:,:), xmnR(:,:), nmnR(:,:)
@@ -853,6 +853,25 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
                     DO j2 = 1,celli%info%Yf%np
                         r = celli%xf(:,i2,j2) - xcr
                         minr = MIN(norm2(r), minr)
+!                       We need to check all of the periodic images of the cell as well
+!                       Just check immediately surrounding boxes
+                        IF(periodic) THEN
+                            DO iper = -1,1
+                                DO jper = -1,1
+                                    DO kper = -1,1
+                                        rcur = r &
+                                             - iper*info%bv(:,1) &
+                                             - jper*info%bv(:,2) &
+                                             - kper*info%bv(:,3) 
+                                        minr = MIN(norm2(rcur), minr)
+                                        IF(minr .eq. norm2(rcur)) THEN
+                                            indi = i2
+                                            indj = j2
+                                        ENDIF
+                                    ENDDO
+                                ENDDO
+                            ENDDO
+                        ENDIF
 !                       Save indices of min spacing
                         IF(minr .eq. norm2(r)) THEN
                             indi = i2
@@ -1031,13 +1050,26 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
 !                       Matrix of integration grid about i,j-th point
                         Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye)
 !                       RHS vector
-                        ft2 = PGij(r,2,info%bv,info%eye)
+                        ft2 = PGij(r, 2, info%bv, info%eye)
+                        ft = frot(:,i2,j2)
+
+!                       We need to check if the periodic images give short range cell-cell interactions.
+!                       This needs to be added separately, because it uses the normal Stokeslet, not the periodic.
+!                       Go to each of the surrounding boxes, and check if the image point is within the cutoff distance
+!                       If it is, add it directly to b with non-periodic Green's function
+                        IF(PRESENT(celli) .and. info%CellCell) bt = bt + PeriodicCellCell(info, r)*wgi(i2)*dphi
                     ELSE
+                        rn = NORM2(r)
                         Bi(1:3,1:3,i2,j2) = Tij(r, nJt(:,i2,j2))
                         ft2 =  Gij(r, info%eye)
+                        ft = frot(:,i2,j2)
+!                       Add in Morse potential if cells are close enough
+                        IF(PRESENT(celli) .and. (rn .lt. 3D0*info%r0) .and. info%CellCell) THEN 
+                            ft = ft + Morse(r, rn, info%D, info%r0, info%Beta)
+                            ft = ft +    LJ(r, rn, info%epsi, info%r0)
+                        ENDIF
                     ENDIF
                     
-                    ft = frot(:,i2,j2)
                     bt = bt + INNER3_33(ft,ft2)*wgi(i2)*dphi
                 ENDDO
             ENDDO
@@ -1141,6 +1173,10 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
 
         ENDDO
     ENDDO
+    IF(PRESENT(CELLI)) THEN
+        ! print *, REAL(Ai(1,1,y%p,1,:,1))/(1D0-cell%lam)*(1D0+cell%lam) !!!
+        ! stop
+    ENDIF
 
 !   Second loop is over just the normal grid, redo pre-allocated parts for this grid
     es   => info%es
@@ -1404,5 +1440,38 @@ SUBROUTINE InPrimcell(cell)
     ! print *, xc
 
 END SUBROUTINE InPrimcell
+
+! -------------------------------------------------------------------------!
+! Checks if the cell is in the primary cell, and gets the image that is if not
+FUNCTION PeriodicCellCell(info, r) RESULT(fG)
+    TYPE(sharedType), POINTER:: info
+    REAL(KIND = 8) :: r(3), fG(3), rcur(3), f(3), rn, G(3,3)
+    INTEGER :: i, j, k
+
+    f = 0D0
+!   Loop over all boxes
+!   Check distance
+!   If distance below cutoff, calculate morse and LJ
+!   Multiply it with the Stokeslet of r and return
+!   Then that should be the only box that has a close enough length, so we can leave fn
+    DO i = -1,1
+        DO j = -1,1
+            DO k = -1,1
+                rcur = r + i*info%bv(:,1) + j*info%bv(:,2) + k*info%bv(:,3)
+                rn = NORM2(rcur)
+                IF(rn .lt. 3D0*info%r0) THEN
+                    f =  Morse(rcur, rn, info%D, info%r0, info%Beta)
+                    f = f + LJ(rcur, rn, info%epsi, info%r0)
+                    G = Gij(rcur, info%eye)
+                    fG = INNER3_33(f,G)
+                    RETURN
+                ENDIF
+            ENDDO
+        ENDDO
+    ENDDO
+    fG = 0D0
+    RETURN
+
+END FUNCTION PeriodicCellCell
 
 END MODULE SHAPEMOD

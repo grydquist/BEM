@@ -39,6 +39,10 @@ TYPE sharedType
     LOGICAL :: periodic
     REAL(KIND = 8) :: eye(3,3), bv(3,3), tau, bvl
 
+!   Cell-cell parameters
+    REAL(KIND = 8) :: epsi, r0, D, Beta
+    LOGICAL :: CellCell
+
     CONTAINS
     PROCEDURE :: bvAdvance => bvAdvanceInfo
 END TYPE sharedType
@@ -55,6 +59,7 @@ CONTAINS
 
 FUNCTION newinfo(filein) RESULT (info)
     CHARACTER(len = *), INTENT(IN) :: filein
+    CHARACTER(:), ALLOCATABLE :: cellchar
     INTEGER :: NCell
     TYPE(sharedType) :: info
     INTEGER fali, p, nt, np, ntf, npf, ic, m, ind, it, n, im, im2
@@ -70,6 +75,14 @@ FUNCTION newinfo(filein) RESULT (info)
 
 !   Number of cells
     CALL READ_MFS(NCell, filein, 'Number_cells')
+
+!   Are cell-cell interactions included
+    CALL READ_MFS(cellchar, filein, 'CellCell')
+    IF(TRIM(cellchar) .eq. "Yes") THEN
+        info%CellCell = .true.
+    ELSE
+        info%CellCell = .false.
+    ENDIF
 
 !   Periodic box length
     info%eye = 0D0
@@ -211,6 +224,13 @@ FUNCTION newinfo(filein) RESULT (info)
         ENDDO
     ENDDO
     ENDIF
+    
+!   Cell-cell interaction paramters (i.e. Morse and Lennard-Jones)
+!   The below parameters seem ok, but perhaps could use a bit of tweaking.
+    info%D = 0.03D0 ! 0.03 seems to be a good spot
+    info%r0 = 0.1D0 ! Tough to know good spot. 0.1-0.15 probably
+    info%Beta = 10D0! was at 1.5, but probably need around 10 so it decays fast
+    info%epsi = 0.023D0
 
 END FUNCTION newinfo
 

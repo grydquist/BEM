@@ -19,3 +19,5 @@ Continue nYes
 Shear_dim_time 2e-6
 Gradient_timestep 2e-7
 Path_line 1
+Periodic_box_size 5  # 5     # 0 is non-periodic
+CellCell Yes

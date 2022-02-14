@@ -472,6 +472,18 @@ FUNCTION Tij(r, n) RESULT(A)
 END FUNCTION Tij
 
 ! -------------------------------------------------------------------------!
+! Cell-cell interatction forces
+FUNCTION Morse(r, rn, De, r0, B) RESULT(f)
+    REAL(KIND = 8) :: r(3), rn, De, r0, B, f(3)
+    f = -2D0*De*B*(exp(B*(r0-rn)) - exp(2D0*B*(r0-rn)))*(r/rn)
+END FUNCTION Morse
+
+FUNCTION LJ(r, rn, e, s) RESULT(f)
+    REAL(KIND = 8) :: r(3), rn, e, s, f(3)
+    f = -24D0*e*(s**6)*(rn**6 - 2D0*s**6)/(rn**13)*(r/rn)
+END FUNCTION LJ
+
+! -------------------------------------------------------------------------!
 ! Periodic functions to calculate the kernels
 ! Arguments:
 !   r:        Distance from eval point to source point in primary cell
@@ -560,17 +572,22 @@ FUNCTION PTij(r, bxs, bv, n, eye) RESULT(A)
 
 !               Real part (get current vector first)
                 rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
-                Ai   = Ai + REAL_T_HAS(rcur, xi, n, eye)
+                ! Ai   = Ai + REAL_T_HAS(rcur, xi, n, eye)
+                A   = A + REAL_T_MAR(rcur, xi, n, eye)
 
 !               Fourier part
                 kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
                 IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
-                    Ai = Ai + FOURIER_T_HAS(kcur, xi, n, eye)/tau*COS(DOT(kcur,r))
+                    ! Ai = Ai + FOURIER_T_HAS(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))
+                    A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r)) 
                 ENDIF
             ENDDO
         ENDDO
     ENDDO
-    A = REAL(Ai)
+!   Just for Marin
+    A = A - 8D0*PI/tau*OUTER(r,n)
+
+    ! A = REAL(Ai)
     
     CONTAINS
 !   Hasimotos
@@ -581,7 +598,7 @@ FUNCTION PTij(r, bxs, bv, n, eye) RESULT(A)
         er = mr*xi
         xer = EXP(-er*er)
         C = -6D0*ERFC(er)/(mr*mr) - xi*ispi/mr*(12D0 + 8D0*er*er - 16D0*er*er*er*er)*xer
-        D = 8D0*xi*xi*xi*ispi*(2D0 - er*er)*xer ! Disagreement in lit if there's extra r here. Don't think there should be tho
+        D = 8D0*xi*xi*xi*ispi*(2D0 - er*er)*xer
         rdn = DOT(rh,n)
         A = C*(OUTER(rh,rh)*rdn) + D*(eye*rdn + OUTER(n,rh) + OUTER(rh,n))
     END FUNCTION REAL_T_HAS
@@ -590,13 +607,38 @@ FUNCTION PTij(r, bxs, bv, n, eye) RESULT(A)
         REAL(KIND = 8) k(3), xi, n(3), eye(3,3), kn, w, kdn, Q2, xer
         COMPLEX(KIND = 8) ::Q1(3,3), A(3,3)
         kn = SQRT(k(1)*k(1) + k(2)*k(2) + k(3)*k(3))
-        w = kn/xi;
-        kdn = DOT(k,n);
-        Q1 = -ii*(-2D0/(kn*kn*kn*kn)*OUTER(k,k)*kdn + 1D0/(kn*kn)*(OUTER(k,n) + OUTER(n,k) + eye*kdn))
+        w = kn/xi
+        kdn = DOT(k,n)
+        Q1 = (-2D0/(kn*kn*kn*kn)*OUTER(k,k)*kdn + 1D0/(kn*kn)*(OUTER(k,n) + OUTER(n,k) + eye*kdn))
         Q2 = 8D0 + 2D0*w*w + w*w*w*w
         xer = EXP(-0.25D0*w*w)
-        A = PI*Q1*Q2*xer
+        A = -PI*Q1*Q2*xer
     END FUNCTION FOURIER_T_HAS
+
+!   Try with the Marin decomp
+    FUNCTION REAL_T_MAR(r, xi, n, eye) RESULT(A)
+        REAL(KIND = 8) :: r(3), mr, xi, n(3), A(3,3), C, D, eye(3,3), er, rh(3), xer, rdn
+        mr = SQRT(r(1)*r(1) + r(2)*r(2) + r(3)*r(3))
+        rh = r/mr
+        er = mr*xi
+        xer = EXP(-er*er)
+        C = -6D0*ERFC(er)/(mr*mr) - xi*ispi/mr*(12D0 + 8D0*er*er)*xer
+        D = 4D0*xi*xi*xi*ispi*xer
+        rdn = DOT(rh,n)
+        A = C*(OUTER(rh,rh)*rdn) + D*(eye*rdn + OUTER(n, rh) + OUTER(rh, n))
+    END FUNCTION REAL_T_MAR
+
+    FUNCTION FOURIER_T_MAR(k, xi, n, eye) RESULT(A)
+        REAL(KIND = 8) k(3), xi, n(3), eye(3,3), kn, w, kdn, Q2, xer, Q1(3,3), A(3,3)
+        kn = SQRT(k(1)*k(1) + k(2)*k(2) + k(3)*k(3))
+        w = kn/xi
+        kdn = DOT(k,n)
+        xer = EXP(-0.25D0*w*w)
+        Q1 = (-2D0/(kn*kn*kn*kn)*OUTER(k,k)*kdn + 1D0/(kn*kn)*(OUTER(k,n) + OUTER(n,k) + eye*kdn))
+        Q2 = 8D0*PI*(1 + w*w*0.25D0)
+        A = Q1*Q2*xer
+    END FUNCTION FOURIER_T_MAR
+
 END FUNCTION PTij
 
 END MODULE UTILMOD
