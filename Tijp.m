@@ -1,6 +1,6 @@
 %% Periodic Stresslet
-
-function T = Tijp(xn, xs, n, bxs, bv, eps1)
+%%%%%%%%%% Doesn't seem to quite work in practice, used Marin instead
+function T = Tijp(xn, bxs, bv, eps1, n)
 % xn: distance in original cell
 % xs: original x location for self interaction
 % n: normal vec
@@ -44,7 +44,8 @@ for i = -bxs:bxs
                 T = T + BspecT(kc, eps1,n)/tau*cos(dot(kc,xn));
             else
 %               Self-interaction for zero net flow
-                T = T + selfT(xs,n)/tau;
+%               Don't think needed as the box will move with dist. vel??
+%                 T = T + selfT(xs,n)/tau;
             end
 
         end
@@ -56,6 +57,9 @@ end
 %%%% !!!!!!!!!!!!!!!!!!
 %%%% T may need a self interaction term for the fourier part if k = 0 (this
 %%%% will go to zero for the G part, but not necessarily for T).
+%%%% I can't really tell though if this is true...
+%%%% In fact I think we almost certainly don't need it. It isn't a
+%%%% self-interaction term, it's different
 
 
 % Beenakker's

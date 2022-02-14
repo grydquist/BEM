@@ -7,7 +7,7 @@ https://software.intel.com/content/www/us/en/develop/tools/oneapi/all-toolkits.h
 You will need the base kit and the HPC kit. Once that is finished, you
 can move onto the compilation. 
 
-To make, just go to the main directory (BEM/) and run make
+To make, just go to the main directory (BEM/) and run make.
 The solver will be in the fortran directory. You can run make
 in the individual directories as well. It will probably take
 5 minutes or so all told, give or take.
@@ -15,12 +15,13 @@ in the individual directories as well. It will probably take
 If you don't have access to MPI (e.g. you have a Mac), you can still
 compile in sequential mode with
     make seq=1
-It will likely take a good bit. You will get an executable called harms.
+
+When it's done, you will get an executable called harms.
 
 To run in parallel (only needed for multiple cells) run
     mpirun -n=NP ./harms file.mfs
-Where file.mfs is your input file (default: noBgrint.mfs) and
-NP is the number of processors
+in the directory where harms is, where file.mfs is your input 
+file (default: noBgrint.mfs) and NP is the number of processors
 
 To run it in sequential mode, run
     ./harms file.mfs

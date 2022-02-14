@@ -117,6 +117,7 @@ x3 = rrr.*cos(th);
 
 % For the RBC, fully defined at p = 5
 [x1mn,x2mn,x3mn] = RBCcoeffs(Yt,th,ph);
+[x1mn,x2mn,x3mn] = BactCoeffs(Yt,th,ph);
 % [x1mn,x2mn,x3mn] = CubeCoeff(Yt,tht,phi);
 xmns = zeros((p+1)^2,3,NT);
 xmns(:,1,1) = x1mn;
@@ -842,21 +843,21 @@ for i = 1:ntf
 %             +  es(1)*es(2)*(C*I2-B)*gn);
         
 %       Just to check if derivs are ok
-        ggg(i,j) = mab(1);
-        dggg(i,j) = dtauab(1);
-%         plot((thtf(1:end-1) + thtf(2:end))/2, (ddgg(2:end,1) - ddgg(1:end-1,1))/(thtf(2)-thtf(1)))
-        ddgg(i,j) = tau11;
-        dddg(i,j) = tauders(1,1,2) + tauders(2,2,2) + tauders(3,3,2);%cvt;
-        dddd(i,j) = dmabt(1,1);%c221;
-        gddd(i,j) = acos(xf(3,i,j)/sqrt(xf(1,i,j)^2 + xf(2,i,j)^2 + xf(3,i,j)^2));%tau21;
-        ggdd(i,j) = nk(1);%tau12;
-        gggd(i,j) = fb;%tau22;
-        gggg(i,j) =k;%c112;
-        gg(i,j) = 1/J(i,j)*(Jt*gn(1,1)*kt + Jt*gn(1,2)*kp + Jp*gn(2,1)*kt + Jp*gn(2,2)*kp)+ ...
-1/J(i,j)*(J(i,j)*dgt(1,1)*kt + J(i,j)*dgt(1,2)*kp + J(i,j)*dgp(2,1)*kt + J(i,j)*dgp(2,2)*kp)+ ...
-1/J(i,j)*(J(i,j)*gn(1,1)*kt2 + J(i,j)*gn(1,2)*ktp + J(i,j)*gn(2,1)*ktp + J(i,j)*gn(2,2)*kp2);
-        g_g(i,j) = LBk;
-        gugu(i,j) = kt*c1(3) + kp*c2(3);
+%         ggg(i,j) = mab(1);
+%         dggg(i,j) = dtauab(1);
+% %         plot((thtf(1:end-1) + thtf(2:end))/2, (ddgg(2:end,1) - ddgg(1:end-1,1))/(thtf(2)-thtf(1)))
+%         ddgg(i,j) = tau11;
+%         dddg(i,j) = tauders(1,1,2) + tauders(2,2,2) + tauders(3,3,2);%cvt;
+%         dddd(i,j) = dmabt(1,1);%c221;
+%         gddd(i,j) = acos(xf(3,i,j)/sqrt(xf(1,i,j)^2 + xf(2,i,j)^2 + xf(3,i,j)^2));%tau21;
+%         ggdd(i,j) = nk(1);%tau12;
+%         gggd(i,j) = fb;%tau22;
+%         gggg(i,j) =k;%c112;
+%         gg(i,j) = 1/J(i,j)*(Jt*gn(1,1)*kt + Jt*gn(1,2)*kp + Jp*gn(2,1)*kt + Jp*gn(2,2)*kp)+ ...
+% 1/J(i,j)*(J(i,j)*dgt(1,1)*kt + J(i,j)*dgt(1,2)*kp + J(i,j)*dgp(2,1)*kt + J(i,j)*dgp(2,2)*kp)+ ...
+% 1/J(i,j)*(J(i,j)*gn(1,1)*kt2 + J(i,j)*gn(1,2)*ktp + J(i,j)*gn(2,1)*ktp + J(i,j)*gn(2,2)*kp2);
+%         g_g(i,j) = LBk;
+%         gugu(i,j) = kt*c1(3) + kp*c2(3);
     end
 end
 
@@ -1048,6 +1049,7 @@ for i = 1:nt
                         if(n==0)
                             r = xcr-xcg(:,ig,jg);
                             v = Gij(r);
+%                             v2 = Gijp(r,bxs,eps1);
                             bt = bt + v*Nmyf(:,ig,jg)*Jg(ig,jg)*ws(ig);
                         end
                     end

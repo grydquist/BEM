@@ -19,14 +19,14 @@ kv(:,1) = 2*pi/tau*cross(bv(:,2),bv(:,3));
 kv(:,2) = 2*pi/tau*cross(bv(:,3),bv(:,1));
 kv(:,3) = 2*pi/tau*cross(bv(:,1),bv(:,2));
 
-eps1 = 10;% pi^0.5/tau^(1/3);
+eps1 = pi^0.5/tau^(1/3); % 10
 
 f= [1,0,0
    -1,0,0]';
 n = [0;1;0];
 
-%% Calculate them! Calculate force at one point between two forces
-bxs = 10;
+%% Calculate them. Calculate force at one point between two forces
+bxs = 2;
 bxt = bxs;
 ucv = zeros(3,bxt);
 uu=[0;0;0];
@@ -38,6 +38,7 @@ for bxs = bxt:bxt
 G = zeros(3,3,2);
 Gh = G;
 Gr = G;
+Tr=  Gr;
 GG = G;
 TT = G;
 uu=[0;0;0];
@@ -55,14 +56,18 @@ for i = -bxs:bxs
             
 %           Plot points (better with few boxes)
 %             if(k==0)
-%                 if(ps==1)
-%                     scatter3(x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),'b')
-%                     hold on
-%                     drawnow
-%                 else
-%                     scatter3(x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),'r')
-%                     drawnow                    
-%                 end
+                if(ps==1)
+                    scatter3(x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),'b')
+                    quiver3 (x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),0.2,0,0,'b')
+                    hold on
+                    drawnow
+                else
+                    scatter3(x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),'r')
+                    quiver3 (x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),-0.2,0,0,'r')
+                    drawnow
+                    axis([-1,2,-1,2,-1,2])
+                    pbaspect([1,1,1])
+                end
 %             end
             
 %           Doing both Poz and Hasimoto
@@ -83,6 +88,7 @@ for i = -bxs:bxs
             
 %           Also doing the real space one for comparison
             Gr(:,:,ps) = Gr(:,:,ps) + Gij(xn);%eye(3)/norm(xn) + xn*xn'/norm(xn)^3;
+            Tr(:,:,ps) = Tr(:,:,ps) + Tij(xn,n);
             
             
 %           To check consistency with real space one            
@@ -107,7 +113,7 @@ for i = -bxs:bxs
     end
 end
 GG(:,:,ps) = Gijp(xh0(:,ps),bxt,bv,eps1);
-TT(:,:,ps) = Tijp(xh0(:,ps),x0(:,ps),n,bxt,bv,eps1);
+TT(:,:,ps) = Tijp(xh0(:,ps),bxt,bv,eps1,n);
 end
 % scatter3(x(1),x(2),x(3));
 % hold off
@@ -140,6 +146,7 @@ disp(real(GG(:,:,1)*f(:,1) + GG(:,:,2)*f(:,2))')
 disp(uu')
 disp(real(Gr(:,:,1)*f(:,1) + Gr(:,:,2)*f(:,2))')
 
+% disp(real(TT(:,:,1)*f(:,1) + TT(:,:,2)*f(:,2))')
 %% Try ust calculating velocity first?? Try
 % u = [0;0;0];
 % u2 = u;
