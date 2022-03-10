@@ -61,6 +61,7 @@ TYPE cellType
     PROCEDURE :: SA      => SAcell
     PROCEDURE :: Intg    => Intgcell
     PROCEDURE :: InPrim  => InPrimcell
+    PROCEDURE :: Force   => ForceCell
 END TYPE cellType
 
 ! -------------------------------------------------------------------------!
@@ -781,7 +782,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
                                       Dr(:,:,:), Fi(:,:,:,:), Ai(:,:,:,:,:,:), &
                                       fmnR(:,:), xmnR(:,:), nmnR(:,:)
     REAL(KIND = 8), ALLOCATABLE :: frot(:,:,:), xcg(:,:,:), nJt(:,:,:), &
-                                   ft(:), ft2(:,:), Bi(:,:,:,:), wgi(:)
+                                   ft(:), ft2(:,:), Bi(:,:,:,:), wgi(:), tht_t(:)
     COMPLEX(KIND = 8), POINTER :: vcurn(:,:), es(:,:)
     REAL(KIND = 8), POINTER :: cPmn(:,:, :)
     TYPE(YType), POINTER :: Y, Yfi
@@ -815,7 +816,8 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
              fmnR(3, (info%p+1)*(info%p+1)), &
              nmnR(3, (info%p+1)*(info%p+1)), &
              xmnR(3, (info%p+1)*(info%p+1)), &
-             wgi(Y%nt))
+             wgi(Y%nt),&
+             tht_t(Y%nt))
 
     Ai = 0D0
 !   We need to do two integral loops: the first calculates the integral 
@@ -890,14 +892,15 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
                     np = cell%info%Yf%np + Y%np
 
 !                   Deallocate integ. quants
-                    DEALLOCATE(frot, xcg, nJt, Bi, Ci, wgi)
+                    DEALLOCATE(frot, xcg, nJt, Bi, Ci, wgi, tht_t)
                     ALLOCATE( &
                     frot(3, nt, np), &
                     xcg(3,  nt, np), &
                     nJt(3,  nt, np), &
                     Bi(3,3, nt, np), &
                     Ci(3,3, 2*(Y%p-1)+1, nt), &
-                    wgi(nt))
+                    wgi(nt), &
+                    tht_t(nt))
 
                     es   => info%esf
                     cPmn => info%cPmnf
@@ -909,6 +912,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
 
 !                   We don't do cosine transformation to cluster points near near-singularity, mult sine back in
                     wgi = wgi*SIN(celli%info%Ys%th(:,1))
+                    tht_t = celli%info%Ys%th(:,1)
 
 !                   The below formulation is slightly inefficient. To remain general, I want to just have a single
 !                   grid. However, the singular integral is calculated on 2 grids, one fine and one coarse.
@@ -950,19 +954,21 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
                     np = Y%np
 
 !                   Deallocate integ. quants
-                    DEALLOCATE(frot, xcg, nJt, Bi, Ci, wgi)
+                    DEALLOCATE(frot, xcg, nJt, Bi, Ci, wgi, tht_t)
                     ALLOCATE( &
                     frot(3, nt, np), &
                     xcg(3,  nt, np), &
                     nJt(3,  nt, np), &
                     Bi(3,3, nt, np), &
                     Ci(3,3, 2*(Y%p-1)+1, nt), &
-                    wgi(nt))
+                    wgi(nt), &
+                    tht_t(nt))
                     
                     es   => info%es
                     cPmn => info%cPmn
                     dphi = celli%info%Y%dphi
                     wgi  = celli%info%Y%wg
+                    tht_t= celli%info%Y%tht
 
                     xcg(1,:,:) = celli%x(1,:,:)
                     xcg(2,:,:) = celli%x(2,:,:)
@@ -1047,32 +1053,55 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
                     r = xcg(:,i2,j2) - xcr
 !                   Use periodic Greens (or not)
                     IF(periodic) THEN
-!                       Matrix of integration grid about i,j-th point
-                        Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye)
-!                       RHS vector
-                        ft2 = PGij(r, 2, info%bv, info%eye)
-                        ft = frot(:,i2,j2)
+!                       Three cases need consideration here: singular (integ on same cell), near-singular, non-singular
+!                       Each has unique ways that these integrals need to be calc'd
 
-!                       We need to check if the periodic images give short range cell-cell interactions.
-!                       This needs to be added separately, because it uses the normal Stokeslet, not the periodic.
-!                       Go to each of the surrounding boxes, and check if the image point is within the cutoff distance
-!                       If it is, add it directly to b with non-periodic Green's function
-                        IF(PRESENT(celli) .and. info%CellCell) bt = bt + PeriodicCellCell(info, r)*wgi(i2)*dphi
+!                       Below, calculate some intermediate matrices, as well as RHS vector, pre-Galerkin
+                        IF(.not.PRESENT(celli)) THEN
+!                           Matrix of integration grid about i,j-th point
+!                           Gauss weights used in calculation, because different weights are needed when in primary cell
+                            Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye, Y%wg(i2), wgi(i2)) 
+!                           RHS vector
+                            ft2 = PGij(r, 2, info%bv, info%eye, Y%wg(i2), wgi(i2)) !!!!!!PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye, Y%wg(i2), wgi(i2))!!!!!!!!!!
+                            ft  = frot(:,i2,j2)!!!!!!!(/1,0,0/)!!!!!!!!
+                        ELSE
+!                           All weights the same regardless of cell, keep outside
+!                           Matrix of integration grid about i,j-th point
+                            Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, nJt(:,i2,j2), wgi(i2), wgi(i2)) !!! For some reason OPTIONAL not working?
+                            ft2 = PGij(r, 2, info%bv, info%eye)*wgi(i2)                             !!! Also something quite wrong with mult cells
+                            ft  = frot(:,i2,j2)
+
+!                           We need to check if the periodic images give short range cell-cell interactions.
+!                           This needs to be added separately, because it uses the normal Stokeslet, not the periodic.
+!                           Go to each of the surrounding boxes, and check if the image point is within the cutoff distance
+!                           If it is, add it directly to b with non-periodic Green's function
+                            IF(sing) THEN
+                                bt = bt + PeriodicCellCell(info, r)*wgi(i2)*dphi/SIN(tht_t(i2))
+                            ELSE
+                                bt = bt + PeriodicCellCell(info, r)*wgi(i2)*dphi
+                            ENDIF
+
+                        ENDIF
                     ELSE
                         rn = NORM2(r)
-                        Bi(1:3,1:3,i2,j2) = Tij(r, nJt(:,i2,j2))
-                        ft2 =  Gij(r, info%eye)
-                        ft = frot(:,i2,j2)
+                        Bi(1:3,1:3,i2,j2) = Tij(r, nJt(:,i2,j2))*wgi(i2)
+                        ft2 = Gij(r, info%eye)*wgi(i2)
+                        ft  = frot(:,i2,j2)
 !                       Add in Morse potential if cells are close enough
                         IF(PRESENT(celli) .and. (rn .lt. 3D0*info%r0) .and. info%CellCell) THEN 
                             ft = ft + Morse(r, rn, info%D, info%r0, info%Beta)
                             ft = ft +    LJ(r, rn, info%epsi, info%r0)
+                            IF(.not.sing) ft = ft/SIN(tht_t(i2))
                         ENDIF
                     ENDIF
                     
-                    bt = bt + INNER3_33(ft,ft2)*wgi(i2)*dphi
+                    bt = bt + INNER3_33(ft,ft2)*dphi
                 ENDDO
             ENDDO
+            ! print *, (abs(bt(1))-4D0*pi)/4D0/pi
+            ! IF(i.eq.3.and.j.eq.3) THEN
+            ! stop
+            ! ENDIF
 
             b(row:row+2) = bt/(1D0 + cell%lam)
             IF(.not. PRESENT(celli)) b(row:row+2) = b(row:row+2) &
@@ -1100,7 +1129,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
                     colm = im2 - 2*m2
                     tmpsum = 0D0
                     DO i2 = 1,nt
-                        tmpsum = tmpsum + Ci(1:3,1:3, im2, i2)*cPmn(ind,im2,i2)*wgi(i2)
+                        tmpsum = tmpsum + Ci(1:3,1:3, im2, i2)*cPmn(ind,im2,i2)
                     ENDDO
                     Ei(1:3,1:3, im2, ind) = tmpsum
 !                   Symmetry
@@ -1173,10 +1202,6 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
 
         ENDDO
     ENDDO
-    IF(PRESENT(CELLI)) THEN
-        ! print *, REAL(Ai(1,1,y%p,1,:,1))/(1D0-cell%lam)*(1D0+cell%lam) !!!
-        ! stop
-    ENDIF
 
 !   Second loop is over just the normal grid, redo pre-allocated parts for this grid
     es   => info%es
@@ -1251,6 +1276,265 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
     ! print *, REAL(toc-tic)/REAL(rate)
 END SUBROUTINE Fluidcell
 
+! -------------------------------------------------------------------------!
+! Finds the explicit value of the force (either on the external or internal side)
+SUBROUTINE ForceCell(cell, A2, b2)
+    CLASS(cellType), INTENT(INOUT), TARGET :: cell
+    COMPLEX(KIND = 8), INTENT(OUT), ALLOCATABLE :: A2(:,:), b2(:)
+    TYPE(sharedType), POINTER :: info
+    COMPLEX(KIND = 8), POINTER :: vcurn(:,:), es(:,:)
+    REAL(KIND = 8), POINTER :: cPmn(:,:, :)
+    TYPE(YType), POINTER :: Y, Yfi
+    TYPE(nmType), POINTER :: nm
+    COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
+    REAL(KIND = 8) :: xcr(3), r(3), dphi, rcur(3)
+    INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
+               colm, ind, im3, nt, np
+    COMPLEX(KIND = 8), ALLOCATABLE :: b(:), Ci(:,:,:,:), Ei(:,:,:,:), & 
+                                      Dr(:,:,:), Fi(:,:,:,:), Ai(:,:,:,:,:,:), &
+                                      fmnR(:,:), xmnR(:,:), nmnR(:,:)
+    REAL(KIND = 8), ALLOCATABLE :: frot(:,:,:), xcg(:,:,:), nJt(:,:,:), &
+                                   ft(:), ft2(:,:), Bi(:,:,:,:), wgi(:), uxc(:,:,:)
+
+    info => cell%info
+    Y    => info%Y
+    dphi = Y%dphi
+
+!   Exponential  part
+    es   => info%es
+!   Legendre polynomial part
+    cPmn => info%cPmn
+
+    nt = Y%nt
+    np = Y%np
+    wgi = Y%ws
+
+!   Allocate things
+    ALLOCATE(A2(info%Nmat, info%Nmat), &
+             b(3*Y%nt*Y%np), &
+             b2(info%Nmat), &
+             frot(3, Y%nt, Y%np), &
+             xcg(3, Y%nt, Y%np), &
+             nJt(3, Y%nt, Y%np), &
+             ft(3), ft2(3,3), &
+             Bi(3,3,Y%nt,Y%np), &
+             Ci(3,3, 2*(Y%p-1)+1, Y%nt), &
+             Ei(3,3, 2*(Y%p-1)+1, Y%p), &
+             Fi(3,3, 2*(Y%p-1)+1, Y%nt), &
+             Ai(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
+             Dr(3,3,Y%p*Y%p),  &
+             fmnR(3, (info%p+1)*(info%p+1)), &
+             nmnR(3, (info%p+1)*(info%p+1)), &
+             xmnR(3, (info%p+1)*(info%p+1)), &
+             uxc(3, Y%nt, Y%np))
+
+    Ai = 0D0
+    ip = 0
+    ic = 0
+
+    uxc(1,:,:) = Y%backward(cell%umn(1,:), info%p)
+    uxc(2,:,:) = Y%backward(cell%umn(2,:), info%p)
+    uxc(3,:,:) = Y%backward(cell%umn(3,:), info%p)
+!   First loops: singular integral points
+    DO i = 1,Y%nt
+        DO j = 1,Y%np
+!           Bookkeeping
+            ic = ic + 1
+            row = 3*(ic - 1)  + 1
+
+!           Location of north pole in unrotated frame (just current integration point)
+            xcr = cell%x(:,i,j)
+
+            xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
+            xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
+            xmnR(3,:) = Y%rotate(cell%xmn(3,:), i, j, -Y%phi(j))
+
+!           Rotated integration points in unrotated frame
+            xcg(1,:,:) = Y%backward(xmnR(1,:))
+            xcg(2,:,:) = Y%backward(xmnR(2,:))
+            xcg(3,:,:) = Y%backward(xmnR(3,:))
+
+!           VELOCITIES on rotated grid
+            fmnR(1,:) = Y%rotate(cell%umn(1,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+            fmnR(2,:) = Y%rotate(cell%umn(2,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+            fmnR(3,:) = Y%rotate(cell%umn(3,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+
+            fmnR(1,:) = Y%rotate(cell%fmn(1,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+            fmnR(2,:) = Y%rotate(cell%fmn(2,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+            fmnR(3,:) = Y%rotate(cell%fmn(3,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j)) !!!!!!!!!!!
+
+            frot(1,:,:) = Y%backward(fmnR(1,:), info%p)
+            frot(2,:,:) = Y%backward(fmnR(2,:), info%p)
+            frot(3,:,:) = Y%backward(fmnR(3,:), info%p)
+
+!           Rotate the normal vector total constants
+            nmnR(1,:) = Y%rotate(cell%nkt(1,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+            nmnR(2,:) = Y%rotate(cell%nkt(2,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+            nmnR(3,:) = Y%rotate(cell%nkt(3,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+
+            nJt(1,:,:) = Y%backward(nmnR(1,:), info%p)
+            nJt(2,:,:) = Y%backward(nmnR(2,:), info%p)
+            nJt(3,:,:) = Y%backward(nmnR(3,:), info%p)
+
+!           First matrix: integral components at the i,jth - i2,j2 grid. !!!! Need Morse??
+            Bi = 0D0
+            bt = 0D0
+
+            DO j2 = 1,np
+                DO i2 = 1,nt
+                    r = xcg(:,i2,j2) - xcr
+                    Bi(1:3,1:3,i2,j2) = Gij(r, info%eye)
+                    ft2 = Gij(r, info%eye) !Tij(r, nJt(:,i2,j2))
+                    ft = frot(:,i2,j2)
+                    bt = bt + INNER3_33(ft,ft2)*wgi(i2)*dphi !!!!!!!!!! SHOULD THIS BE WITH NORMAL WEIGHTS?
+                    ! print *, norm2(nJt(:,i2,j2)), y%tht(i2)
+                ENDDO
+                ! print *, ' '
+                ! DO i2 = 1,info%yf%nt
+                ! print *, cell%J(i2,1)/sin(info%yf%tht(i2)), info%yf%tht(i2) !!! still ends up working out... try with later time step???
+                ! !!! Just checking transform invariance of J/sintht
+                ! enddo
+                ! stop
+            ENDDO
+
+            b(row:row+2) = bt !- 4D0*PI*uxc(:,i,j)*cell%lam
+            ! print *, ABS(bt)
+            ! print *, ' '
+            ! print *, uxc(:,i,j)*8*pi    ! Something is so trange about this...
+            ! print *, ' '
+            ! print *, ABS(bt/8D0/pi)
+            ! stop
+            
+!           Next intermediate matrices: over phi's and theta's
+            im2 = 0
+            DO m2 = -(Y%p-1), Y%p-1
+                im2 = im2 + 1
+                DO i2 = 1, nt
+                    tmpsum = 0D0
+                    DO j2 = 1, np
+                        tmpsum = tmpsum + Bi(1:3, 1:3, i2, j2)*es(im2, j2) ! dphis incorporated into es
+                    ENDDO
+                    Ci(1:3,1:3,im2,i2) = tmpsum
+                ENDDO
+            ENDDO
+
+            DO n = 0, Y%p-1
+                ind = n+1
+                im2 = Y%p-1
+                DO m2 = 0,(Y%p-1)
+                    im2 = im2+1
+                    colm = im2 - 2*m2
+                    tmpsum = 0D0
+                    DO i2 = 1,nt
+                        tmpsum = tmpsum + Ci(1:3,1:3, im2, i2)*cPmn(ind,im2,i2)*wgi(i2)
+                    ENDDO
+                    Ei(1:3,1:3, im2, ind) = tmpsum
+!                   Symmetry
+                    IF(m2.gt.0) THEN
+                        Ei(1:3,1:3, colm, ind) = CONJG(tmpsum)*(-1D0)**m2
+                    ENDIF
+                ENDDO
+            ENDDO
+
+!           Last loop to bring it all together and get the row
+            it = 0
+            Dr = 0D0
+            DO n = 0,Y%p-1
+                ind = n + 1
+                im = 0
+                DO m = -n,n
+                    im = im + 1
+                    it = it + 1
+                    tmpsum = 0D0
+                    im3 = 0
+                    DO m2 = -n,n
+                        im2 = Y%p + im3 - n
+                        im3 = im3 + 1
+                        tmpsum = tmpsum &
+                            + Ei(1:3,1:3, im2, ind) &
+                            * Y%rot(i,j,ind)%dmms(im,im3) &
+                            * EXP(ii*(m-m2)*Y%phi(j))
+                    ENDDO
+                    Dr(1:3,1:3,it) = tmpsum
+                ENDDO
+            ENDDO
+
+!           Now let's put this in the matrix
+            it = 0
+            ind = 0
+            DO n = 0,Y%p-1
+                ind = ind+1
+                nm  => Y%nm(n+1)
+                im = 0
+                DO m = -n,n
+                    im = im + 1
+                    im2 = m + (Y%p)
+                    vcurn => nm%v(im,:,:)
+                    it = it+1
+                    col = 3*(it-1) + 1
+                    Ai(1:3,1:3,im2, ind, i, j) = Dr(1:3,1:3, it)
+                ENDDO
+            ENDDO
+
+        ENDDO
+    ENDDO
+    
+!   Second integral: The outer loops go over the order and degree of the previous integrals
+    it = 0
+    DO n = 0,Y%p - 1
+        nm => Y%nm(n+1)
+        DO m = -n,n
+            im = m + Y%p
+            it = it + 1
+            col = 3*it - 2
+
+!           First loop: m2 (Galerkin order), theta, sum phi, 
+            DO m2 = -(Y%p-1), Y%p-1
+                im2 = m2 + Y%p
+                DO i2 = 1,Y%nt
+                    tmpsum = 0D0
+                    DO j2 = 1,Y%np
+                        tmpsum = tmpsum + Ai(1:3,1:3, im, n+1, i2, j2)*CONJG(es(im2,j2))
+                    ENDDO
+                    Fi(1:3,1:3,im2,i2) = tmpsum
+                ENDDO
+            ENDDO
+
+!           Second loop: n2, m2, sum theta
+            im2 = 0
+            DO n2 = 0, Y%p-1
+                DO m2 = -n2, n2
+                    im3 = m2 + Y%p
+                    im2 = im2 + 1
+                    row = 3*im2 - 2
+                    At = 0D0
+                    ! At2 = 0D0
+                    DO i2 = 1,Y%nt
+                        At  = At  + Fi(1:3,1:3,im3, i2)*cPmn(n2+1,im3,i2)*Y%wg(i2)
+                    ENDDO
+                    A2(row:row+2,col:col+2) = At
+                ENDDO
+            ENDDO
+
+            ic = 0
+!           Loop over integration points to calc integral
+            bt = 0D0
+            vcurn => nm%v(m + n + 1,:,:)
+            DO i =1,Y%nt
+                DO j = 1,Y%np
+                ic = ic+1
+
+!               Intg. b (essentially forward transform of RHS!)
+                bt = bt + b(3*ic-2:3*ic)*CONJG(vcurn(i,j)) &
+                    *Y%wg(i)*Y%dphi
+                ENDDO
+            ENDDO
+            b2(col:col+2) = bt
+
+        ENDDO
+    ENDDO
+
+END SUBROUTINE ForceCell
 ! -------------------------------------------------------------------------!
 ! Runs until initial cell is relaxed
 SUBROUTINE RelaxCell(cell, tol)
@@ -1433,16 +1717,10 @@ SUBROUTINE InPrimcell(cell)
                   - (REAL(move(2))*bv2)/(0.5D0*ispi) &
                   - (REAL(move(3))*bv3)/(0.5D0*ispi)
 
-
-
-
-    ! xc = REAL(cell%xmn(:,1)*0.5D0*ispi)
-    ! print *, xc
-
 END SUBROUTINE InPrimcell
 
 ! -------------------------------------------------------------------------!
-! Checks if the cell is in the primary cell, and gets the image that is if not
+! Gets very close range interactions for a cell and periodic images of other cells
 FUNCTION PeriodicCellCell(info, r) RESULT(fG)
     TYPE(sharedType), POINTER:: info
     REAL(KIND = 8) :: r(3), fG(3), rcur(3), f(3), rn, G(3,3)

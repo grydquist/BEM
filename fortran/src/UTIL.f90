@@ -491,15 +491,20 @@ END FUNCTION LJ
 !   bv:       Basis vectors representing original cell
 !   eye:      Identity matrix
 !   n (Tij):  Normal vector
-FUNCTION PGij(r, bxs, bv, eye) RESULT(A)
+!   wg:       Gauss weight at point
+!   wgprim:   Gauss weight at point in primary cell
+FUNCTION PGij(r, bxs, bv, eye, wg, wgprim) RESULT(A)
     REAL(KIND = 8) :: r(3), bv(3,3), eye(3,3), A(3,3), xi, tau, kv(3,3), &
                       rcur(3), kcur(3)
     INTEGER :: bxs, i, j, k
+    REAL(KIND = 8), OPTIONAL :: wg, wgprim
+    REAL(KIND = 8) :: wgt
 
     A = 0D0
 
 !   Calculate the Ewald parameter (function of vol of primary cell, tau)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
+    !!!!!!! TAU SHOULDN'T CHANGE (LINEAR FLOW, NO DILATATION)
     xi = PI**0.5D0/tau**(1D0/3D0)    
 
 !   Reciprocal (Fourier) basis vectors
@@ -513,14 +518,25 @@ FUNCTION PGij(r, bxs, bv, eye) RESULT(A)
         DO j = -bxs, bxs
             DO k = -bxs, bxs
 
+!               Store Gauss weights so that I can be general
+                IF(PRESENT(wgprim)) THEN
+                    IF((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) THEN
+                        wgt = wgprim
+                    ELSE
+                        wgt = wg
+                    ENDIF
+                ELSE
+                    wgt = 1D0
+                ENDIF
+
 !               Real part (get current vector first)
                 rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
-                A    = A + REAL_G_HAS(rcur, xi, eye)
+                A    = A + REAL_G_HAS(rcur, xi, eye)*wgt
 
 !               Fourier part
                 kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
                 IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
-                    A = A + FOURIER_G_HAS(kcur, xi, eye)/tau*COS(DOT(kcur,r))
+                    A = A + FOURIER_G_HAS(kcur, xi, eye)/tau*COS(DOT(kcur,r))*wgt
                 ENDIF
             ENDDO
         ENDDO
@@ -532,8 +548,8 @@ FUNCTION PGij(r, bxs, bv, eye) RESULT(A)
         REAL(KIND = 8) :: r(3), mr, xi, A(3,3), C, D, eye(3,3), er
         mr = SQRT(r(1)*r(1) + r(2)*r(2) + r(3)*r(3))
         er = mr*xi
-        C = ERFC(er) - 2D0/SQRT(PI)*er*EXP(-er*er)
-        D = ERFC(er) + 2D0/SQRT(PI)*er*EXP(-er*er)
+        C = ERFC(er) - 2D0*ispi*er*EXP(-er*er)
+        D = ERFC(er) + 2D0*ispi*er*EXP(-er*er)
         A = eye*C/mr + OUTER(r,r)*D/(mr*mr*mr)
     END FUNCTION REAL_G_HAS
 
@@ -546,14 +562,14 @@ FUNCTION PGij(r, bxs, bv, eye) RESULT(A)
 END FUNCTION PGij
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -!
-FUNCTION PTij(r, bxs, bv, n, eye) RESULT(A)
+FUNCTION PTij(r, bxs, bv, n, eye, wg, wgprim) RESULT(A)
     REAL(KIND = 8) :: r(3), bv(3,3), n(3), eye(3,3), A(3,3), xi, tau, kv(3,3), &
                       rcur(3), kcur(3)
     INTEGER :: bxs, i, j, k
-    COMPLEX(KIND = 8) Ai(3,3)
+    REAL(KIND = 8), OPTIONAL :: wg, wgprim
+    REAL(KIND = 8) :: wgt
 
     A  = 0D0
-    Ai = 0D0
 
 !   Calculate the Ewald parameter (function of vol of primary cell, tau)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
@@ -570,27 +586,36 @@ FUNCTION PTij(r, bxs, bv, n, eye) RESULT(A)
         DO j = -bxs, bxs
             DO k = -bxs, bxs
 
+!               Store Gauss weights so that I can be general
+                IF(PRESENT(wgprim)) THEN
+                    IF((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) THEN
+                        wgt = wgprim
+                    ELSE
+                        wgt = wg
+                    ENDIF
+                ELSE
+                    wgt = 1D0
+                ENDIF
+
 !               Real part (get current vector first)
                 rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
-                ! Ai   = Ai + REAL_T_HAS(rcur, xi, n, eye)
-                A   = A + REAL_T_MAR(rcur, xi, n, eye)
+                ! A   = A + REAL_T_HAS(rcur, xi, n, eye)*wgt
+                A   = A + REAL_T_MAR(rcur, xi, n, eye)*wgt
 
 !               Fourier part
                 kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
                 IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
-                    ! Ai = Ai + FOURIER_T_HAS(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))
-                    A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r)) 
+                    ! A = A + FOURIER_T_HAS(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))*wgt
+                    A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))*wgt
                 ENDIF
             ENDDO
         ENDDO
     ENDDO
 !   Just for Marin
-    A = A - 8D0*PI/tau*OUTER(r,n)
-
-    ! A = REAL(Ai)
+    A = A - 8D0*PI/tau*OUTER(r,n)*wg
     
     CONTAINS
-!   Hasimotos
+!   Hasimotos !!!!!!!! Possibly missing mr in D???
     FUNCTION REAL_T_HAS(r, xi, n, eye) RESULT(A)
         REAL(KIND = 8) :: r(3), mr, xi, n(3), A(3,3), C, D, eye(3,3), er, rh(3), xer, rdn
         mr = SQRT(r(1)*r(1) + r(2)*r(2) + r(3)*r(3))
@@ -604,8 +629,7 @@ FUNCTION PTij(r, bxs, bv, n, eye) RESULT(A)
     END FUNCTION REAL_T_HAS
 
     FUNCTION FOURIER_T_HAS(k, xi, n, eye) RESULT(A)
-        REAL(KIND = 8) k(3), xi, n(3), eye(3,3), kn, w, kdn, Q2, xer
-        COMPLEX(KIND = 8) ::Q1(3,3), A(3,3)
+        REAL(KIND = 8) k(3), xi, n(3), eye(3,3), kn, w, kdn, Q2, xer, Q1(3,3), A(3,3)
         kn = SQRT(k(1)*k(1) + k(2)*k(2) + k(3)*k(3))
         w = kn/xi
         kdn = DOT(k,n)
@@ -615,7 +639,7 @@ FUNCTION PTij(r, bxs, bv, n, eye) RESULT(A)
         A = -PI*Q1*Q2*xer
     END FUNCTION FOURIER_T_HAS
 
-!   Try with the Marin decomp
+!   Try with the Marin decomp !!!!!!!! Possibly missing mr in D???
     FUNCTION REAL_T_MAR(r, xi, n, eye) RESULT(A)
         REAL(KIND = 8) :: r(3), mr, xi, n(3), A(3,3), C, D, eye(3,3), er, rh(3), xer, rdn
         mr = SQRT(r(1)*r(1) + r(2)*r(2) + r(3)*r(3))
@@ -623,7 +647,7 @@ FUNCTION PTij(r, bxs, bv, n, eye) RESULT(A)
         er = mr*xi
         xer = EXP(-er*er)
         C = -6D0*ERFC(er)/(mr*mr) - xi*ispi/mr*(12D0 + 8D0*er*er)*xer
-        D = 4D0*xi*xi*xi*ispi*xer
+        D = 4D0*xi*xi*ispi*xer*er
         rdn = DOT(rh,n)
         A = C*(OUTER(rh,rh)*rdn) + D*(eye*rdn + OUTER(n, rh) + OUTER(rh, n))
     END FUNCTION REAL_T_MAR
