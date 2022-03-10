@@ -1067,9 +1067,9 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
                         ELSE
 !                           All weights the same regardless of cell, keep outside
 !                           Matrix of integration grid about i,j-th point
-                            Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, nJt(:,i2,j2), wgi(i2), wgi(i2)) !!! For some reason OPTIONAL not working?
-                            ft2 = PGij(r, 2, info%bv, info%eye)*wgi(i2)                             !!! Also something quite wrong with mult cells
-                            ft  = frot(:,i2,j2)
+                            Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye)*wgi(i2)
+                            ft2 = PGij(r, 2, info%bv, info%eye)*wgi(i2)!!!!PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye)*wgi(i2) !!!
+                            ft  = frot(:,i2,j2)!!!!(/1D0,0D0,0D0/)!!!!!!!!
 
 !                           We need to check if the periodic images give short range cell-cell interactions.
 !                           This needs to be added separately, because it uses the normal Stokeslet, not the periodic.

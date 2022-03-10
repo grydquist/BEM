@@ -612,7 +612,7 @@ FUNCTION PTij(r, bxs, bv, n, eye, wg, wgprim) RESULT(A)
         ENDDO
     ENDDO
 !   Just for Marin
-    A = A - 8D0*PI/tau*OUTER(r,n)*wg
+    A = A - 8D0*PI/tau*OUTER(r,n)*wgt
     
     CONTAINS
 !   Hasimotos !!!!!!!! Possibly missing mr in D???
@@ -639,7 +639,7 @@ FUNCTION PTij(r, bxs, bv, n, eye, wg, wgprim) RESULT(A)
         A = -PI*Q1*Q2*xer
     END FUNCTION FOURIER_T_HAS
 
-!   Try with the Marin decomp !!!!!!!! Possibly missing mr in D???
+!   Try with the Marin decomp
     FUNCTION REAL_T_MAR(r, xi, n, eye) RESULT(A)
         REAL(KIND = 8) :: r(3), mr, xi, n(3), A(3,3), C, D, eye(3,3), er, rh(3), xer, rdn
         mr = SQRT(r(1)*r(1) + r(2)*r(2) + r(3)*r(3))
