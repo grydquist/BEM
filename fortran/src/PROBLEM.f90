@@ -34,6 +34,7 @@ TYPE probType
     PROCEDURE :: Write   => WriteProb
     PROCEDURE :: Output  => OutputProb
     PROCEDURE :: Continue=> ContinueProb
+    PROCEDURE :: StrnRt  => StrnRtProb
 END TYPE probType
 
 ! -------------------------------------------------------------------------!
@@ -152,45 +153,50 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
 !!  ============================
     print *, 'Getting initial shape -'
     print *, 'Max velocity coefficient w.r.t. membrane time (want less than 0.005*Ca):'
+    Gfac = (((4D0*PI/3D0)/((0.95D0)*(PI/6D0)))**(1D0/3D0))/2D0
     DO ic = 1, prob%NCell
-            CALL prob%cell(ic)%relax(0.005D0)
+            ! CALL prob%cell(ic)%relax(0.005D0)
             CALL prob%cell(ic)%derivs()
             CALL prob%cell(ic)%stress()
             prob%cell(ic)%V0 = prob%cell(ic)%Vol()
             !! Test                                        !!!!!
-            SELECT CASE(ic)
+            SELECT CASE(MOD(ic,4) )
             CASE(1)
-                prob%cell(ic)%xmn(1,1) = 0.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = 0.75D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = 0.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.75D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)
             CASE(2)
-                prob%cell(ic)%xmn(1,1) = 1.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = 0.75D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = 2D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!1.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.75D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (Gfac)/(ispi*0.5D0)!2D0/(ispi*0.5D0)
             CASE(3)
-                prob%cell(ic)%xmn(1,1) = 2.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = 0.75D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = 3.5D0/(ispi*0.5D0)
-            CASE(4)
-                prob%cell(ic)%xmn(1,1) = 2.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = 3D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = 1.25D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (Gfac)/(ispi*0.5D0)!2.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.75D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!3.5D0/(ispi*0.5D0)
+            CASE(0)
+                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!2.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!1.25D0/(ispi*0.5D0)
             CASE(5)
-                prob%cell(ic)%xmn(1,1) = 3.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = 3D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = 2.75D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!3.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!2.75D0/(ispi*0.5D0)
             CASE(6)
-                prob%cell(ic)%xmn(1,1) = 4.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = 3D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = 4.25D0/(ispi*0.5D0)
-            ! CASE(7)
-            !     prob%cell(ic)%xmn(1,1) = 1D0/(ispi*0.5D0)
-            !     prob%cell(ic)%xmn(2,1) = 0.1D0/(ispi*0.5D0)
-            !     prob%cell(ic)%xmn(3,1) = 1D0/(ispi*0.5D0)
-            ! CASE(8)
-            !     prob%cell(ic)%xmn(1,1) = 1D0/(ispi*0.5D0)
-            !     prob%cell(ic)%xmn(2,1) = 0.1D0/(ispi*0.5D0)
-            !     prob%cell(ic)%xmn(3,1) = 1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (5D0*Gfac)/(ispi*0.5D0)!4.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!4.25D0/(ispi*0.5D0)
+            CASE(7)
+                prob%cell(ic)%xmn(1,1) = (Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+            CASE(8)
+                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+            CASE(4)
+                prob%cell(ic)%xmn(1,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
             END SELECT
             prob%cell(ic)%x(1,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(1,:))
             prob%cell(ic)%x(2,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(2,:))
@@ -309,7 +315,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     COMPLEX(KIND = 8), POINTER :: xmn(:,:)
     INTEGER, ALLOCATABLE :: IPIV(:)
     INTEGER(KIND = 8) tic, toc, rate
-    
+
     ALLOCATE(ut(prob%info%NmatT), &
              uti(prob%info%NmatT), &
              utr(prob%info%NmatT), &
@@ -325,8 +331,8 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !       Do interpolation to get current grad tensor, then normalize by kolm time !!! Move this into update prob!!
         prob%info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
 !       Hardcoded shear
-        prob%info%dU = 0D0
-        prob%info%dU(1,3) = 1D0
+        ! prob%info%dU = 0D0
+        ! prob%info%dU(1,3) = 1D0
         ! prob%dU(1,1) =  1D0
         ! prob%dU(3,3) = -1D0
 !! ============================
@@ -461,7 +467,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     prob%t = prob%t + prob%info%dt
 
 !   Check if there's any funny business
-    IF(isNaN(MAXVAL(ABS(cell%umn))) .or. MAXVAL(ABS(cell%umn)) .gt. HUGE(zm)) THEN
+    IF(ANY(isNaN((ABS(cell%umn)))) .or. ANY((ABS(cell%umn)) .gt. HUGE(zm))) THEN
             print *, 'ERROR: inftys or NaNs'
             STOP
     ENDIF
@@ -470,6 +476,64 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     CALL prob%write()
     CALL prob%output()
 END SUBROUTINE UpdateProb
+
+! -------------------------------------------------------------------------!
+! Finds equivalent strain rate
+FUNCTION StrnRtProb(prob) RESULT(Sig)
+    CLASS(probType), TARGET :: prob
+    TYPE(sharedType), POINTER :: info
+    TYPE(YType), POINTER :: Y
+    TYPE(cellType), POINTER :: cell
+    REAL(KIND = 8) :: Sig(3,3), tmp(3,3), lam, tau
+    REAL(KIND = 8), ALLOCATABLE :: fMxPuMn(:,:,:,:), u(:,:,:), n(:,:,:)
+    INTEGER :: i, j, ic, nt, np, d1, d2
+
+    info => prob%info
+    Y => info%Yf
+    nt = Y%nt
+    np = Y%np
+    
+    tau = DOT(CROSS(info%bv(:,1), info%bv(:,2)), info%bv(:,3))
+
+    tmp = 0D0
+
+    ALLOCATE(fMxPuMn(3,3,nt, np), u(3,nt, np), n(3,nt, np))
+
+!   One paper says to use x - x_c,
+!   but I shouldn't need to as long as net force in cell=0
+
+    DO ic = 1, prob%NCell
+        cell => prob%cell(ic)
+        lam = cell%lam
+        u(1,:,:) = Y%backward(cell%umn(1,:), info%P)
+        u(2,:,:) = Y%backward(cell%umn(2,:), info%P)
+        u(3,:,:) = Y%backward(cell%umn(3,:), info%P)
+
+        n(1,:,:) = Y%backward(cell%nkmn(1,:))
+        n(2,:,:) = Y%backward(cell%nkmn(2,:))
+        n(3,:,:) = Y%backward(cell%nkmn(3,:))
+!       Get velocity and normalss at integration points
+        DO i = 1,nt
+            DO j = 1,np
+                fMxPuMn(:,:,i,j) = OUTER(cell%ff(:,i,j), cell%xf(:,i,j))  & !! Need Ca here? don't seem to need to.
+                                 + (lam - 1D0)*(OUTER(u(:,i,j), n(:,i,j)) &     !! Run with sphere array, compare to Zinchenko
+                                 + OUTER(n(:,i,j), u(:,i,j)))
+            ENDDO
+        ENDDO
+        DO d1 = 1,3
+        DO d2 = 1,3
+            tmp(d1, d2) = tmp(d1, d2) + cell%intg(fMxPuMn(d1,d2,:,:))
+        ENDDO
+        ENDDO
+        ! print *, u(1,(nt+1)/2,1)! - cell%x(3,2,1)
+        ! print *, ' '
+        ! print *, cell%intg(fMxPuMn(1,3,:,:)), u(1,1,1), SUM(u(1,:,:))/nt/np
+    ENDDO
+    ! stop
+
+    Sig = tmp/tau + info%dU + TRANSPOSE(info%dU)
+
+END FUNCTION StrnRtProb
 
 ! -------------------------------------------------------------------------!
 ! Continue from where we left off at? 
@@ -545,7 +609,7 @@ SUBROUTINE OutputProb(prob)
 !   The output
     DO ic = 1, prob%NCell
         write(*,'(I5,X,F8.4,X,I5, X, F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
-        prob%cts, prob%t, ic, 1D0*2D0*MAXVAL(ABS(prob%cell(ic)%ff))/prob%cell(ic)%B, &
+        prob%cts, prob%t, ic, MAXVAL(ABS(prob%cell(ic)%ff))*prob%cell(ic)%Ca, &
         MAXVAL(ABS(prob%cell(ic)%umn)), prob%cell(ic)%vol(), prob%cell(ic)%SA()
     ENDDO
 END SUBROUTINE OutputProb

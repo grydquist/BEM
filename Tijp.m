@@ -35,13 +35,15 @@ for i = -bxs:bxs
             rc = i*bv(:,1) + j*bv(:,2) + k*bv(:,3);
             xc = xn + rc;
 %           Calculate contribution from real part
-            T = T + BshortT(xc,eps1,n);
+%             T = T + BshortT(xc,eps1,n);
+            T = MshortT(xc,eps1,n);
             
 %           Current wave number in box
             kc = i*kv(:,1) + j*kv(:,2) + k*kv(:,3);
 %           Fourier contribution (only if not in box)
             if(~(i==0 && j==0 && k==0))
-                T = T + BspecT(kc, eps1,n)/tau*cos(dot(kc,xn));
+%                 T = T + BspecT(kc, eps1,n)/tau*cos(dot(kc,xn));
+                T = T + MspecT(kc, eps1,n)/tau*sin(dot(kc,xn));
             else
 %               Self-interaction for zero net flow
 %               Don't think needed as the box will move with dist. vel??
@@ -89,3 +91,27 @@ end
 function T = selfT(x,n)
 T = 8*pi*dot(x,n);
 end
+
+% Marin's
+function T = MshortT(x, eps1, n)
+r = norm(x);
+rh = x/r;
+er = r*eps1;
+xer = exp(-er^2);
+C = -6/r/r*erfc(er) - 1/sqrt(pi)/r/r*(12*er + 8*er^3)*xer;
+D = 4*eps1^3/sqrt(pi)*xer;
+rdotn = dot(rh,n);
+
+T = C*(rh*rh')*rdotn + D*(eye(3)*rdotn + n*rh' + rh*n');
+end
+
+function T = MspecT(k,eps1,n)
+kn = norm(k);
+kdotn = dot(k,n);
+A = -2/kn^4*(k*k')*kdotn;
+B = 1/kn/kn*(k*n' + kdotn*eye(3) + n*k');
+T = 8*pi*(1+kn^2/4/eps1^2)*(A + B)*exp(-kn^2/4/eps1^2);
+end
+
+
+

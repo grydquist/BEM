@@ -443,7 +443,7 @@ END SUBROUTINE READ_GRINT_CHAR
 ! Functions to calculate the kernels
 FUNCTION Gij(r,eye) RESULT(A)
     REAL(KIND = 8) r(3), A(3,3), eye(3,3), mri
-    mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
+    mri = 1D0/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
     A(1,1) = r(1)*r(1)
     A(2,2) = r(2)*r(2)
     A(3,3) = r(3)*r(3)
@@ -458,7 +458,7 @@ END FUNCTION Gij
 
 FUNCTION Tij(r, n) RESULT(A)
     REAL(KIND = 8) r(3), A(3,3), n(3), mri
-    mri = 1/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
+    mri = 1D0/(sqrt(r(1)*r(1) + r(2)*r(2) + r(3)*r(3)))
     A(1,1) = r(1)*r(1)
     A(2,2) = r(2)*r(2)
     A(3,3) = r(3)*r(3)
@@ -505,7 +505,7 @@ FUNCTION PGij(r, bxs, bv, eye, wg, wgprim) RESULT(A)
 !   Calculate the Ewald parameter (function of vol of primary cell, tau)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
     !!!!!!! TAU SHOULDN'T CHANGE (LINEAR FLOW, NO DILATATION)
-    xi = PI**0.5D0/tau**(1D0/3D0)    
+    xi = SQRT(PI)/tau**(1D0/3D0)    
 
 !   Reciprocal (Fourier) basis vectors
     kv(:,1) = 2D0*PI/tau*CROSS(bv(:,2), bv(:,3));
@@ -573,7 +573,7 @@ FUNCTION PTij(r, bxs, bv, n, eye, wg, wgprim) RESULT(A)
 
 !   Calculate the Ewald parameter (function of vol of primary cell, tau)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
-    xi = PI**0.5D0/tau**(1D0/3D0)    
+    xi = SQRT(PI)/tau**(1D0/3D0)    
 
 !   Reciprocal (Fourier) basis vectors
     kv(:,1) = 2D0*PI/tau*CROSS(bv(:,2), bv(:,3));
@@ -606,16 +606,16 @@ FUNCTION PTij(r, bxs, bv, n, eye, wg, wgprim) RESULT(A)
                 kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
                 IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
                     ! A = A + FOURIER_T_HAS(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))*wgt
-                    A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))*wgt
+                    A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))*wgt!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                 ENDIF
             ENDDO
         ENDDO
     ENDDO
-!   Just for Marin
+!   Non-periodic portion comgin from pressure to balance net force
     A = A - 8D0*PI/tau*OUTER(r,n)*wgt
     
     CONTAINS
-!   Hasimotos !!!!!!!! Possibly missing mr in D???
+!   Hasimotos
     FUNCTION REAL_T_HAS(r, xi, n, eye) RESULT(A)
         REAL(KIND = 8) :: r(3), mr, xi, n(3), A(3,3), C, D, eye(3,3), er, rh(3), xer, rdn
         mr = SQRT(r(1)*r(1) + r(2)*r(2) + r(3)*r(3))
@@ -623,7 +623,7 @@ FUNCTION PTij(r, bxs, bv, n, eye, wg, wgprim) RESULT(A)
         er = mr*xi
         xer = EXP(-er*er)
         C = -6D0*ERFC(er)/(mr*mr) - xi*ispi/mr*(12D0 + 8D0*er*er - 16D0*er*er*er*er)*xer
-        D = 8D0*xi*xi*xi*ispi*(2D0 - er*er)*xer
+        D = 8D0*xi*xi*xi*mr*ispi*(2D0 - er*er)*xer
         rdn = DOT(rh,n)
         A = C*(OUTER(rh,rh)*rdn) + D*(eye*rdn + OUTER(n,rh) + OUTER(rh,n))
     END FUNCTION REAL_T_HAS

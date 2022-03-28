@@ -365,3 +365,23 @@ end
 % end
 
 
+% Marin's
+function T = MshortT(x, eps1, n)
+r = norm(x);
+rh = x/r;
+er = r*eps1;
+xer = exp(-er^2);
+C = -6/r/r*erfc(er) - 1/sqrt(pi)/r/r*(12*er + 8*er^3)*xer;
+D = 4*eps1^3/sqrt(pi)*xer;
+rdotn = dot(rh,n);
+
+T = C*(rh*rh')*rdotn + D*(eye(3)*rdotn + n*rh' + rh*n');
+end
+
+function T = MspecT(k,eps1,n)
+kn = norm(k);
+kdotn = dot(k,n);
+A = -2/kn^4*(k*k')*kdotn;
+B = 1/kn/kn*(k*n' + kdotn*eye(3) + n*k');
+T = 8*pi*(1+kn^2/4/eps1^2)*(A + B)*exp(-kn^2/4/eps1^2);
+end 
