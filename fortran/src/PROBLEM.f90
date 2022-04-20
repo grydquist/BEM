@@ -1,5 +1,7 @@
 MODULE PROBMOD
 USE SHAPEMOD
+USE CMMOD
+USE PERIODICMOD
 IMPLICIT NONE
 
 !==============================================================================!
@@ -149,11 +151,16 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
         ENDIF
     ENDIF
 
+!   Inital support point array
+    IF(prob%info%periodic) THEN
+        CALL SuppPoints(prob%info)
+    ENDIF
+
 !   Relax cell to get it into an equilibrium state, get volumes
 !!  ============================
     print *, 'Getting initial shape -'
     print *, 'Max velocity coefficient w.r.t. membrane time (want less than 0.005*Ca):'
-    Gfac = (((4D0*PI/3D0)/((0.95D0)*(PI/6D0)))**(1D0/3D0))/2D0
+    Gfac = (((4D0*PI/3D0)/((0.95D0**(3D0))*(PI/6D0)))**(1D0/3D0))/2D0
     DO ic = 1, prob%NCell
             ! CALL prob%cell(ic)%relax(0.005D0)
             CALL prob%cell(ic)%derivs()
@@ -162,9 +169,9 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
             !! Test                                        !!!!!
             SELECT CASE(MOD(ic,4) )
             CASE(1)
-                prob%cell(ic)%xmn(1,1) = (Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.75D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = .010D0!(Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = .010D0!(1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.75D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = .010D0!(Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)
             CASE(2)
                 prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!1.5D0/(ispi*0.5D0)
                 prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.75D0/(ispi*0.5D0)
@@ -308,9 +315,10 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     LOGICAL, INTENT(IN) :: reduce
     REAL(KIND = 8) :: zm
     COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:), ut(:), wrk(:), &
-                                      A2(:,:), b2(:), A(:,:), b(:)
+                                      A2(:,:), b2(:), A(:,:), b(:), &
+                                      fv1(:), fv2(:), fv3(:), fin(:,:,:)
     INTEGER :: ic, ic2, i, row, col, iter, p_info
-    REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:)
+    REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:), xv(:,:), Jtmp(:,:)
     COMPLEX, ALLOCATABLE :: swrk(:)
     COMPLEX(KIND = 8), POINTER :: xmn(:,:)
     INTEGER, ALLOCATABLE :: IPIV(:)
@@ -323,7 +331,9 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
              swrk(prob%info%NmatT*(prob%info%NmatT+1)), &
              rwrk(prob%info%NmatT), &
              A(prob%info%NmatT, prob%info%NmatT), &
-             b(prob%info%NmatT))
+             b(prob%info%NmatT), &
+             Jtmp(prob%info%Y%nt, prob%info%Y%np), &
+             fin(3,prob%info%Y%nt, prob%info%Y%np))
     
     CALL SYSTEM_CLOCK(tic,rate)
 
@@ -342,10 +352,27 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     b2 = 0D0
     A2 = 0D0
 !   Construct the matrix
+
+! !   Call Htint precalculation for point forces
+!     IF(prob%info%periodic) THEN
+!         DO ic = 1,prob%NCell
+!             cell => prob%cell(ic)
+!             fin(1,:,:) = cell%Dealias(cell%ff(1,:,:))
+!             fin(2,:,:) = cell%Dealias(cell%ff(2,:,:))
+!             fin(3,:,:) = cell%Dealias(cell%ff(3,:,:))
+!             Jtmp = prob%info%Y%backward(cell%Jtmn(1:(prob%info%p+1)*(prob%info%p+1)), prob%info%p)
+!             CALL HtPreCalc(fin(1,:,:), fv1, Jtmp, prob%info%Y, cell%x, xv)
+!             CALL HtPreCalc(fin(2,:,:), fv2, Jtmp, cell%info%Y)
+!             CALL HtPreCalc(fin(3,:,:), fv3, Jtmp, cell%info%Y)
+!         ENDDO
+!     ENDIF
+
 !   First loop: velocity surface
     DO ic = prob%PCells(1), prob%PCells(2)
         row = (ic -1)*prob%info%Nmat + 1
         cell => prob%cell(ic)
+
+        !!!! If periodic, calc fourier part and add in.
 
 !       Second loop: integral surface
         DO ic2 = 1,prob%NCell
@@ -458,6 +485,8 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !   Advance periodic basis vectors
     IF(prob%info%periodic) THEN
         CALL prob%info%bvAdvance()
+!       Update array containing support points
+        CALL SuppPoints(prob%info)
     ENDIF
 
     CALL SYSTEM_CLOCK(toc)

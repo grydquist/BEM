@@ -37,11 +37,18 @@ TYPE sharedType
 !   Periodic information (using periodic, basis vecs, volume, etc)
 !   Basis vectors are in columns of bv
     LOGICAL :: periodic
-    REAL(KIND = 8) :: eye(3,3), bv(3,3), tau, bvl
+    REAL(KIND = 8) :: eye(3,3), bv(3,3), tau, bvl, kv(3,3), xi, eta, par, parexp 
+    INTEGER :: gp, suppPoints
+    INTEGER, ALLOCATABLE :: suppMat(:,:)
+
+!   3D FFT Parameters
+    REAL(KIND = 8), ALLOCATABLE :: WSAVE(:)
+    INTEGER :: LENSAVE
 
 !   Cell-cell parameters
     REAL(KIND = 8) :: epsi, r0, D, Beta
     LOGICAL :: CellCell
+    INTEGER :: NCell
 
     CONTAINS
     PROCEDURE :: bvAdvance => bvAdvanceInfo
@@ -75,6 +82,7 @@ FUNCTION newinfo(filein) RESULT (info)
 
 !   Number of cells
     CALL READ_MFS(NCell, filein, 'Number_cells')
+    info%NCell = NCell
 
 !   Are cell-cell interactions included
     CALL READ_MFS(cellchar, filein, 'CellCell')
@@ -90,10 +98,30 @@ FUNCTION newinfo(filein) RESULT (info)
     CALL READ_MFS(info%bvl, filein, 'Periodic_box_size')
     IF(info%bvl .eq. 0) THEN
         info%periodic = .false.
+
+!   Initialize periodic components of info
     ELSE
         info%periodic = .true.
 !       Start with cube
         info%bv = info%eye*info%bvl
+        info%tau = DOT(CROSS(info%bv(:,1), info%bv(:,2)), info%bv(:,3))
+        
+!       Reciprocal basis vectors
+        info%kv(:,1) = 2D0*PI/info%tau*CROSS(info%bv(:,2), info%bv(:,3));
+        info%kv(:,2) = 2D0*PI/info%tau*CROSS(info%bv(:,3), info%bv(:,1));
+        info%kv(:,3) = 2D0*PI/info%tau*CROSS(info%bv(:,1), info%bv(:,2));
+
+!       Some parameters for the Ewald sum
+        info%gp = 2**6
+        info%xi = SQRT(PI)/(info%tau**(1D0/3D0))
+        info%eta = 0.034293552812071D0!!!see Matlab/paper for more info on this
+        info%par = (2D0*info%xi**2D0/pi/info%eta)**1.5D0
+        info%parexp = -2D0*info%xi*info%xi/info%eta
+
+!       3D FFT Info
+        info%LENSAVE = 2*info%gp + INT(LOG(REAL(info%gp))) + 4
+        ALLOCATE(info%WSAVE(info%LENSAVE))
+        CALL ZFFT1I(info%gp, info%WSAVE, info%LENSAVE, m)
     ENDIF
 
 !   Make harmonics(order, # of derivs, if we'll rotate or not)
@@ -243,6 +271,14 @@ SUBROUTINE bvAdvanceInfo(info)
 
 !   temporary lees-edwards
     IF(info%bv(1,3).gt.info%bvl) info%bv(1,3) = info%bv(1,3) - info%bvl
+
+!   Volume (shouldn't really change w/ no dilatation)
+    info%tau = DOT(CROSS(info%bv(:,1), info%bv(:,2)), info%bv(:,3))
+
+!   Reciprocal basis vectors
+    info%kv(:,1) = 2D0*PI/info%tau*CROSS(info%bv(:,2), info%bv(:,3));
+    info%kv(:,2) = 2D0*PI/info%tau*CROSS(info%bv(:,3), info%bv(:,1));
+    info%kv(:,3) = 2D0*PI/info%tau*CROSS(info%bv(:,1), info%bv(:,2));
 
 END SUBROUTINE bvAdvanceInfo
     

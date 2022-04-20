@@ -322,7 +322,33 @@ PURE FUNCTION INNER3_33(U, V) RESULT(W)
     W(2) = U(1)*V(1,2) + U(2)*V(2,2) + U(3)*V(3,2)
     W(3) = U(1)*V(1,3) + U(2)*V(2,3) + U(3)*V(3,3)
 END FUNCTION
+! -------------------------------------------------------------------------!
+! Inverts 3x3 Matrix
+PURE FUNCTION INVERT33(A) RESULT(B)
+    REAL(KIND = 8), INTENT(IN) :: A(3,3)
+    REAL(KIND = 8) :: B(3,3), DET
 
+    DET = &
+      A(1,1)*A(2,2)*A(3,3)  &
+    - A(1,1)*A(2,3)*A(3,2)  &
+    - A(1,2)*A(2,1)*A(3,3)  &
+    + A(1,2)*A(2,3)*A(3,1)  &
+    + A(1,3)*A(2,1)*A(3,2)  &
+    - A(1,3)*A(2,2)*A(3,1)
+    
+    B(1,1) =  A(2,2)*A(3,3) - A(2,3)*A(3,2)
+    B(1,2) = -A(2,1)*A(3,3) + A(2,3)*A(3,1)
+    B(1,3) =  A(2,1)*A(3,2) - A(2,2)*A(3,1)
+    B(2,1) = -A(1,2)*A(3,3) + A(1,3)*A(3,2)
+    B(2,2) =  A(1,1)*A(3,3) - A(1,3)*A(3,1)
+    B(2,3) = -A(1,1)*A(3,2) + A(1,2)*A(3,1)
+    B(3,1) =  A(1,2)*A(2,3) - A(1,3)*A(2,2)
+    B(3,2) = -A(1,1)*A(2,3) + A(1,3)*A(2,1)
+    B(3,3) =  A(1,1)*A(2,2) - A(1,2)*A(2,1)
+
+    B = TRANSPOSE(B)/DET
+
+END FUNCTION
 ! -------------------------------------------------------------------------!
 ! Puts a 3x3 matrix in (unnormalized) reduced row Echelon form to solve eigenvectors
 PURE FUNCTION RREF3(U) RESULT(V)
@@ -438,6 +464,158 @@ SUBROUTINE READ_GRINT_CHAR(x, filen, srch)
     ENDDO
     CLOSE(88)
 END SUBROUTINE READ_GRINT_CHAR
+! -------------------------------------------------------------------------!
+! FFT 1D wrapper
+FUNCTION FFT1(c) RESULT(ch)
+    COMPLEX(KIND = 8), ALLOCATABLE :: c(:), ch(:)
+    INTEGER :: N, ier, LENSAV, LENWRK, LENC, INC
+    REAL(KIND = 8), ALLOCATABLE :: WSAVE(:), WORK(:)
+
+    N = SIZE(c)
+    INC = 1
+    LENC = N
+    LENWRK = 2*N
+    LENSAV = 2*N + INT(LOG(REAL(N))) + 4
+    ALLOCATE(WSAVE(LENSAV), WORK(LENWRK))
+    CALL ZFFT1I(N, WSAVE, LENSAV, ier)
+    CALL ZFFT1B(N, 1, c, LENC, WSAVE, lensav, work, lenwrk, ier)
+    ch = c
+    
+END FUNCTION FFT1
+! -------------------------------------------------------------------------!
+! iFFT 1D wrapper
+FUNCTION iFFT1(c) RESULT(ch)
+    COMPLEX(KIND = 8), ALLOCATABLE :: c(:), ch(:)
+    INTEGER :: N, ier, LENSAV, LENWRK, LENC, INC
+    REAL(KIND = 8), ALLOCATABLE :: WSAVE(:), WORK(:)
+
+    N = SIZE(c)
+    INC = 1
+    LENC = N
+    LENWRK = 2*N
+    LENSAV = 2*N + INT(LOG(REAL(N))) + 4
+    ALLOCATE(WSAVE(LENSAV), WORK(LENWRK))
+    CALL ZFFT1I(N, WSAVE, LENSAV, ier)
+    CALL ZFFT1F(N, 1, c, LENC, WSAVE, lensav, work, lenwrk, ier)
+    ch = c
+    
+END FUNCTION iFFT1
+
+! -------------------------------------------------------------------------!
+! FFT 3D cubic wrapper
+FUNCTION FFT3(c, WSAVEin) RESULT(ch)
+    COMPLEX(KIND = 8), ALLOCATABLE :: c(:,:,:), ch(:,:,:), ctmp(:)
+    INTEGER :: N, ier, LENSAV, LENWRK, LENC, INC, i, j, k, N3(3)
+    REAL(KIND = 8), ALLOCATABLE :: WORK(:), WSAVE(:)
+    REAL(KIND = 8), ALLOCATABLE, OPTIONAL :: WSAVEin(:)
+
+    N3 = SHAPE(c)
+    N = N3(1)
+    INC = 1
+    LENC = N
+    LENWRK = 2*N
+    LENSAV = 2*N + INT(LOG(REAL(N))) + 4
+    ALLOCATE(WSAVE(LENSAV), WORK(LENWRK), ctmp(N))
+    IF(.not. present(WSAVEin)) THEN
+        CALL ZFFT1I(N, WSAVE, LENSAV, ier)
+    ELSE
+        WSAVE = WSAVEin
+    ENDIF
+    
+    DO k = 1,N
+        DO i = 1,N
+            ctmp = c(i,:,k)
+            CALL ZFFT1B(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
+            c(i,:,k) = ctmp
+        ENDDO
+    ENDDO
+    DO k = 1,N
+        DO j = 1,N
+            ctmp = c(:,j,k)
+            CALL ZFFT1B(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
+            c(:,j,k) = ctmp
+        ENDDO
+    ENDDO
+    DO i = 1,N
+        DO j = 1,N
+            ctmp = c(i,j,:)
+            CALL ZFFT1B(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
+            c(i,j,:) = ctmp
+        ENDDO
+    ENDDO
+    ch = c
+END FUNCTION FFT3
+! -------------------------------------------------------------------------!
+! iFFT 3D cubic wrapper 
+FUNCTION iFFT3(c, WSAVEin) RESULT(ch)
+    COMPLEX(KIND = 8), ALLOCATABLE :: c(:,:,:), ch(:,:,:), ctmp(:)
+    INTEGER :: N, ier, LENSAV, LENWRK, LENC, INC, i, j, k, N3(3)
+    REAL(KIND = 8), ALLOCATABLE :: WORK(:), WSAVE(:)
+    REAL(KIND = 8), ALLOCATABLE, OPTIONAL :: WSAVEin(:)
+
+    N3 = SHAPE(c)
+    N = N3(1)
+    INC = 1
+    LENC = N
+    LENWRK = 2*N
+    LENSAV = 2*N + INT(LOG(REAL(N))) + 4
+    ALLOCATE(WSAVE(LENSAV), WORK(LENWRK), ctmp(N))
+    IF(.not. present(WSAVEin)) THEN
+        CALL ZFFT1I(N, WSAVE, LENSAV, ier)
+    ELSE
+        WSAVE = WSAVEin
+    ENDIF
+
+    DO i = 1,N
+        DO j = 1,N
+            ctmp = c(i,j,:)
+            CALL ZFFT1B(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
+            c(i,j,:) = ctmp/N
+        ENDDO
+    ENDDO
+    DO k = 1,N
+        DO j = 1,N
+            ctmp = c(:,j,k)
+            CALL ZFFT1B(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
+            c(:,j,k) = ctmp/N
+        ENDDO
+    ENDDO
+    DO k = 1,N
+        DO i = 1,N
+            ctmp = c(i,:,k)
+            CALL ZFFT1B(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
+            c(i,:,k) = ctmp/N
+        ENDDO
+    ENDDO
+    ch = c
+END FUNCTION iFFT3
+
+! -------------------------------------------------------------------------!
+! Shifts 0th wavemode to center for 3D
+SUBROUTINE FFTSHIFT(A)
+    COMPLEX(KIND = 8), DIMENSION(:,:,:), INTENT(INOUT) :: A
+    COMPLEX(KIND = 8), ALLOCATABLE :: B(:,:,:)
+    INTEGER :: N3(3), N
+    N3 = SHAPE(A)
+    N = N3(1)
+    ALLOCATE(B(N,N,N))
+
+!   Even case
+    IF(MOD(N,2).eq.0) THEN
+        B(1:N/2  , 1:N/2  , 1:N/2  ) = A(N/2+1:N, N/2+1:N, N/2+1:N)
+        B(N/2+1:N, 1:N/2  , 1:N/2  ) = A(1:N/2  , N/2+1:N, N/2+1:N)
+        B(1:N/2  , N/2+1:N, 1:N/2  ) = A(N/2+1:N, 1:N/2  , N/2+1:N)
+        B(N/2+1:N, N/2+1:N, 1:N/2  ) = A(1:N/2  , 1:N/2  , N/2+1:N)
+        B(1:N/2  , 1:N/2  , N/2+1:N) = A(N/2+1:N, N/2+1:N, 1:N/2  )
+        B(N/2+1:N, 1:N/2  , N/2+1:N) = A(1:N/2  , N/2+1:N, 1:N/2  )
+        B(1:N/2  , N/2+1:N, N/2+1:N) = A(N/2+1:N, 1:N/2  , 1:N/2  )
+        B(N/2+1:N, N/2+1:N, N/2+1:N) = A(1:N/2  , 1:N/2  , 1:N/2  )
+    ELSE
+        print *, 'Havent done odd fftshift yet' !!!!!!!!!!!!!
+        stop
+    ENDIF
+    A = B
+END SUBROUTINE FFTSHIFT
 
 ! -------------------------------------------------------------------------!
 ! Functions to calculate the kernels
@@ -493,7 +671,7 @@ END FUNCTION LJ
 !   n (Tij):  Normal vector
 !   wg:       Gauss weight at point
 !   wgprim:   Gauss weight at point in primary cell
-FUNCTION PGij(r, bxs, bv, eye, wg, wgprim) RESULT(A)
+FUNCTION PGij(r, bxs, bv, kv, eye, wg, wgprim) RESULT(A)
     REAL(KIND = 8) :: r(3), bv(3,3), eye(3,3), A(3,3), xi, tau, kv(3,3), &
                       rcur(3), kcur(3)
     INTEGER :: bxs, i, j, k
@@ -507,10 +685,6 @@ FUNCTION PGij(r, bxs, bv, eye, wg, wgprim) RESULT(A)
     !!!!!!! TAU SHOULDN'T CHANGE (LINEAR FLOW, NO DILATATION)
     xi = SQRT(PI)/tau**(1D0/3D0)    
 
-!   Reciprocal (Fourier) basis vectors
-    kv(:,1) = 2D0*PI/tau*CROSS(bv(:,2), bv(:,3));
-    kv(:,2) = 2D0*PI/tau*CROSS(bv(:,3), bv(:,1));
-    kv(:,3) = 2D0*PI/tau*CROSS(bv(:,1), bv(:,2));
 !!!!!!!! calculate all of above ahead, use as argument? !!!!!!!
 
 !   We do the real and Fourier sums in the same loops
@@ -562,7 +736,7 @@ FUNCTION PGij(r, bxs, bv, eye, wg, wgprim) RESULT(A)
 END FUNCTION PGij
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -!
-FUNCTION PTij(r, bxs, bv, n, eye, wg, wgprim) RESULT(A)
+FUNCTION PTij(r, bxs, bv, kv, n, eye, wg, wgprim) RESULT(A)
     REAL(KIND = 8) :: r(3), bv(3,3), n(3), eye(3,3), A(3,3), xi, tau, kv(3,3), &
                       rcur(3), kcur(3)
     INTEGER :: bxs, i, j, k
@@ -575,10 +749,6 @@ FUNCTION PTij(r, bxs, bv, n, eye, wg, wgprim) RESULT(A)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
     xi = SQRT(PI)/tau**(1D0/3D0)    
 
-!   Reciprocal (Fourier) basis vectors
-    kv(:,1) = 2D0*PI/tau*CROSS(bv(:,2), bv(:,3));
-    kv(:,2) = 2D0*PI/tau*CROSS(bv(:,3), bv(:,1));
-    kv(:,3) = 2D0*PI/tau*CROSS(bv(:,1), bv(:,2));
 !!!!!!!! calculate all of above ahead, use as argument? !!!!!!!
 
 !   We do the real and Fourier sums in the same loops
@@ -606,7 +776,7 @@ FUNCTION PTij(r, bxs, bv, n, eye, wg, wgprim) RESULT(A)
                 kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
                 IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
                     ! A = A + FOURIER_T_HAS(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))*wgt
-                    A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))*wgt!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                    A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))*wgt
                 ENDIF
             ENDDO
         ENDDO

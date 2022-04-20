@@ -1,7 +1,7 @@
 %%% See Greengard and Lee (via tornberg) for speeding up
 
 % First, define the lattice (columns vectors)
-bv = [1 .25 0; 0 1 0; 0 0 1];
+bv = [1 0 0; 0 1 0; 0 0 1];
 bvx = bv(:,1);
 bvy = bv(:,2);
 bvz = bv(:,3);

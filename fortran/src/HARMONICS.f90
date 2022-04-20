@@ -1,6 +1,5 @@
 MODULE HARMMOD
 USE UTILMOD
-USE CMMOD
 IMPLICIT NONE
 
 !==============================================================================!

@@ -772,7 +772,7 @@ END SUBROUTINE Stresscell
 ! Knowing the force jump get the velocity on the surface of the cell via
 ! the fluid problem
 SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
-    CLASS(cellType), INTENT(INOUT), TARGET :: cell
+    CLASS(cellType), INTENT(IN), TARGET :: cell
     COMPLEX(KIND = 8), INTENT(OUT), ALLOCATABLE :: A2(:,:), b2(:)
     TYPE(cellType), INTENT(IN), POINTER, OPTIONAL :: celli
     TYPE(sharedType), POINTER :: info
@@ -1065,15 +1065,15 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
                         IF(.not.PRESENT(celli)) THEN
 !                           Matrix of integration grid about i,j-th point
 !                           Gauss weights used in calculation, because different weights are needed when in primary cell
-                            Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye, Y%wg(i2), wgi(i2)) 
+                            Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, info%kv, nJt(:,i2,j2), info%eye, Y%wg(i2), wgi(i2)) 
 !                           RHS vector
-                            ft2 = PGij(r, 2, info%bv, info%eye, Y%wg(i2), wgi(i2)) !!!!!!PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye, Y%wg(i2), wgi(i2))!!!!!!!!!!
+                            ft2 = PGij(r, 2, info%bv, info%kv, info%eye, Y%wg(i2), wgi(i2)) !!!!!!PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye, Y%wg(i2), wgi(i2))!!!!!!!!!!
                             ft  = frot(:,i2,j2)!!!!!!!(/1,0,0/)!!!!!!!!
                         ELSE
 !                           All weights the same regardless of cell, keep outside
 !                           Matrix of integration grid about i,j-th point
-                            Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye)*wgi(i2)
-                            ft2 = PGij(r, 2, info%bv, info%eye)*wgi(i2)!!!!PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye)*wgi(i2) !!!
+                            Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, info%kv, nJt(:,i2,j2), info%eye)*wgi(i2)
+                            ft2 = PGij(r, 2, info%bv, info%kv, info%eye)*wgi(i2)!!!!PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye)*wgi(i2) !!!
                             ft  = frot(:,i2,j2)!!!!(/1D0,0D0,0D0/)!!!!!!!!
 
 !                           We need to check if the periodic images give short range cell-cell interactions.
@@ -1568,13 +1568,13 @@ FUNCTION LayerCell(cell, i, j, periodic_in, celli) RESULT(rhs)
                 IF(.not.PRESENT(celli)) THEN
 !                   Double and single layers
 !                   Gauss weights used in calculation, because different weights are needed when in primary cell
-                    Tr = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye, Y%wg(i2), wgi(i2))
+                    Tr = PTij(r, 2, info%bv, info%kv, nJt(:,i2,j2), info%eye, Y%wg(i2), wgi(i2))
 !                   HS vectorR
-                    Gr = PGij(r, 2, info%bv, info%eye, Y%wg(i2), wgi(i2))
+                    Gr = PGij(r, 2, info%bv, info%kv, info%eye, Y%wg(i2), wgi(i2))
                 ELSE
 !                   All weights the same regardless of cell, keep outside
-                    Tr = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye)*wgi(i2)
-                    Gr = PGij(r, 2, info%bv, info%eye)*wgi(i2)
+                    Tr = PTij(r, 2, info%bv, info%kv, nJt(:,i2,j2), info%eye)*wgi(i2)
+                    Gr = PGij(r, 2, info%bv, info%kv, info%eye)*wgi(i2)
 
 !                   We need to check if the periodic images give short range cell-cell interactions.
 !                   This needs to be added separately, because it uses the normal Stokeslet, not the periodic.
