@@ -913,7 +913,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
 
 !                   Manage the additional prefactors stemming from the integrals
                     wgi(1:Y%nt)  = celli%info%Y%wg*(pi - info%thtc)/2D0
-                    wgi(Y%nt + 1:Y%nt + Yfi%nt)  = Yfi%wg*info%h*-info%k*COSH(info%k*info%xsf - info%k)
+                    wgi(Y%nt + 1:Y%nt + Yfi%nt)  = Yfi%wg*info%h*(-info%k)*COSH(info%k*info%xsf - info%k)
 
 !                   We don't do cosine transformation to cluster points near near-singularity, mult sine back in
                     wgi = wgi*SIN(celli%info%Ys%th(:,1))
@@ -1381,7 +1381,7 @@ FUNCTION LayerCell(cell, i, j, periodic_in, celli) RESULT(rhs)
 
 !           Manage the additional prefactors stemming from the integrals
             wgi(1:Y%nt)  = celli%info%Y%wg*(pi - info%thtc)/2D0
-            wgi(Y%nt + 1:Y%nt + Yfi%nt)  = Yfi%wg*info%h*-info%k*COSH(info%k*info%xsf - info%k)
+            wgi(Y%nt + 1:Y%nt + Yfi%nt)  = Yfi%wg*info%h*(-info%k)*COSH(info%k*info%xsf - info%k)
 
 !           We don't do cosine transformation to cluster points near near-singularity, mult sine back in
             wgi = wgi*SIN(celli%info%Ys%th(:,1))
@@ -1742,7 +1742,6 @@ SUBROUTINE InPrimcell(cell)
     REAL(KIND = 8) :: xc(3), n(3), bv1(3), bv2(3), bv3(3), d, pd
     INTEGER :: move(3)
     TYPE(sharedType), POINTER:: info
-    LOGICAL :: in
 
     info => cell%info
 
