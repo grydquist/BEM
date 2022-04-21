@@ -4,10 +4,10 @@ clear eps1
 global eps1
 
 % First, define the lattice (columns vectors)
-bv = [1 .5 0; 0 1 0; 0 0 1];
+bv = [1 0 0; 0 1 0; 0 0 1];
 x0 = [.25,.5,.5
       .75,.5,.5]';
-x = [.5;.75,;.5];
+x = [.5;.91,;.5];
 xh0 = x0;
 xh0(:,1) = x-x0(:,1);
 xh0(:,2) = x-x0(:,2);
@@ -34,8 +34,41 @@ Gt = zeros(bxt,bxt,bxt);
 Gt2 = Gt;
 % Loop to check convergence with number  of boxes
 
+
+
+
+
+pts1 = 10;
+pts = pts1^2;
+x0 = zeros(3,pts);
+xh0 = x0;
+f = zeros(3,pts);
+rng(69420);
+for i = 1:pts
+%   forces alternate up and down
+    f(1,i) = mod(i,2)*2 - 1;
+    
+%   Locations randomly in z = 0.5 plane
+    l = rand;
+    r = rand;
+    x0(:,i) = [l,r,.5]';
+
+end
+l1 = linspace(0,1,pts1+1);
+it = 0;
+for i = 1:pts1
+    for j = 1:pts1
+        it = it+1;
+%         x0(:,it) = [l1(i),l1(j),0.5]';
+        xh0(:,it) = x-x0(:,it);
+    end
+end
+
+
+
+
 for bxs = bxt:bxt
-G = zeros(3,3,2);
+G = zeros(3,3,pts);
 Gh = G;
 Gr = G;
 Tr=  Gr;
@@ -44,7 +77,7 @@ TT = G;
 uu=[0;0;0];
 % clf
 % Loop over point forces
-for ps = 1:2
+for ps = 1:pts
 for i = -bxs:bxs
     for j = -bxs:bxs
         for k = -bxs:bxs
@@ -56,23 +89,23 @@ for i = -bxs:bxs
             
 %           Plot points (better with few boxes)
 %             if(k==0)
-                if(ps==1)
-                    scatter3(x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),'b')
-                    quiver3 (x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),0.2,0,0,'b')
-                    hold on
-                    drawnow
-                else
-                    scatter3(x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),'r')
-                    quiver3 (x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),-0.2,0,0,'r')
-                    drawnow
-                    axis([-1,2,-1,2,-1,2])
-                    pbaspect([1,1,1])
-                end
+%                 if(ps==1)
+%                     scatter3(x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),'b')
+%                     quiver3 (x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),0.2,0,0,'b')
+%                     hold on
+%                     drawnow
+%                 else
+%                     scatter3(x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),'r')
+%                     quiver3 (x0(1,ps)+rc(1), x0(2,ps)+rc(2),x0(3,ps)+rc(3),-0.2,0,0,'r')
+%                     drawnow
+%                     axis([-1,2,-1,2,-1,2])
+%                     pbaspect([1,1,1])
+%                 end
 %             end
             
 %           Doing both Poz and Hasimoto
             G(:,:,ps)  = G(:,:,ps)  +  shortG(xn);
-            Gh(:,:,ps) = Gh(:,:,ps) + HshortG(xn);
+%             Gh(:,:,ps) = Gh(:,:,ps) + HshortG(xn);
             
 %           Now get the Fourier wave number associated with this box
 %           Use that to get the Fourier part
@@ -140,11 +173,16 @@ end
 % multiplies these errors, but I believe it should actually converge
 
 u = G(:,:,1)*f(:,1) + G(:,:,2)*f(:,2);
-disp(real(u'))
-disp(real(Gh(:,:,1)*f(:,1) + Gh(:,:,2)*f(:,2))')
-disp(real(GG(:,:,1)*f(:,1) + GG(:,:,2)*f(:,2))')
-disp(uu')
-disp(real(Gr(:,:,1)*f(:,1) + Gr(:,:,2)*f(:,2))')
+% disp(real(u'))
+u(:)=0;
+for i = 1:pts
+    u = u +Gh(:,:,i)*f(:,i);
+end
+disp(u)
+% disp(real(Gh(:,:,1)*f(:,1) + Gh(:,:,2)*f(:,2))')
+% disp(real(GG(:,:,1)*f(:,1) + GG(:,:,2)*f(:,2))')
+% disp(uu')
+% disp(real(Gr(:,:,1)*f(:,1) + Gr(:,:,2)*f(:,2))')
 
 % disp(real(TT(:,:,1)*f(:,1) + TT(:,:,2)*f(:,2))')
 %% Try ust calculating velocity first?? Try

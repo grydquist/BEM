@@ -75,6 +75,7 @@ SUBROUTINE HtPreCalc(fin, f, Ja, Y, x0in, x0)
     ENDIF
 
 END SUBROUTINE HtPreCalc
+
 ! -------------------------------------------------------------------------!
 ! For a given set of cells with point forces, construct the H_tilde grid
 ! See: Spectrally accurate fast summation for periodic Stokes potentials
@@ -335,7 +336,7 @@ SUBROUTINE PeriodicTest(info)
             x(1,2,i,j) = SIN(Y%tht(i))*SIN(Y%phi(j))
             x(1,3,i,j) = COS(Y%tht(i))
             
-            Jtmp(i,j) = SIN(Y%tht(i))/4D0
+            Jtmp(i,j) = SIN(Y%tht(i))*(0.25D0*0.25D0)
 
             fs(1,1,i,j) = 1D0
         ENDDO
@@ -359,6 +360,24 @@ SUBROUTINE PeriodicTest(info)
     ft(3,:) = fv3
     
     CALL HtCell(Ht,info, xv, ft, 2)
+    print *, Ht(1,1,1,1)
+
+!   Try it with evenly spaced points
+    DEALLOCATE(xv, ft)
+    ALLOCATE(xv(3,100), ft(3,100))
+    ft = 0D0
+    ic = 0
+    DO i = 1,10
+        DO j = 1,10
+            ic = ic+1
+            xv(1,ic) = (i-1)*0.1D0
+            xv(2,ic) = (j-1)*0.1D0
+            ft(1,ic) = CMPLX(MODULO(ic,2)*2-1)
+        ENDDO
+    ENDDO
+    xv(3,:) = 0.5D0
+
+    CALL HtCell(Ht,info, xv,ft,2)
     print *, Ht(1,1,1,1)
 
     stop
