@@ -41,6 +41,7 @@ MYFUN = UTIL.o\
 		HARMONICS.o\
 		SHARED.o\
 		SHAPE.o\
+		PERIODIC.o\
 		PROBLEM.o\
 		main.o
 
@@ -49,6 +50,7 @@ MYMOD = harmmod.mod\
 		cmmod.mod\
 		utilmod.mod\
 		sharedmod.mod\
+		periodicmod.mod\
 		probmod.mod\
 		shapemod.mod
 
@@ -78,13 +80,15 @@ $(OBJDIR)UTIL.o : $(SRC)UTIL.f90
 
 $(OBJDIR)COMU.o : $(SRC)COMU.f90
 
-$(OBJDIR)HARMONICS.o : $(SRC)HARMONICS.f90 $(OBJDIR)COMU.o $(OBJDIR)UTIL.o
+$(OBJDIR)HARMONICS.o : $(SRC)HARMONICS.f90 $(OBJDIR)UTIL.o
 
 $(OBJDIR)SHARED.o : $(SRC)SHARED.f90 $(OBJDIR)HARMONICS.o
 
 $(OBJDIR)SHAPE.o : $(SRC)SHAPE.f90 $(OBJDIR)SHARED.o
 
-$(OBJDIR)PROBLEM.o : $(SRC)PROBLEM.f90 $(OBJDIR)SHAPE.o
+$(OBJDIR)PERIODIC.o : $(SRC)PERIODIC.f90 $(OBJDIR)SHARED.o
+
+$(OBJDIR)PROBLEM.o : $(SRC)PROBLEM.f90 $(OBJDIR)SHAPE.o $(OBJDIR)COMU.o  $(OBJDIR)PERIODIC.o
 
 $(OBJDIR)main.o : $(SRC)main.f90 $(OBJDIR)PROBLEM.o 
 
