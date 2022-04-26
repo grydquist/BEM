@@ -353,19 +353,47 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     A2 = 0D0
 !   Construct the matrix
 
-! !   Call Htint precalculation for point forces
+! !   CALL HtInt precalculation for point forces
 !     IF(prob%info%periodic) THEN
-!         DO ic = 1,prob%NCell
+!         DO ic = 1,prob%PCells(1), prob%PCells(2)
 !             cell => prob%cell(ic)
 !             fin(1,:,:) = cell%Dealias(cell%ff(1,:,:))
 !             fin(2,:,:) = cell%Dealias(cell%ff(2,:,:))
 !             fin(3,:,:) = cell%Dealias(cell%ff(3,:,:))
 !             Jtmp = prob%info%Y%backward(cell%Jtmn(1:(prob%info%p+1)*(prob%info%p+1)), prob%info%p)
-!             CALL HtPreCalc(fin(1,:,:), fv1, Jtmp, prob%info%Y, cell%x, xv)
+!             CALL HtPreCalc(fin(1,:,:), fv1, Jtmp, cell%info%Y, cell%x, xv)
 !             CALL HtPreCalc(fin(2,:,:), fv2, Jtmp, cell%info%Y)
 !             CALL HtPreCalc(fin(3,:,:), fv3, Jtmp, cell%info%Y)
 !         ENDDO
+!         fv(1,nmat:nmat) = fv1! Reduce
+!         fv(2,:) = fv2
+!         fv(3,:) = fv3
+!         CALL HtInt(Htf, info, xv, fv)
+        
+!         DO n = 1,Y%p
+!         DO m = -n:n
+!         DO ic = 1,prob%PCells(1), prob%PCells(2)
+!             cell => prob%cell(ic)
+!             Ynin(1,:,:) = cell%n(1,:,:)*Y%nm(n,m)%v(:,:)
+!             Ynin(2,:,:) = cell%n(1,:,:)*Y%nm(n,m)%v(:,:)
+!             Ynin(3,:,:) = cell%n(1,:,:)*Y%nm(n,m)%v(:,:)
+!             Jtmp = prob%info%Y%backward(cell%Jtmn(1:(prob%info%p+1)*(prob%info%p+1)), prob%info%p)
+!             CALL HtPreCalc(Ynin(1,:,:), fv1, Jtmp, cell%info%Y, cell%x, xv)
+!             CALL HtPreCalc(Ynin(2,:,:), fv2, Jtmp, cell%info%Y)
+!             CALL HtPreCalc(Ynin(3,:,:), fv3, Jtmp, cell%info%Y)
+!         ENDDO
+!         fv(1,nmat:nmat) = fv1 ! Reduce
+!         fv(2,:) = fv2
+!         fv(3,:) = fv3
+!         CALL HtInt(Htf, info, xv, fv)
+        
+!         DO ic = prob%PCells(1), prob%PCells(2)
+!             CALL HtCalc ! calc at points, reduce at end
+!         ENDDO
+!         ENDDO
+!         ENDDO
 !     ENDIF
+
 
 !   First loop: velocity surface
     DO ic = prob%PCells(1), prob%PCells(2)

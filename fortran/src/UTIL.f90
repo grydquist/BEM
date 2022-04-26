@@ -569,22 +569,22 @@ FUNCTION iFFT3(c, WSAVEin) RESULT(ch)
     DO i = 1,N
         DO j = 1,N
             ctmp = c(i,j,:)
-            CALL ZFFT1B(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
-            c(i,j,:) = ctmp/N
+            CALL ZFFT1F(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
+            c(i,j,:) = ctmp
         ENDDO
     ENDDO
     DO k = 1,N
         DO j = 1,N
             ctmp = c(:,j,k)
-            CALL ZFFT1B(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
-            c(:,j,k) = ctmp/N
+            CALL ZFFT1F(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
+            c(:,j,k) = ctmp
         ENDDO
     ENDDO
     DO k = 1,N
         DO i = 1,N
             ctmp = c(i,:,k)
-            CALL ZFFT1B(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
-            c(i,:,k) = ctmp/N
+            CALL ZFFT1F(N, 1, ctmp, LENC, WSAVE, lensav, work, lenwrk, ier)
+            c(i,:,k) = ctmp
         ENDDO
     ENDDO
     ch = c

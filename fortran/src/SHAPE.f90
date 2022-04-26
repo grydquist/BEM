@@ -778,13 +778,13 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
     TYPE(sharedType), POINTER :: info
     LOGICAL, INTENT(IN), OPTIONAL :: periodic_in
 
-    INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, n2, m2, &
+    INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, m2, &
                colm, ind, im3, nt, np, indi = 1, indj = 1, iper, jper, kper
     LOGICAL sing, periodic
-    COMPLEX(KIND = 8) :: At(3,3), bt(3), tmpsum(3,3)
+    COMPLEX(KIND = 8) :: bt(3), tmpsum(3,3)
     REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), minr, dphi, rn, rcur(3)
     COMPLEX(KIND = 8), ALLOCATABLE :: b(:), Ci(:,:,:,:), Ei(:,:,:,:), & 
-                                      Dr(:,:,:), Fi(:,:,:,:), Ai(:,:,:,:,:,:), &
+                                      Dr(:,:,:), Ai(:,:,:,:,:,:), &
                                       fmnR(:,:), xmnR(:,:), nmnR(:,:)
     REAL(KIND = 8), ALLOCATABLE :: frot(:,:,:), xcg(:,:,:), nJt(:,:,:), &
                                    ft(:), ft2(:,:), Bi(:,:,:,:), wgi(:), tht_t(:)
@@ -813,7 +813,6 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
              Bi(3,3,Y%nt,Y%np), &
              Ci(3,3, 2*(Y%p-1)+1, Y%nt), &
              Ei(3,3, 2*(Y%p-1)+1, Y%p), &
-             Fi(3,3, 2*(Y%p-1)+1, Y%nt), &
              Ai(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
              Dr(3,3,Y%p*Y%p),  &
              es(2*(Y%p-1)+1, Y%np), &
@@ -1210,75 +1209,9 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli)
         ENDDO
     ENDDO
 
-!   Second loop is over just the normal grid, redo pre-allocated parts for this grid
-    es   => info%es
-    cPmn => info%cPmn
+!   Take these matrices and perform the Galerkin projection on them
+    CALL info%Gal(Ai, b, A2, b2)
 
-!   Second integral: The outer loops go over the order and degree of the previous integrals
-    it = 0
-    DO n = 0,Y%p - 1
-        nm => Y%nm(n+1)
-        ! it = it + n
-        DO m = -n,n
-            im = m + Y%p
-            it = it + 1
-            col = 3*it - 2
-            ! colm= col - 2*3*m
-
-!           First loop: m2 (Galerkin order), theta, sum phi, 
-            DO m2 = -(Y%p-1), Y%p-1
-                im2 = m2 + Y%p
-                DO i2 = 1,Y%nt
-                    tmpsum = 0D0
-                    DO j2 = 1,Y%np
-                        tmpsum = tmpsum + Ai(1:3,1:3, im, n+1, i2, j2)*CONJG(es(im2,j2))
-                    ENDDO
-                    Fi(1:3,1:3,im2,i2) = tmpsum
-                ENDDO
-            ENDDO
-
-!           Second loop: n2, m2, sum theta
-            im2 = 0
-            DO n2 = 0, Y%p-1
-                DO m2 = -n2, n2
-                    im3 = m2 + Y%p
-                    im2 = im2 + 1
-                    row = 3*im2 - 2
-                    ! rowm= row - 2*3*m2
-                    At = 0D0
-                    ! At2 = 0D0
-                    DO i2 = 1,Y%nt
-                        At  = At  + Fi(1:3,1:3,im3, i2)*cPmn(n2+1,im3,i2)*Y%wg(i2)
-                        ! At2 = At2 + CONJG(Fi(1:3,1:3,im3, i2))*cPmn(n2+1,im3,i2)*cell%Y%wg(i2)*(-1D0)**m2
-                    ENDDO
-                    A2(row:row+2,col:col+2) = At
-
-!                   Can't get symmetry working as before, because I loop over cols, then rows now...
-!                   Exploit symmetry (This and the calculation of At2 are a little overkill,
-!                   but it's finnicky to get the right if statements so I'll just leave them)
-                    ! A2(rowm:rowm+2, col :col +2) = At2
-                    ! A2(row :row +2, colm:colm+2) = (-1D0)**(m - m2)*CONJG(At2)
-                    ! A2(rowm:rowm+2, colm:colm+2) = (-1D0)**(m + m2)*CONJG(At)
-                ENDDO
-            ENDDO
-
-            ic = 0
-!           Loop over integration points to calc integral
-            bt = 0D0
-            vcurn => nm%v(m + n + 1,:,:)
-            DO i =1,Y%nt
-                DO j = 1,Y%np
-                ic = ic+1
-
-!               Intg. b (essentially forward transform of RHS!)
-                bt = bt + b(3*ic-2:3*ic)*CONJG(vcurn(i,j)) &
-                    *Y%wg(i)*Y%dphi
-                ENDDO
-            ENDDO
-            b2(col:col+2) = bt
-
-        ENDDO
-    ENDDO
     CALL SYSTEM_CLOCK(toc)
     ! print *, REAL(toc-tic)/REAL(rate)
 END SUBROUTINE Fluidcell
