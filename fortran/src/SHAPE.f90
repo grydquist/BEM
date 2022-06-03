@@ -1148,7 +1148,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo) !!! Make large ve
                             ELSE
                                 Bi(1:3,1:3,i2,j2) = PTij(r, 0, info%bv, nJt(:,i2,j2), info%eye, info%xi)*wgi(i2)
 !                               RHS vector
-                                ft2 = PGij(r, 0, info%bv, info%eye, info%xi)*wgi(i2))
+                                ft2 = PGij(r, 0, info%bv, info%eye, info%xi)*wgi(i2)
                                 ft  = frot(:,i2,j2)
                             ENDIF
                         ELSE
