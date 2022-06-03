@@ -11,13 +11,9 @@ IMPLICIT NONE
 !==============================================================================!
 !================================= CONTAINERS =================================!
 !==============================================================================!
-INTERFACE HtInt
-PROCEDURE HtIntG, HtIntT
-END INTERFACE HtInt
-
-INTERFACE HtCalc
-    PROCEDURE HtG, HtT
-END INTERFACE HtCalc
+INTERFACE Ewaldint
+PROCEDURE EwaldintG, EwaldintT
+END INTERFACE Ewaldint
 
 CONTAINS
 !=============================================================================!
@@ -29,21 +25,59 @@ CONTAINS
 ! Mostly taking cell forces and locations and constructing a single vector
 ! Only need to do this once for x0, so it's optional.
 ! Note that this will append fin to f
-SUBROUTINE HtPreCalc(fin, f, Ja, Y, x0in, x0)
-    COMPLEX(KIND = 8), INTENT(IN) :: fin(:,:)  !!!!!!! Pointers???
-    COMPLEX(KIND = 8), ALLOCATABLE, INTENT(INOUT):: f(:)    !!!!!!! Pointers???
-    REAL(KIND = 8), INTENT(IN) :: Ja(:,:)
+SUBROUTINE EwaldPreCalc(f, Y, x0, fin, x0in, Ja, fmn, xmn)
+    COMPLEX(KIND = 8), INTENT(IN), OPTIONAL :: fin(:,:), fmn(:), xmn(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE, INTENT(INOUT):: f(:)
+    REAL(KIND = 8), INTENT(IN), OPTIONAL :: Ja(:,:)
     TYPE(YType), INTENT(IN) :: Y
     REAL(KIND = 8), INTENT(IN), OPTIONAL :: x0in(:,:,:)
     REAL(KIND = 8), INTENT(INOUT), ALLOCATABLE, OPTIONAL:: x0(:,:)
-    COMPLEX(KIND = 8), ALLOCATABLE :: fapp(:), ftmp(:)
-    REAL(KIND = 8), ALLOCATABLE :: xapp(:,:), xtmp(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: fapp(:), ftmp(:), fint(:,:)
+    REAL(KIND = 8), ALLOCATABLE :: xapp(:,:), xtmp(:,:), x0int(:,:,:)
     INTEGER :: shp(2), nt, np, i, j, it, tot
 
-    shp = SHAPE(fin)
-    nt = shp(1)
-    np = shp(2)
-    tot = SIZE(f)
+!   We want to be able to take in both force and location harmonics
+!   but this needs some exception handling
+    IF(PRESENT(fin) .and. PRESENT(fmn)) THEN
+        print *, 'ERROR: For pre-calculation of Ewald sum,', &
+                 'cant have both force harmonic constants and scalars'
+        STOP
+    ELSEIF(PRESENT(fin)) THEN
+        shp = SHAPE(fin)
+        nt = shp(1)
+        np = shp(2)
+        ALLOCATE(fint(nt, np))
+        fint = fin
+    ELSEIF(PRESENT(fmn)) THEN
+        nt = Y%nt
+        np = Y%np
+        ALLOCATE(fint(nt, np))
+        fint = Y%backward(fmn, Y%p)
+    ELSE
+        print *, 'ERROR: For pre-calculation of Ewald sum,', &
+                 'must have either force harmonic constants and scalars'
+        STOP
+    ENDIF
+
+    IF(PRESENT(x0in) .and. PRESENT(xmn)) THEN
+        print *, 'ERROR: For pre-calculation of Ewald sum,', &
+                 'cant have both location harmonic constants and scalars'
+        STOP
+    ELSEIF(PRESENT(xmn)) THEN
+        ALLOCATE(x0int(3,nt, np))
+        x0int(1,:,:) = Y%backward(xmn(1,:), Y%p)
+        x0int(2,:,:) = Y%backward(xmn(2,:), Y%p)
+        x0int(3,:,:) = Y%backward(xmn(3,:), Y%p)
+    ELSEIF(PRESENT(x0in)) THEN
+        ALLOCATE(x0int(3,nt, np))
+        x0int = x0in
+    ENDIF
+
+    IF(ALLOCATED(f)) THEN
+        tot = SIZE(f)
+    ELSE
+        tot = 0
+    ENDIF
     ALLOCATE(fapp(nt*np), xapp(3, nt*np), ftmp(nt*np + tot), xtmp(3, nt*np + tot))
     it = 0
 
@@ -51,7 +85,12 @@ SUBROUTINE HtPreCalc(fin, f, Ja, Y, x0in, x0)
     DO i = 1,nt
         DO j = 1,np
             it = it + 1
-            fapp(it) = fin(i,j)*Y%dphi*Y%wg(i)*Ja(i,j)
+!           Area element often built into f
+            IF(PRESENT(Ja)) THEN
+                fapp(it) = fint(i,j)*Y%dphi*Y%wg(i)*Ja(i,j)
+            ELSE
+                fapp(it) = fint(i,j)*Y%dphi*Y%wg(i)
+            ENDIF
         ENDDO
     ENDDO
 
@@ -64,12 +103,12 @@ SUBROUTINE HtPreCalc(fin, f, Ja, Y, x0in, x0)
 
 !   Append source locations (only needs to be done once per timestep)
 !   Same process as above, except it's purely just reshuffling indices
-    IF(PRESENT(x0in)) THEN
+    IF(PRESENT(x0in) .or. PRESENT(xmn)) THEN
         it = 0 
         DO i = 1,nt
             DO j = 1,np
                 it = it + 1
-                xapp(:,it) = x0in(:,i,j)
+                xapp(:,it) = x0int(:,i,j)
             ENDDO
         ENDDO
         IF(ALLOCATED(x0)) xtmp(:, 1:tot) = x0
@@ -79,7 +118,7 @@ SUBROUTINE HtPreCalc(fin, f, Ja, Y, x0in, x0)
         x0 = xtmp
     ENDIF
 
-END SUBROUTINE HtPreCalc
+END SUBROUTINE EwaldPreCalc
 
 ! -------------------------------------------------------------------------!
 ! For a given set of cells with point forces, construct the H_tilde grid
@@ -87,15 +126,17 @@ END SUBROUTINE HtPreCalc
 ! See: Spectrally accurate fast summation for periodic Stokes potentials
 !       D. Lindbo, AK Tornberg
 ! Can be used to interpolate back to grid.
-SUBROUTINE HtG(Ht, info, x0, f)
-    REAL(KIND = 8), INTENT(OUT) :: Ht(:,:,:,:)
+SUBROUTINE EwaldG(Ht, info, x0, f, full, u3, u1)
+    REAL(KIND = 8), INTENT(OUT), OPTIONAL :: Ht(:,:,:,:)
     REAL(KIND = 8), INTENT(IN) :: x0(:,:)
     TYPE(sharedType), INTENT(IN), POINTER :: info
-    COMPLEX(KIND = 8), INTENT(IN) :: f(:,:)    !!!!!!! Pointers???
+    COMPLEX(KIND = 8), INTENT(IN) :: f(:,:)
+    LOGICAL, INTENT(IN), OPTIONAL :: full
+    COMPLEX(KIND = 8), INTENT(OUT), OPTIONAL :: u3(:,:), u1(:)
     COMPLEX(KIND = 8), ALLOCATABLE ::  H(:,:,:,:), Hh(:,:,:,:), Hht(:,:,:,:), Htmp(:,:,:)
     REAL(KIND = 8) :: bvi_gr(3,3), bv_gr(3,3), rr(3), r2, k3(3), &
                       kn, B(3,3), xcur(3)
-    REAL(KIND = 8), ALLOCATABLE :: wrk(:)
+    REAL(KIND = 8), ALLOCATABLE :: wrk(:), Htout(:,:,:,:)
     INTEGER :: i, j, k, pts, curijk(3), gp, inds(3), &
                iper, jper, kper, iw, jw, kw, nt, lwrk
 
@@ -107,7 +148,8 @@ SUBROUTINE HtG(Ht, info, x0, f)
 !   Total number of points
     nt = size(x0)/3
 
-    ALLOCATE(H(3,gp,gp,gp), Hh(3,gp,gp,gp), Hht(3,gp,gp,gp), Htmp(gp,gp,gp))
+    ALLOCATE(H(3,gp,gp,gp), Hh(3,gp,gp,gp), &
+           Hht(3,gp,gp,gp), Htmp(gp,gp,gp), Htout(3,gp,gp,gp))
     H = 0D0
 
 !   Subgrid basis vectors and inverse
@@ -161,7 +203,6 @@ SUBROUTINE HtG(Ht, info, x0, f)
     ENDDO
 
 !   FFT
-    !!!! Make pointers!!!!!!!
     Htmp = H(1,:,:,:)
     Htmp = FFT3(Htmp, info%WSAVE)
     CALL FFTSHIFT(Htmp)
@@ -177,9 +218,12 @@ SUBROUTINE HtG(Ht, info, x0, f)
     CALL FFTSHIFT(Htmp)
     Hh(3,:,:,:) = Htmp
 
+    Hht = 0D0
 !   Now perform the convolution with the kernel (which is a truncated sum in spectral space)
 !   (gp needs to be even)
 !   Also assumes the Hh matrix has negative and positive parts
+
+!!!!!!!!!!!!!!!!! FIND TRUNCATION (if eta.gt.1 kn>40 no longer works)
     DO iw = -gp/2, gp/2 - 1
         DO jw = -gp/2, gp/2 - 1
             DO kw = -gp/2, gp/2 - 1
@@ -191,7 +235,7 @@ SUBROUTINE HtG(Ht, info, x0, f)
                 kn = NORM2(k3)
 
 !               Truncate
-                IF(kn .eq. 0 .or. kn .gt. 40) CYCLE
+                IF(kn .eq. 0) CYCLE
 
 !               Amplification factor, gets multiplied onto spectral point forces
                 B = BG(k3, info%xi, kn, info%eta, info%eye)
@@ -208,29 +252,43 @@ SUBROUTINE HtG(Ht, info, x0, f)
             ENDDO
         ENDDO
     ENDDO
-    Ht = 0D0
-    ! Double layer... DON'T FORGET TO MULTIPLY ii!!!!!! TAU????
 
 !!!!!!!!!!!! Note: FFTshift only for even number grid. Need to make iFFTshift for odds
     Htmp = Hht(1,:,:,:)
     CALL FFTSHIFT(Htmp)
     Htmp = iFFT3(Htmp, info%WSAVE)
-    Ht(1,:,:,:) = REAL(Htmp)
+    Htout(1,:,:,:) = REAL(Htmp)
 
     Htmp = Hht(2,:,:,:)
     CALL FFTSHIFT(Htmp)
     Htmp = iFFT3(Htmp, info%WSAVE)
-    Ht(2,:,:,:) = REAL(Htmp)
+    Htout(2,:,:,:) = REAL(Htmp)
 
     Htmp = Hht(3,:,:,:)
     CALL FFTSHIFT(Htmp)
     Htmp = iFFT3(Htmp, info%WSAVE)
-    Ht(3,:,:,:) = REAL(Htmp)
+    Htout(3,:,:,:) = REAL(Htmp)
 
-!   Return Ht into real space, then we can integrate/interpolate back to the point forces in the
-!   routine (although maybe this should be optional prob, and we canm just add to mat at the end???)
-!   Could hypothetically just do all this and add it to the big mat????
-END SUBROUTINE HtG
+    IF(PRESENT(Ht)) Ht = Htout
+
+!   If we want, we can just do the next step and integrate
+    IF(PRESENT(full) .and. full) THEN
+        IF(.not. PRESENT(u3) .and. .not.PRESENT(u1)) THEN
+            print *, "Warning: no output matrix for full Ewald G, exiting routine"
+            RETURN
+        ENDIF
+        IF(PRESENT(u3) .and. PRESENT(u1)) THEN
+            print *, "Warning: too many output matrices for full Ewald G, exiting routine"
+            RETURN
+        ENDIF
+        IF(PRESENT(u1)) THEN
+            CALL Ewaldint(Htout, info, x0, u1=u1)
+        ENDIF
+        IF(PRESENT(u3)) THEN
+            CALL Ewaldint(Htout, info, x0, u3=u3)
+        ENDIF
+    ENDIF
+END SUBROUTINE EwaldG
 
 ! -------------------------------------------------------------------------!
 ! For a given set of cells with point forces, construct the H_tilde grid
@@ -239,28 +297,34 @@ END SUBROUTINE HtG
 !       D. Lindbo, AK Tornberg
 ! Can be used to interpolate back to grid.
 ! Note that in most cases, f will be the normal vector x a sphHarm
-SUBROUTINE HtT(Ht, info, x0, f)
-    REAL(KIND = 8), INTENT(OUT) :: Ht(:,:,:,:,:)
+SUBROUTINE EwaldT(Ht, info, x0, f, full, um, u3, strt)
+    COMPLEX(KIND = 8), INTENT(OUT), OPTIONAL :: Ht(:,:,:,:,:)
     REAL(KIND = 8), INTENT(IN) :: x0(:,:)
     TYPE(sharedType), INTENT(IN), POINTER :: info
-    COMPLEX(KIND = 8), INTENT(IN) :: f(:,:)    !!!!!!! Pointers???
-    COMPLEX(KIND = 8), ALLOCATABLE ::  H(:,:,:,:), Hh(:,:,:,:), Hht(:,:,:,:,:), Htmp(:,:,:)
+    COMPLEX(KIND = 8), INTENT(IN) :: f(:,:)
+    LOGICAL, INTENT(IN), OPTIONAL :: full
+    INTEGER, INTENT(IN), OPTIONAL :: strt
+    COMPLEX(KIND = 8), INTENT(OUT), OPTIONAL :: um(:,:,:,:,:), u3(:,:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE ::  H(:,:,:,:), Hh(:,:,:,:), &
+        Hht(:,:,:,:,:), Htmp(:,:,:), Htout(:,:,:,:,:)
     COMPLEX(KIND = 8) :: B(3,3,3)
     REAL(KIND = 8) :: bvi_gr(3,3), bv_gr(3,3), rr(3), r2, k3(3), &
                       kn, xcur(3)
     REAL(KIND = 8), ALLOCATABLE :: wrk(:)
     INTEGER :: i, j, k, pts, curijk(3), gp, inds(3), &
-               iper, jper, kper, iw, jw, kw, nt, lwrk
+               iper, jper, kper, iw, jw, kw, nt, lwrk, strti
     gp = info%gp
 
     lwrk = gp*2*3
     ALLOCATE(wrk(lwrk))
 
 !   Total number of points
-    nt = size(x0)/3
+    nt = size(f)/3
 
-    ALLOCATE(H(3,gp,gp,gp), Hh(3,gp,gp,gp), Hht(3,3,gp,gp,gp), Htmp(gp,gp,gp))
+    ALLOCATE(H(3,gp,gp,gp), Hh(3,gp,gp,gp), &
+           Hht(3,3,gp,gp,gp), Htmp(gp,gp,gp), Htout(3,3,gp,gp,gp))
     H = 0D0
+    IF(PRESENT(strt)) strti=strt
 
 !   Subgrid basis vectors and inverse
     bv_gr = info%bv/REAL(gp)
@@ -271,7 +335,8 @@ SUBROUTINE HtT(Ht, info, x0, f)
 !   smear to supporting points
     DO i = 1, nt
 !       At a point, find grid index & loop over supporting grid points
-        xcur = x0(:,i)
+!       Since we only do this for one surface, start at the points at this surface
+        xcur = x0(:,i + (strti-1)*nt)
         curijk(1) = FLOOR(bvi_gr(1,1)*xcur(1) + bvi_gr(1,2)*xcur(2) + bvi_gr(1,3)*xcur(3))
         curijk(2) = FLOOR(bvi_gr(2,1)*xcur(1) + bvi_gr(2,2)*xcur(2) + bvi_gr(2,3)*xcur(3))
         curijk(3) = FLOOR(bvi_gr(3,1)*xcur(1) + bvi_gr(3,2)*xcur(2) + bvi_gr(3,3)*xcur(3))
@@ -313,7 +378,6 @@ SUBROUTINE HtT(Ht, info, x0, f)
     ENDDO
 
 !   FFT
-    !!!! Make pointers!!!!!!!
     Htmp = H(1,:,:,:)
     Htmp = FFT3(Htmp, info%WSAVE)
     CALL FFTSHIFT(Htmp)
@@ -329,6 +393,7 @@ SUBROUTINE HtT(Ht, info, x0, f)
     CALL FFTSHIFT(Htmp)
     Hh(3,:,:,:) = Htmp
 
+    Hht = 0D0
 !   Now perform the convolution with the kernel (which is a truncated sum in spectral space)
 !   (gp needs to be even)
 !   Also assumes the Hh matrix has negative and positive parts
@@ -343,10 +408,10 @@ SUBROUTINE HtT(Ht, info, x0, f)
                 kn = NORM2(k3)
 
 !               Truncate
-                IF(kn .eq. 0 .or. kn .gt. 40) CYCLE
+                IF(kn .eq. 0) CYCLE
 
 !               Amplification factor, gets multiplied onto spectral point forces
-                B = BT(k3, info%xi, kn, info%eta)*ii
+                B = -BT(k3, info%xi, kn, info%eta)*ii
                 Hht(:,:, i, j, k) = B(:,:,1)*Hh(1,i,j,k) &
                                   + B(:,:,2)*Hh(2,i,j,k) &
                                   + B(:,:,3)*Hh(3,i,j,k)
@@ -354,8 +419,6 @@ SUBROUTINE HtT(Ht, info, x0, f)
             ENDDO
         ENDDO
     ENDDO
-    Ht = 0D0
-    ! Double layer... DON'T FORGET TO MULTIPLY ii!!!!!! TAU????
 
 !!!!!!!!!!!! Note: FFTshift only for even number grid. Need to make iFFTshift for odds
     DO i = 1,3
@@ -363,18 +426,38 @@ SUBROUTINE HtT(Ht, info, x0, f)
             Htmp = Hht(i,j,:,:,:)
             CALL FFTSHIFT(Htmp)
             Htmp = iFFT3(Htmp, info%WSAVE)
-            Ht(i,j,:,:,:) = REAL(Htmp)
+            Htout(i,j,:,:,:) = Htmp
         ENDDO
     ENDDO
-END SUBROUTINE HtT
+
+    IF(PRESENT(Ht)) Ht = Htout
+
+!   If we want, we can just do the next step and integrate
+    IF(PRESENT(full) .and. full) THEN
+        IF(.not. PRESENT(u3) .and. .not.PRESENT(um)) THEN
+            print *, "Warning: no output matrix for full Ewald G, exiting routine"
+            RETURN
+        ENDIF
+        IF(PRESENT(u3) .and. PRESENT(um)) THEN
+            print *, "Warning: too many output matrices for full Ewald G, exiting routine"
+            RETURN
+        ENDIF
+        IF(PRESENT(um)) THEN
+            CALL Ewaldint(Htout, info, x0, um=um)
+        ENDIF
+        IF(PRESENT(u3)) THEN
+            CALL Ewaldint(Htout, info, x0, u3=u3)
+        ENDIF
+    ENDIF
+END SUBROUTINE EwaldT
 
 ! -------------------------------------------------------------------------!
 ! Given an Ht grid as above and a set of points, integrates back to the points
 ! For single layer
-SUBROUTINE HtIntG(Ht, info, x0, u)
+SUBROUTINE EwaldintG(Ht, info, x0, u3, u1)
     REAL(KIND = 8), INTENT(IN) :: Ht(:,:,:,:), x0(:,:)
     TYPE(sharedType), INTENT(IN), POINTER :: info
-    REAL(KIND = 8), INTENT(OUT) :: u(:,:)
+    COMPLEX(KIND = 8), INTENT(OUT), OPTIONAL :: u3(:,:), u1(:)
     REAL(KIND = 8) :: Jbv, xcur(3), rr(3), r2, &
                       bv_gr(3,3), bvi_gr(3,3), h
     INTEGER :: nt, i, curijk(3), inds(3), &
@@ -386,7 +469,15 @@ SUBROUTINE HtIntG(Ht, info, x0, u)
     bv_gr = info%bv/REAL(gp)
     bvi_gr = INVERT33(bv_gr)
     h = 1D0/REAL(gp)
-    u = 0D0
+
+!   Sometimes we want the output in different ranks
+    IF(PRESENT(u3)) u3 = 0D0
+    IF(PRESENT(u1)) u1 = 0D0
+    IF(PRESENT(u3) .and. PRESENT(u1)) THEN
+        print *, 'ERROR: For integration on periodic Fourier matrix,',  &
+                 'choose rank 1 or rank 2 matrices, not both'
+        stop
+    ENDIF
 
 !   This is the "interpolate back" step, where we have and send it back to discrete points
     DO i = 1, nt
@@ -428,33 +519,69 @@ SUBROUTINE HtIntG(Ht, info, x0, u)
 
             r2 = rr(1)*rr(1) + rr(2)*rr(2) + rr(3)*rr(3)
 
-            u(:,i) = u(:,i) + Ht(:, iper, jper, kper)*info%par*EXP(r2*info%parexp)*h*h*h*Jbv
+            IF(PRESENT(u3)) u3(:,i) = u3(:,i) &
+                           + Ht(:, iper, jper, kper)*info%par*EXP(r2*info%parexp)*h*h*h*Jbv
+
+            IF(PRESENT(u1)) u1(3*(i-1) + 1:3*(i-1) + 3) = u1(3*(i-1) + 1:3*(i-1) + 3) &
+                           + Ht(:, iper, jper, kper)*info%par*EXP(r2*info%parexp)*h*h*h*Jbv
         ENDDO
     ENDDO
-END SUBROUTINE HtIntG
+END SUBROUTINE EwaldintG
 
 ! -------------------------------------------------------------------------!
 ! Given an Ht grid as above and a set of points, integrates back to the points
 ! For double layer
-SUBROUTINE HtIntT(Ht, info, x0, u)
-    REAL(KIND = 8), INTENT(IN) :: Ht(:,:,:,:,:), x0(:,:)
+SUBROUTINE EwaldintT(Ht, info, x0, u3, um)
+    REAL(KIND = 8), INTENT(IN) :: x0(:,:)
+    COMPLEX(KIND = 8), OPTIONAL, INTENT(IN) :: Ht(:,:,:,:,:)
     TYPE(sharedType), INTENT(IN), POINTER :: info
-    REAL(KIND = 8), INTENT(OUT) :: u(:,:,:)
+    COMPLEX(KIND = 8), OPTIONAL, INTENT(OUT) :: u3(:,:,:), um(:,:,:,:,:)
     REAL(KIND = 8) :: Jbv, xcur(3), rr(3), r2, &
                       bv_gr(3,3), bvi_gr(3,3), h
-    INTEGER :: nt, i, curijk(3), inds(3), &
-               iper, jper, kper, pts, gp
+    INTEGER :: nt, np, nc, tpts, i, curijk(3), inds(3), &
+               iper, jper, kper, pts, gp, sz(5), it, ip, ic
 
-    nt = size(x0)/3
+    tpts = size(x0)/3
     gp = info%gp
     Jbv = DET3(info%bv)
     bv_gr = info%bv/REAL(gp)
     bvi_gr = INVERT33(bv_gr)
     h = 1D0/REAL(gp)
-    u = 0D0
+
+!   Often, we want an output matrix of size (3,3,nt,np,ncell) as output.
+!   Exception checking for this option
+    IF(PRESENT(u3)) u3 = 0D0
+    IF(PRESENT(um)) THEN
+        um = 0D0
+        sz = SHAPE(um)
+        nt = sz(3)
+        np = sz(4)
+        nc = sz(5)
+        ic = 1
+        it = 1
+        ip = 0
+    ENDIF
+    IF(PRESENT(u3) .and. PRESENT(um)) THEN
+        print *, 'ERROR: For integration on periodic fourier matrix,',  &
+                 'choose rank 3 or rank 5 matrices, not both'
+        stop
+    ENDIF
 
 !   This is the "interpolate back" step, where we have and send it back to discrete points
-    DO i = 1, nt
+    DO i = 1, tpts
+!       Lots of managing of indices if we want matrix-type output
+        IF(PRESENT(um)) THEN
+            ip = ip + 1
+            IF(ip .gt. np) THEN
+                ip = 1
+                it = it + 1
+            ENDIF
+            IF(it .gt. nt) THEN
+                it = 1
+                ic = ic + 1
+            ENDIF
+        ENDIF
+        
 !       At a point, find grid index & loop over supporting grid points
         xcur = x0(:,i)
         curijk(1) = FLOOR(bvi_gr(1,1)*xcur(1) + bvi_gr(1,2)*xcur(2) + bvi_gr(1,3)*xcur(3))
@@ -493,10 +620,16 @@ SUBROUTINE HtIntT(Ht, info, x0, u)
 
             r2 = rr(1)*rr(1) + rr(2)*rr(2) + rr(3)*rr(3)
 
-            u(:,:,i) = u(:,:,i) + Ht(:, :, iper, jper, kper)*info%par*EXP(r2*info%parexp)*h*h*h*Jbv
+            IF(PRESENT(u3)) &
+            u3(:,:,i) = u3(:,:,i) + Ht(:, :, iper, jper, kper)*info%par*EXP(r2*info%parexp)*h*h*h*Jbv
+
+            IF(PRESENT(um)) &
+            um(:,:,it,ip,ic) = um(:,:,it,ip,ic) &
+                             + Ht(:, :, iper, jper, kper)*info%par*EXP(r2*info%parexp)*h*h*h*Jbv
+
         ENDDO
     ENDDO
-END SUBROUTINE HtIntT
+END SUBROUTINE EwaldintT
 
 ! ! -------------------------------------------------------------------------!
 ! Double Layer amplification factor (all unrolled)
@@ -544,17 +677,26 @@ END FUNCTION BG
 ! Single Layer amplification factor
 SUBROUTINE SuppPoints(info)
     TYPE(sharedType), INTENT(INOUT), POINTER :: info
-    REAL(KIND = 8) :: gp, bv_gr(3,3), rr(3), r, cut, cutpar
+    REAL(KIND = 8) :: gp, bv_gr(3,3), rr(3), r, w, P, m
     INTEGER :: i, j, k, it
     INTEGER, ALLOCATABLE :: tmpmat(:,:)
 
-    it = 0
-!!!!! Maybe wnt to put cut into info?
-    cut = 1D-12
-    cutpar = SQRT(-LOG(cut)*info%eta/(info%xi*info%xi*2D0))
-
     gp = info%gp
     bv_gr = info%bv/REAL(gp)
+    it = 0
+!   Number of points over which we want our Gaussian to have support in 1D
+    P = 9d0
+!   Number of standard deviations this should correspond to (m=6, P=10) is good,
+!   Based on Lindbo AK Tornberg Paper
+    m = 6D0
+!   Cutoff distance/Gaussian width
+    w = MAXVAL(bv_gr)*P/2D0
+
+!   With all this, we can calculate the new value of eta (smearing parameter)
+    info%eta = (2D0*w*info%xi/m)**2
+    info%par = (2D0*info%xi**2D0/pi/info%eta)**1.5D0
+    info%parexp = -2D0*info%xi*info%xi/info%eta
+
     ALLOCATE(tmpmat(3,FLOOR(gp*gp*gp)))
     IF(ALLOCATED(info%suppMat)) DEALLOCATE(info%suppMat)
 
@@ -564,7 +706,7 @@ SUBROUTINE SuppPoints(info)
             DO k = -FLOOR(gp/2),FLOOR(gp/2)
                 rr = bv_gr(:,1)*i + bv_gr(:,2)*j + bv_gr(:,3)*k
                 r = NORM2(rr)
-                IF(r .lt. cutpar) THEN
+                IF(r .lt. w) THEN
                     it = it + 1
                     tmpmat(:,it) = (/i,j,k/)
                 ENDIF
@@ -579,15 +721,17 @@ END SUBROUTINE SuppPoints
 
 ! -------------------------------------------------------------------------!
 ! Test to see if things are working
+! This whole thing is extremely dated
 SUBROUTINE PeriodicTest(info)
     TYPE(sharedType), INTENT(INOUT), POINTER :: info
     TYPE(YType), POINTER :: Y
     COMPLEX(KIND = 8) :: f(3,2)
-    REAL(KIND = 8) ::x0(3,2), Ht(3,info%gp,info%gp,info%gp), HtT(3,3,info%gp,info%gp,info%gp)
-    REAL(KIND = 8), ALLOCATABLE :: x(:,:,:,:), xv(:,:), Jtmp(:,:), x2(:,:), u2(:,:), u3(:,:,:)
+    REAL(KIND = 8) ::x0(3,2), Ht(3,info%gp,info%gp,info%gp)
+    REAL(KIND = 8), ALLOCATABLE :: x(:,:,:,:), xv(:,:), Jtmp(:,:), x2(:,:), u2(:,:), u3(:,:,:), u4(:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: fs(:,:,:,:), fv1(:), fv2(:), fv3(:), ft(:,:)
-    INTEGER :: i, j, ic, nt, np
+    INTEGER :: i, j, ic, nt, np, tic, toc, rate, pts1, pts
 
+    print *, "Starting tests for periodic functions..."
     Y => info%Y
     
 !   Support points
@@ -604,16 +748,16 @@ SUBROUTINE PeriodicTest(info)
     x0(1,2) = 0.75D0
 
 !   Get the integration matrix
-    CALL HtCalc(Ht, info, x0, f)
-    CALL HtCalc(HtT, info, x0, f)
-    CALL HtInt (Ht, info, x2, u2)
-    print *, u2
-    print *, ' '
-    CALL HtInt(HtT, info, x2, u3)
-    print *, u3
-    print *, ' '
-    print *, HtT(:,:,16,16,16)
-    print *, ' '
+    ! CALL HtCalc(Ht, info, x0, f)
+    ! CALL HtCalc(HtT, info, x0, f)
+    ! CALL Ewaldint (Ht, info, x2, u2)
+    ! print *, u2
+    ! print *, ' '
+    ! CALL Ewaldint(HtT, info, x2, u3)
+    ! print *, u3
+    ! print *, ' '
+    ! print *, HtT(:,:,16,16,16)
+    ! print *, ' '
 
 !   Now let's do a test on two spheres
     nt = Y%nt
@@ -636,43 +780,61 @@ SUBROUTINE PeriodicTest(info)
         ENDDO
     ENDDO
 
-    fs(2,:,:,:) = -fs(1,:,:,:)*0D0
+    fs(2,:,:,:) = -fs(1,:,:,:)
 
     x(2,1,:,:) = x(1,1,:,:)
+    x(2,2,:,:) = x(1,2,:,:) + .25D0
     x(2,3,:,:) = x(1,2,:,:)
 
 !   Now the actual process of running the calculations, starting with putting matrices into vectors
+    CALL SYSTEM_CLOCK(tic, rate)
     DO ic = 1,2
-        CALL HtPreCalc(fs(ic,1,:,:), fv1, Jtmp, Y, x(ic,:,:,:), xv)
-        CALL HtPreCalc(fs(ic,2,:,:), fv2, Jtmp, Y)
-        CALL HtPreCalc(fs(ic,3,:,:), fv3, Jtmp, Y)
+        CALL EwaldPreCalc(fin=fs(ic,1,:,:), f=fv1, Y=Y, x0in=x(ic,:,:,:), x0=xv, Ja=Jtmp)
+        CALL EwaldPreCalc(fin=fs(ic,2,:,:), f=fv2, Y=Y, Ja=Jtmp)
+        CALL EwaldPreCalc(fin=fs(ic,3,:,:), f=fv3, Y=Y, Ja=Jtmp)
     ENDDO
     ft(1,:) = fv1
     ft(2,:) = fv2
     ft(3,:) = fv3
+    CALL SYSTEM_CLOCK(toc)
+    print *, REAL(toc-tic)/REAL(rate)
     
-    CALL HtG(Ht,info, xv, ft)
-    CALL HtInt (Ht, info, x2, u2)
-    print *, u2
+    CALL SYSTEM_CLOCK(tic, rate)
+    CALL EwaldG(Ht,info, xv, ft)
+    CALL SYSTEM_CLOCK(toc)
+    print *, REAL(toc-tic)/REAL(rate)
+
+    CALL SYSTEM_CLOCK(tic, rate)
+    i = SIZE(xv)
+    ALLOCATE(u4(3,i/3))
+    ! CALL Ewaldint (Ht, info, xv, u4)
+    CALL SYSTEM_CLOCK(toc)
+    print *, REAL(toc-tic)/REAL(rate) 
+    ! print *, u2
 
 !   Try it with evenly spaced points
     DEALLOCATE(xv, ft)
-    ALLOCATE(xv(3,100), ft(3,100))
+    pts1 = 40
+    pts  = pts1*pts1
+    ALLOCATE(xv(3,pts), ft(3,pts))
     ft = 0D0
     ic = 0
-    DO i = 1,10
-        DO j = 1,10
+    DO i = 1,pts1
+        DO j = 1,pts1
             ic = ic+1
-            xv(1,ic) = (i-1)*0.1D0
-            xv(2,ic) = (j-1)*0.1D0
+            xv(1,ic) = (i-1)/REAL(pts1)
+            xv(2,ic) = (j-1)/REAL(pts1)
             ft(1,ic) = CMPLX(MODULO(ic,2)*2-1)
         ENDDO
     ENDDO
     xv(3,:) = 0.5D0
 
-    CALL HtCalc(Ht,info, xv, ft)
-    CALL HtInt (Ht, info, x2, u2)
-    print *, u2
+    CALL SYSTEM_CLOCK(tic, rate)
+    ! CALL HtCalc(Ht,info, xv, ft)
+    CALL SYSTEM_CLOCK(toc)
+    ! print *, REAL(toc-tic)/REAL(rate)
+    ! CALL Ewaldint (Ht, info, x2, u2)
+    ! print *, u2
 
 
 END SUBROUTINE PeriodicTest

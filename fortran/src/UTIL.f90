@@ -671,19 +671,16 @@ END FUNCTION LJ
 !   n (Tij):  Normal vector
 !   wg:       Gauss weight at point
 !   wgprim:   Gauss weight at point in primary cell
-FUNCTION PGij(r, bxs, bv, kv, eye, wg, wgprim) RESULT(A)
-    REAL(KIND = 8) :: r(3), bv(3,3), eye(3,3), A(3,3), xi, tau, kv(3,3), &
-                      rcur(3), kcur(3)
+FUNCTION PGij(r, bxs, bv, eye, xi) RESULT(A)
+    REAL(KIND = 8) :: r(3), bv(3,3), eye(3,3), A(3,3), xi, tau, &
+                      rcur(3)
     INTEGER :: bxs, i, j, k
-    REAL(KIND = 8), OPTIONAL :: wg, wgprim
-    REAL(KIND = 8) :: wgt
 
     A = 0D0
 
 !   Calculate the Ewald parameter (function of vol of primary cell, tau)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
     !!!!!!! TAU SHOULDN'T CHANGE (LINEAR FLOW, NO DILATATION)
-    xi = SQRT(PI)/tau**(1D0/3D0)    
 
 !!!!!!!! calculate all of above ahead, use as argument? !!!!!!!
 
@@ -692,26 +689,17 @@ FUNCTION PGij(r, bxs, bv, kv, eye, wg, wgprim) RESULT(A)
         DO j = -bxs, bxs
             DO k = -bxs, bxs
 
-!               Store Gauss weights so that I can be general
-                IF(PRESENT(wgprim)) THEN
-                    IF((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) THEN
-                        wgt = wgprim
-                    ELSE
-                        wgt = wg
-                    ENDIF
-                ELSE
-                    wgt = 1D0
+!               Fourier part
+                IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
+                    ! kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
+                    ! A = A + FOURIER_G_HAS(kcur, xi, eye)/tau*COS(DOT(kcur,r))
                 ENDIF
 
 !               Real part (get current vector first)
                 rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
-                A    = A + REAL_G_HAS(rcur, xi, eye)*wgt
+!               Cycle if the contribution will be small enough
+                A    = A + REAL_G_HAS(rcur, xi, eye)
 
-!               Fourier part
-                kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
-                IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
-                    A = A + FOURIER_G_HAS(kcur, xi, eye)/tau*COS(DOT(kcur,r))*wgt
-                ENDIF
             ENDDO
         ENDDO
     ENDDO
@@ -736,18 +724,15 @@ FUNCTION PGij(r, bxs, bv, kv, eye, wg, wgprim) RESULT(A)
 END FUNCTION PGij
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -!
-FUNCTION PTij(r, bxs, bv, kv, n, eye, wg, wgprim) RESULT(A)
-    REAL(KIND = 8) :: r(3), bv(3,3), n(3), eye(3,3), A(3,3), xi, tau, kv(3,3), &
-                      rcur(3), kcur(3)
+FUNCTION PTij(r, bxs, bv, n, eye, xi) RESULT(A)
+    REAL(KIND = 8) :: r(3), bv(3,3), n(3), eye(3,3), A(3,3), xi, tau, &
+                      rcur(3)
     INTEGER :: bxs, i, j, k
-    REAL(KIND = 8), OPTIONAL :: wg, wgprim
-    REAL(KIND = 8) :: wgt
 
     A  = 0D0
 
 !   Calculate the Ewald parameter (function of vol of primary cell, tau)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
-    xi = SQRT(PI)/tau**(1D0/3D0)    
 
 !!!!!!!! calculate all of above ahead, use as argument? !!!!!!!
 
@@ -756,33 +741,22 @@ FUNCTION PTij(r, bxs, bv, kv, n, eye, wg, wgprim) RESULT(A)
         DO j = -bxs, bxs
             DO k = -bxs, bxs
 
-!               Store Gauss weights so that I can be general
-                IF(PRESENT(wgprim)) THEN
-                    IF((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) THEN
-                        wgt = wgprim
-                    ELSE
-                        wgt = wg
-                    ENDIF
-                ELSE
-                    wgt = 1D0
-                ENDIF
-
 !               Real part (get current vector first)
                 rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
-                ! A   = A + REAL_T_HAS(rcur, xi, n, eye)*wgt
-                A   = A + REAL_T_MAR(rcur, xi, n, eye)*wgt
+                ! A   = A + REAL_T_HAS(rcur, xi, n, eye)
+                A   = A + REAL_T_MAR(rcur, xi, n, eye)
 
 !               Fourier part
-                kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
                 IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
-                    ! A = A + FOURIER_T_HAS(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))*wgt
-                    A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))*wgt
+                    ! kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
+                    ! A = A + FOURIER_T_HAS(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))
+                    ! A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))
                 ENDIF
             ENDDO
         ENDDO
     ENDDO
 !   Non-periodic portion comgin from pressure to balance net force
-    A = A - 8D0*PI/tau*OUTER(r,n)*wgt
+    A = A - 8D0*PI/tau*OUTER(r,n)
     
     CONTAINS
 !   Hasimotos

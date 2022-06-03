@@ -114,10 +114,8 @@ FUNCTION newinfo(filein) RESULT (info)
 
 !       Some parameters for the Ewald sum
         info%gp = 2**5
-        info%xi = SQRT(PI)/(info%tau**(1D0/3D0))
-        info%eta = 0.031977570793168D0!!!!see Matlab/paper for more info on this
-        info%par = (2D0*info%xi**2D0/pi/info%eta)**1.5D0
-        info%parexp = -2D0*info%xi*info%xi/info%eta
+!       Smoothing parameter (Dimensional quantity with unit 1/L, so should be based on box size)
+        info%xi = 3.5D0*5D0/info%bvl!SQRT(PI)/(info%tau**(1D0/3D0))
 
 !       3D FFT Info
         info%LENSAVE = 2*info%gp + INT(LOG(REAL(info%gp))) + 4
@@ -138,7 +136,7 @@ FUNCTION newinfo(filein) RESULT (info)
 !   Harmonics for the singular integration, slightly tricky
 !   Construct the singular integration grid, with patch. Essentially 2 grids at once,
 !   a fine patch with a sinh transform and a coarse one.
-    IF(NCell.gt.1) THEN
+    IF(NCell .gt. 1 .or. info%periodic) THEN
         ALLOCATE(thts(nt + ntf), phis(np + npf), &
                  ths (nt + ntf, np + npf), phs(nt + ntf, np + npf))
 !       Cutoff theta, can affect accuracy. Depends on spacing, but want consistent. Just hardcode for now
@@ -215,43 +213,45 @@ FUNCTION newinfo(filein) RESULT (info)
         ENDDO
     ENDDO
 
-    IF(NCell .gt. 1) THEN
-!   Fine part, essentially done on 2 grids
-!   Technically the grid goes up to order q, but we only calculate up to p
-    DO m = -(p-1),(p-1)
-        ind = m + p
-        info%esf(ind,:) = EXP(ii*DBLE(m)*info%Ys%ph(1,:))
-    ENDDO
+    IF(NCell .gt. 1 .or. info%periodic) THEN
+!       Fine part, essentially done on 2 grids
+!       Technically the grid goes up to order q, but we only calculate up to p
+        DO m = -(p-1),(p-1)
+            ind = m + p
+            info%esf(ind,:) = EXP(ii*DBLE(m)*info%Ys%ph(1,:))
+        ENDDO
 
-!   Manage the dphi
-    DO ic = 1,np + npf
-        IF(ic .le. np) THEN
-            info%esf(:,ic) = info%esf(:,ic)*info%Y%dphi
-        ELSE
-            info%esf(:,ic) = info%esf(:,ic)*info%Yf%dphi
-        ENDIF
-    ENDDO
-    DEALLOCATE(cPt)
-!   Technically the grid goes up to order q, but we only calculate up to p
-    ALLOCATE(cPt(nt + ntf, p*(p+1)/2))
-    cPt = Alegendre(p-1,COS(info%Ys%th(:,1)))
-    it = 0
-    DO n = 0, p-1
-        ind = n+1
-        im = 0
-        DO m = -(p-1),p-1
-            im = im + 1
-            IF(ABS(m) .gt. n) THEN
-                info%cPmnf(ind,im,:) = 0D0
-            ELSEIF(m .le. 0) THEN
-                it = it + 1
-                IF(m.eq.-n) im2 = it
-                info%cPmnf(ind,im,:) = (-1D0)**m*cPt(:, im2 + abs(m))
+!       Manage the dphi
+        DO ic = 1,np + npf
+            IF(ic .le. np) THEN
+                info%esf(:,ic) = info%esf(:,ic)*info%Y%dphi
             ELSE
-                info%cPmnf(ind,im,:) = (-1D0)**m*info%cPmnf(ind, im - 2*m, :)
+                info%esf(:,ic) = info%esf(:,ic)*info%Yf%dphi
             ENDIF
         ENDDO
-    ENDDO
+        DEALLOCATE(cPt)
+!       Technically the grid goes up to order q, but we only calculate up to p
+        ALLOCATE(cPt(nt + ntf, p*(p+1)/2))
+        cPt = Alegendre(p-1,COS(info%Ys%th(:,1)))
+        it = 0
+        DO n = 0, p-1
+            ind = n+1
+            im = 0
+            DO m = -(p-1),p-1
+                im = im + 1
+                IF(ABS(m) .gt. n) THEN
+                    info%cPmnf(ind,im,:) = 0D0
+                ELSEIF(m .le. 0) THEN
+                    it = it + 1
+                    IF(m.eq.-n) im2 = it
+                    info%cPmnf(ind,im,:) = &
+                        (-1D0)**m*cPt(:, im2 + abs(m))
+                ELSE
+                    info%cPmnf(ind,im,:) = &
+                        (-1D0)**m*info%cPmnf(ind, im - 2*m, :)
+                ENDIF
+            ENDDO
+        ENDDO
     ENDIF
     
 !   Cell-cell interaction paramters (i.e. Morse and Lennard-Jones)

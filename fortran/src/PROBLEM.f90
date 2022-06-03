@@ -75,7 +75,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     CALL READ_MFS(fileout, filein, 'Output')
     CALL READ_MFS(cont, filein, 'Continue')
     CALL READ_MFS(prob%kdt, filein, 'Shear_dim_time')
-    CALL READ_MFS(prob%kfr, filein, 'Gradient_timestep') !!! Check, think about more. Doesn't always end up like this, esp biologically
+    CALL READ_MFS(prob%kfr, filein, 'Gradient_timestep')
     prob%kfr = prob%kfr/prob%kdt ! Fraction of ts between velgrads
     CALL READ_MFS(pthline, filein, 'Path_line')
     prob%cts = 0
@@ -313,123 +313,196 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     TYPE(cellType), POINTER :: cell, celli
     INTEGER, INTENT(IN) :: ord
     LOGICAL, INTENT(IN) :: reduce
+    TYPE(YType), POINTER :: Y
+    TYPE(sharedType), POINTER :: info
     REAL(KIND = 8) :: zm
     COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:), ut(:), wrk(:), &
-                                      A2(:,:), b2(:), A(:,:), b(:), &
-                                      fv1(:), fv2(:), fv3(:), fin(:,:,:)
+                                      A2(:,:), b2(:), A(:,:), b(:)
     INTEGER :: ic, ic2, i, row, col, iter, p_info
-    REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:), xv(:,:), Jtmp(:,:)
+    REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:)
     COMPLEX, ALLOCATABLE :: swrk(:)
-    COMPLEX(KIND = 8), POINTER :: xmn(:,:)
     INTEGER, ALLOCATABLE :: IPIV(:)
     INTEGER(KIND = 8) tic, toc, rate
+!! ============================
+    REAL(KIND = 8), ALLOCATABLE :: nJt(:,:,:), xv(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: fmnR(:,:), xmnR(:,:), &
+                                      fv1(:), fv2(:), fv3(:), fv(:,:), &
+                                      bb(:), tmp(:), YVt(:), um(:,:,:,:,:), &
+                                      Ai2(:,:,:,:,:,:,:,:), Ai2t(:,:,:,:,:,:)
+    TYPE(nmType), ALLOCATABLE :: YV(:)
+    INTEGER m, n, im, im2, j, it
+!! ============================
 
-    ALLOCATE(ut(prob%info%NmatT), &
-             uti(prob%info%NmatT), &
-             utr(prob%info%NmatT), &
-             IPIV(prob%info%NmatT), wrk(prob%info%NmatT), &
-             swrk(prob%info%NmatT*(prob%info%NmatT+1)), &
-             rwrk(prob%info%NmatT), &
-             A(prob%info%NmatT, prob%info%NmatT), &
-             b(prob%info%NmatT), &
-             Jtmp(prob%info%Y%nt, prob%info%Y%np), &
-             fin(3,prob%info%Y%nt, prob%info%Y%np))
+    Y => prob%info%Y
+    info => prob%info
+    ALLOCATE(ut(info%NmatT), &
+             uti(info%NmatT), &
+             utr(info%NmatT), &
+             IPIV(info%NmatT), wrk(info%NmatT), &
+             swrk(info%NmatT*(info%NmatT+1)), &
+             rwrk(info%NmatT), &
+             A(info%NmatT, info%NmatT), &
+             b(info%NmatT), &
+             fv(3,Y%nt*Y%np*prob%NCell), &
+             YV(Y%p), &
+             nJt(3, Y%nt, Y%np), &
+             um(3,3,Y%nt,Y%np, prob%NCell), &
+             fmnR(3, (info%p+1)*(info%p+1)), &
+             xmnR(3, (info%p+1)*(info%p+1)), &
+             Ai2(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np, prob%Ncell, prob%PCells(2) - prob%PCells(1) + 1), &
+             Ai2t(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
+             bb(3*Y%nt*Y%np*prob%NCell), &
+             tmp(3*info%NmatT))!!!!!!!!!! Eventually get rid of tmp
     
     CALL SYSTEM_CLOCK(tic,rate)
 
+
+!!!!! Needs parallelization... Ewalds should be doable/real spaces as well
+!!!!! Clean up unused variables and all that
+!!!!! Short real space cutoff/search boxes need to be implemented
+!!!!! Short range G should need self interacton (? Actually, maybe not...)
+!!!!! Only run these when periodic flag
+!!!!! Rename Ai
+!!!!! Put relax back in
+!!!!! Timings
+!!!!! Memory in Ai2(t)
+!!!!! Clean up util functions to get rid of unneeded things
+!!!!! Find k-truncation for fast ewald loops (if eta.gt.1 kn>40 no longer works)
+
+!   Do interpolation to get current grad tensor, then normalize by kolm time
+    info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
 !! ============================
-!       Do interpolation to get current grad tensor, then normalize by kolm time !!! Move this into update prob!!
-        prob%info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
-!       Hardcoded shear
-        ! prob%info%dU = 0D0
-        ! prob%info%dU(1,3) = 1D0
-        ! prob%dU(1,1) =  1D0
-        ! prob%dU(3,3) = -1D0
+!   Hardcoded shear
+    info%dU = 0D0
+    ! info%dU(1,3) = 1D0
+    ! prob%dU(1,1) =  1D0
+    ! prob%dU(3,3) = -1D0
 !! ============================
+
+    Ai2 = 0D0
+!   First, calculate geometric quantities and stresses in all of the cells
+    DO ic = 1, prob%NCell
+        cell => prob%cell(ic)
+        CALL cell%derivs()
+        CALL cell%stress()
+
+!       Construct a large vector containing all the forces/locations in
+!       preparation for the fast Ewald summation
+        IF(info%periodic) THEN
+!           Forces and locations
+            fmnR = cell%fmn(:,1:(info%p+1)*(info%p+1))
+            xmnR = cell%xmn(:,1:(info%p+1)*(info%p+1))
+!           Append vectors
+            CALL EwaldPreCalc(fv1, Y, xv, fmn=fmnR(1,:), xmn=xmnR)
+            CALL EwaldPreCalc(fv2, Y, fmn=fmnR(2,:))
+            CALL EwaldPreCalc(fv3, Y, fmn=fmnR(3,:))
+        ENDIF
+    ENDDO
+
+!   Now we need to calculate the SpH velocity coefficients of the cells.
+!   For periodic, we calculate LHS matrix and RHS vector in two parts:
+!   Long range (via FFTs) and short range (directly, truncated at low r).
+!   We calculate these two matrices individually at integration points,
+!   add them, and then perform the Galerkin transfo on these summed matrices.
+
+    CALL SYSTEM_CLOCK(tic,rate)
+    IF(info%periodic) THEN
+!       Calculate RHS vector
+        fv(1,:) = fv1 
+        fv(2,:) = fv2
+        fv(3,:) = fv3
+        CALL EwaldG(info=info, x0=xv, f=fv, u1=bb, full=.true.)
+
+!       Start with the long range part, as this calculates all points for one integral surface
+!       The "forces" here are the spherical harmonics multiplied by the normal vector
+        DO ic = prob%PCells(1), prob%PCells(2)
+            cell => prob%cell(ic)
+
+!           We need to make a vector for all of the spherical harmonics,
+!           multiplied by normal vector, for this integration surface
+            fmnR(1,:) = cell%nkt(1,1:(info%p+1)*(info%p+1))
+            fmnR(2,:) = cell%nkt(2,1:(info%p+1)*(info%p+1))
+            fmnR(3,:) = cell%nkt(3,1:(info%p+1)*(info%p+1))
+
+            nJt(1,:,:) = Y%backward(fmnR(1,:), info%p)
+            nJt(2,:,:) = Y%backward(fmnR(2,:), info%p)
+            nJt(3,:,:) = Y%backward(fmnR(3,:), info%p)
+
+            DO n = 0, Y%p-1
+                IF(.not.(ALLOCATED(YV(n+1)%v))) ALLOCATE(YV(n+1)%v(n+1, 3, Y%nt*Y%np))
+                im = 0
+                DO m = -n,n
+                    im = im + 1
+                    im2 = m + (Y%p)
+                    IF(m .gt. 0) THEN ! Symmetry
+                        Ai2(:,:,im2,n+1,:,:,:, ic) = CONJG(Ai2(:,:,im2 - 2*m,n+1,:,:,:, ic))*(-1D0)**m
+                        CYCLE
+                    ENDIF
+
+                    CALL EwaldPreCalc(YVt, Y, fin=Y%nm(n+1)%v(im,:,:)*nJt(1,:,:))
+                    YV(n+1)%v(im,1,:) = YVt
+                    DEALLOCATE(YVt)
+
+                    CALL EwaldPreCalc(YVt, Y, fin=Y%nm(n+1)%v(im,:,:)*nJt(2,:,:))
+                    YV(n+1)%v(im,2,:) = YVt
+                    DEALLOCATE(YVt)
+
+                    CALL EwaldPreCalc(YVt, Y, fin=Y%nm(n+1)%v(im,:,:)*nJt(3,:,:))
+                    YV(n+1)%v(im,3,:) = YVt
+                    DEALLOCATE(YVt)
+
+!                   Now do actual calcs for all points at this int surface/nm combo
+                    CALL EwaldT(info=info, x0=xv, f=YV(n+1)%v(im,:,:), full=.true., um=um, strt=ic)
+                    Ai2(:,:, im2, n+1,:,:,:, ic) = um
+                ENDDO
+            ENDDO
+        ENDDO
+    ENDIF
+    CALL SYSTEM_CLOCK(toc)
+    ! print *, REAL(toc-tic)/REAL(rate)
 
     A = 0D0
     b = 0D0
     b2 = 0D0
     A2 = 0D0
-!   Construct the matrix
 
-! !   CALL HtInt precalculation for point forces
-!     IF(prob%info%periodic) THEN
-!         DO ic = 1,prob%PCells(1), prob%PCells(2)
-!             cell => prob%cell(ic)
-!             fin(1,:,:) = cell%Dealias(cell%ff(1,:,:))
-!             fin(2,:,:) = cell%Dealias(cell%ff(2,:,:))
-!             fin(3,:,:) = cell%Dealias(cell%ff(3,:,:))
-!             Jtmp = prob%info%Y%backward(cell%Jtmn(1:(prob%info%p+1)*(prob%info%p+1)), prob%info%p)
-!             CALL HtPreCalc(fin(1,:,:), fv1, Jtmp, cell%info%Y, cell%x, xv)
-!             CALL HtPreCalc(fin(2,:,:), fv2, Jtmp, cell%info%Y)
-!             CALL HtPreCalc(fin(3,:,:), fv3, Jtmp, cell%info%Y)
-!         ENDDO
-!         fv(1,nmat:nmat) = fv1! Reduce
-!         fv(2,:) = fv2
-!         fv(3,:) = fv3
-!         CALL HtInt(Htf, info, xv, fv)
-        
-!         DO n = 1,Y%p
-!         DO m = -n:n
-!         DO ic = 1,prob%PCells(1), prob%PCells(2)
-!             cell => prob%cell(ic)
-!             Ynin(1,:,:) = cell%n(1,:,:)*Y%nm(n,m)%v(:,:)
-!             Ynin(2,:,:) = cell%n(1,:,:)*Y%nm(n,m)%v(:,:)
-!             Ynin(3,:,:) = cell%n(1,:,:)*Y%nm(n,m)%v(:,:)
-!             Jtmp = prob%info%Y%backward(cell%Jtmn(1:(prob%info%p+1)*(prob%info%p+1)), prob%info%p)
-!             CALL HtPreCalc(Ynin(1,:,:), fv1, Jtmp, cell%info%Y, cell%x, xv)
-!             CALL HtPreCalc(Ynin(2,:,:), fv2, Jtmp, cell%info%Y)
-!             CALL HtPreCalc(Ynin(3,:,:), fv3, Jtmp, cell%info%Y)
-!         ENDDO
-!         fv(1,nmat:nmat) = fv1 ! Reduce
-!         fv(2,:) = fv2
-!         fv(3,:) = fv3
-!         CALL HtInt(Htf, info, xv, fv)
-        
-!         DO ic = prob%PCells(1), prob%PCells(2)
-!             CALL HtCalc ! calc at points, reduce at end
-!         ENDDO
-!         ENDDO
-!         ENDDO
-!     ENDIF
-
-
-!   First loop: velocity surface
-    DO ic = prob%PCells(1), prob%PCells(2)
-        row = (ic -1)*prob%info%Nmat + 1
+    CALL SYSTEM_CLOCK(tic,rate)
+!   Now the real space part
+!   First loop: velocity surface !!!!!!!!!! Paralellize this further??? Pcells(2,2) one for int surf, one for vel
+    DO ic = 1,prob%NCell
+        row = (ic - 1)*info%Nmat + 1
         cell => prob%cell(ic)
 
-        !!!! If periodic, calc fourier part and add in.
-
 !       Second loop: integral surface
-        DO ic2 = 1,prob%NCell
+        DO ic2 = prob%PCells(1), prob%PCells(2)
+            col = (ic2-1)*info%Nmat + 1
             celli => prob%cell(ic2)
             
-!           Get geometric info about new state, get stress in new state if first go round
-            IF(ic.eq.prob%PCells(1)) THEN
-                CALL celli%derivs()
-                CALL celli%stress()
-!               Characteristic grid spacing
-                celli%h = SQRT(celli%SA()/celli%info%Y%nt**2D0)
-            ENDIF
-
-            col = (ic2-1)*prob%info%Nmat + 1
 !           Get velocity sub-matrix for cell-cell combo (Same or diff cell)
             IF(ic .eq. ic2) THEN
-                CALL cell%fluid(A2, b2)
+                CALL cell%fluid(Ao = Ai2t, bo = tmp)
             ELSE
-                CALL cell%fluid(A2, b2, prob%info%periodic, celli)
+                CALL cell%fluid(Ao = Ai2t, bo = tmp, celli = celli)
             ENDIF
 
+            IF(info%periodic) THEN
+                Ai2t = Ai2t + Ai2(:,:,:,:,:,:,ic,ic2)*(1D0-cell%lam)/(1D0+cell%lam)
+!               This is b/c bb is the vector at the velocity points integrated across all surfaces,
+!               so we only add in once !!! double check
+                IF(ic .eq. ic2) &
+                    tmp = tmp + bb( (ic-1)*(3*Y%nt*Y%np)+1 : (ic)*(3*Y%nt*Y%np))/(1D0 + cell%lam)
+            ENDIF
+
+!           Perform the Galerkin
+            CALL info%Gal(Ai2t, tmp, A2, b2)
 !           Put sub matrix into big matrix
-            A(row:row + prob%info%Nmat - 1, col:col + prob%info%Nmat - 1) = A2
+            A(row:row + info%Nmat - 1, col:col + info%Nmat - 1) = A2
 !           Sum over all the integrals
-            b(row:row + prob%info%Nmat - 1) = b(row:row + prob%info%Nmat - 1) + b2
+            b(row:row + info%Nmat - 1) = b(row:row + info%Nmat - 1) + b2
         ENDDO
     ENDDO
 
-    DO i = 1,prob%info%NmatT
+    DO i = 1,info%NmatT
         A(:,i) = prob%cm%reduce(REAL(A(:,i))) + prob%cm%reduce(AIMAG(A(:,i)))*ii
     ENDDO
     b = prob%cm%reduce(REAL(b)) + prob%cm%reduce(AIMAG(b))*ii
@@ -437,8 +510,8 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !   Invert big matrix to get a list of all the vel constants of all cells
     ut = 0D0
     IF(prob%cm%mas()) THEN
-        CALL zcgesv(prob%info%NmatT, 1, A, prob%info%NmatT, IPIV, b, prob%info%NmatT, &
-                    ut, prob%info%NmatT, wrk, swrk, rwrk, iter, p_info)
+        CALL zcgesv(info%NmatT, 1, A, info%NmatT, IPIV, b, info%NmatT, &
+                    ut, info%NmatT, wrk, swrk, rwrk, iter, p_info)
     ENDIF
 
 !   Broadcast to all processors
@@ -455,16 +528,16 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
         cell => prob%cell(ic)
 
 !       Reconstruct individual vels
-        row = (ic-1)*prob%info%Nmat + 1
+        row = (ic-1)*info%Nmat + 1
         cell%umn = 0D0
-        cell%umn(1,1:prob%info%Nmat/3) = ut((/(i, i=row    , row + prob%info%Nmat-2, 3)/))
-        cell%umn(2,1:prob%info%Nmat/3) = ut((/(i, i=row + 1, row + prob%info%Nmat-1, 3)/))
-        cell%umn(3,1:prob%info%Nmat/3) = ut((/(i, i=row + 2, row + prob%info%Nmat  , 3)/))
+        cell%umn(1,1:info%Nmat/3) = ut((/(i, i=row    , row + info%Nmat-2, 3)/))
+        cell%umn(2,1:info%Nmat/3) = ut((/(i, i=row + 1, row + info%Nmat-1, 3)/))
+        cell%umn(3,1:info%Nmat/3) = ut((/(i, i=row + 2, row + info%Nmat  , 3)/))
 
 !       Volume correction: small, inward normal velocity based off current volume/SA/time step
 !       Removed for reduce, because that keeps things at constant volume
         if(.not. reduce) THEN
-            zm = -(cell%Vol() - cell%V0)/(cell%SA()*prob%info%dt)
+            zm = -(cell%Vol() - cell%V0)/(cell%SA()*info%dt)
             cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%info%p+1)*(cell%info%p+1)))
         ENDIF
 
@@ -487,41 +560,41 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             ! cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
             ! umnt = 0.5D0*(umnt + cell%umn)
             ! cell%xmn = xmnt + umnt*info%dt
-            ! cell%x(1,:,:) = cell%Y%backward(cell%xmn(1,:))
-            ! cell%x(2,:,:) = cell%Y%backward(cell%xmn(2,:))
-            ! cell%x(3,:,:) = cell%Y%backward(cell%xmn(3,:))
+            ! cell%x(1,:,:) = Y%backward(cell%xmn(1,:))
+            ! cell%x(2,:,:) = Y%backward(cell%xmn(2,:))
+            ! cell%x(3,:,:) = Y%backward(cell%xmn(3,:))
         ELSEIF(ord .ne. 1) THEN
             print*, "ERROR: time advancement of order >1 not supported"
             stop
         ENDIF
     
 !       Update position and current time step
-        cell%xmn = xmnt + umnt*prob%info%dt
+        cell%xmn = xmnt + umnt*info%dt
 
 !       For periodic, check if cells are outside primary cell, and put them in if so
-        IF(prob%info%periodic) THEN
+        IF(info%periodic) THEN
             DO ic2 = 1, prob%NCell
                 CALL prob%cell(ic2)%inPrim()
             ENDDO
         ENDIF
 
-        cell%x(1,:,:) = cell%info%Y%backward(cell%xmn(1,:))
-        cell%x(2,:,:) = cell%info%Y%backward(cell%xmn(2,:))
-        cell%x(3,:,:) = cell%info%Y%backward(cell%xmn(3,:))
+        cell%x(1,:,:) = Y%backward(cell%xmn(1,:))
+        cell%x(2,:,:) = Y%backward(cell%xmn(2,:))
+        cell%x(3,:,:) = Y%backward(cell%xmn(3,:))
     ENDDO
 
 !   Advance periodic basis vectors
-    IF(prob%info%periodic) THEN
-        CALL prob%info%bvAdvance()
+    IF(info%periodic) THEN
+        CALL info%bvAdvance()
 !       Update array containing support points
-        CALL SuppPoints(prob%info)
+        CALL SuppPoints(info)
     ENDIF
 
     CALL SYSTEM_CLOCK(toc)
     !print *, REAL(toc-tic)/REAL(rate)
 
     prob%cts = prob%cts + 1
-    prob%t = prob%t + prob%info%dt
+    prob%t = prob%t + info%dt
 
 !   Check if there's any funny business
     IF(ANY(isNaN((ABS(cell%umn)))) .or. ANY((ABS(cell%umn)) .gt. HUGE(zm))) THEN
