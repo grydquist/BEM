@@ -162,7 +162,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     print *, 'Max velocity coefficient w.r.t. membrane time (want less than 0.005*Ca):'
     Gfac = (((4D0*PI/3D0)/((0.95D0**(3D0))*(PI/6D0)))**(1D0/3D0))/2D0
     DO ic = 1, prob%NCell
-            ! CALL prob%cell(ic)%relax(0.005D0)
+            CALL prob%cell(ic)%relax(0.005D0)!!!
             CALL prob%cell(ic)%derivs()
             CALL prob%cell(ic)%stress()
             prob%cell(ic)%V0 = prob%cell(ic)%Vol()
@@ -317,21 +317,17 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     TYPE(sharedType), POINTER :: info
     REAL(KIND = 8) :: zm
     COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:), ut(:), wrk(:), &
-                                      A2(:,:), b2(:), A(:,:), b(:)
-    INTEGER :: ic, ic2, i, row, col, iter, p_info
-    REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:)
+                                      A2(:,:), b2(:), A(:,:), b(:), &
+                                      fmnR(:,:), xmnR(:,:), &
+                                      fv1(:), fv2(:), fv3(:), fv(:,:), &
+                                      b2f(:), b2r(:), YVt(:), um(:,:,:,:,:), &
+                                      A2f(:,:,:,:,:,:,:,:), A2r(:,:,:,:,:,:)
+    INTEGER :: ic, ic2, i, row, col, iter, p_info, m, n, im, im2, it
+    REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:), nJt(:,:,:), xv(:,:)
     COMPLEX, ALLOCATABLE :: swrk(:)
     INTEGER, ALLOCATABLE :: IPIV(:)
     INTEGER(KIND = 8) tic, toc, rate
-!! ============================
-    REAL(KIND = 8), ALLOCATABLE :: nJt(:,:,:), xv(:,:)
-    COMPLEX(KIND = 8), ALLOCATABLE :: fmnR(:,:), xmnR(:,:), &
-                                      fv1(:), fv2(:), fv3(:), fv(:,:), &
-                                      bb(:), tmp(:), YVt(:), um(:,:,:,:,:), &
-                                      Ai2(:,:,:,:,:,:,:,:), Ai2t(:,:,:,:,:,:)
     TYPE(nmType), ALLOCATABLE :: YV(:)
-    INTEGER m, n, im, im2, j, it
-!! ============================
 
     Y => prob%info%Y
     info => prob%info
@@ -349,37 +345,28 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
              um(3,3,Y%nt,Y%np, prob%NCell), &
              fmnR(3, (info%p+1)*(info%p+1)), &
              xmnR(3, (info%p+1)*(info%p+1)), &
-             Ai2(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np, prob%Ncell, prob%PCells(2) - prob%PCells(1) + 1), &
-             Ai2t(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
-             bb(3*Y%nt*Y%np*prob%NCell), &
-             tmp(3*info%NmatT))!!!!!!!!!! Eventually get rid of tmp
-    
-    CALL SYSTEM_CLOCK(tic,rate)
+             A2r(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
+             b2r(3*info%NmatT))
 
+!   If periodic, make variables for the Fourier part
+    IF(info%periodic) THEN
+        ALLOCATE( &
+        A2f(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np, prob%Ncell, prob%PCells(2) - prob%PCells(1) + 1), &
+        b2f(3*Y%nt*Y%np*prob%NCell))
+        A2f = 0D0
+    ENDIF
 
-!!!!! Needs parallelization... Ewalds should be doable/real spaces as well
-!!!!! Clean up unused variables and all that
-!!!!! Short real space cutoff/search boxes need to be implemented
-!!!!! Short range G should need self interacton (? Actually, maybe not...)
-!!!!! Only run these when periodic flag
-!!!!! Rename Ai
-!!!!! Put relax back in
-!!!!! Timings
-!!!!! Memory in Ai2(t)
-!!!!! Clean up util functions to get rid of unneeded things
-!!!!! Find k-truncation for fast ewald loops (if eta.gt.1 kn>40 no longer works)
 
 !   Do interpolation to get current grad tensor, then normalize by kolm time
     info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
 !! ============================
 !   Hardcoded shear
-    info%dU = 0D0
+    ! info%dU = 0D0 !!!
     ! info%dU(1,3) = 1D0
     ! prob%dU(1,1) =  1D0
     ! prob%dU(3,3) = -1D0
 !! ============================
 
-    Ai2 = 0D0
 !   First, calculate geometric quantities and stresses in all of the cells
     DO ic = 1, prob%NCell
         cell => prob%cell(ic)
@@ -411,7 +398,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
         fv(1,:) = fv1 
         fv(2,:) = fv2
         fv(3,:) = fv3
-        CALL EwaldG(info=info, x0=xv, f=fv, u1=bb, full=.true.)
+        CALL EwaldG(info=info, x0=xv, f=fv, u1=b2f, full=.true.)
 
 !       Start with the long range part, as this calculates all points for one integral surface
 !       The "forces" here are the spherical harmonics multiplied by the normal vector
@@ -435,7 +422,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
                     im = im + 1
                     im2 = m + (Y%p)
                     IF(m .gt. 0) THEN ! Symmetry
-                        Ai2(:,:,im2,n+1,:,:,:, ic) = CONJG(Ai2(:,:,im2 - 2*m,n+1,:,:,:, ic))*(-1D0)**m
+                        A2f(:,:,im2,n+1,:,:,:, ic) = CONJG(A2f(:,:,im2 - 2*m,n+1,:,:,:, ic))*(-1D0)**m
                         CYCLE
                     ENDIF
 
@@ -453,7 +440,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 
 !                   Now do actual calcs for all points at this int surface/nm combo
                     CALL EwaldT(info=info, x0=xv, f=YV(n+1)%v(im,:,:), full=.true., um=um, strt=ic)
-                    Ai2(:,:, im2, n+1,:,:,:, ic) = um
+                    A2f(:,:, im2, n+1,:,:,:, ic) = um
                 ENDDO
             ENDDO
         ENDDO
@@ -468,7 +455,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 
     CALL SYSTEM_CLOCK(tic,rate)
 !   Now the real space part
-!   First loop: velocity surface !!!!!!!!!! Paralellize this further??? Pcells(2,2) one for int surf, one for vel
+!   First loop: velocity surface
     DO ic = 1,prob%NCell
         row = (ic - 1)*info%Nmat + 1
         cell => prob%cell(ic)
@@ -480,27 +467,30 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             
 !           Get velocity sub-matrix for cell-cell combo (Same or diff cell)
             IF(ic .eq. ic2) THEN
-                CALL cell%fluid(Ao = Ai2t, bo = tmp)
+                CALL cell%fluid(Ao = A2r, bo = b2r)
             ELSE
-                CALL cell%fluid(Ao = Ai2t, bo = tmp, celli = celli)
+                CALL cell%fluid(Ao = A2r, bo = b2r, celli = celli)
             ENDIF
 
+!           Add long range interactions if periodic
             IF(info%periodic) THEN
-                Ai2t = Ai2t + Ai2(:,:,:,:,:,:,ic,ic2)*(1D0-cell%lam)/(1D0+cell%lam)
-!               This is b/c bb is the vector at the velocity points integrated across all surfaces,
-!               so we only add in once !!! double check
+                A2r = A2r + A2f(:,:,:,:,:,:,ic,ic2)*(1D0-cell%lam)/(1D0+cell%lam)
+!               This is b/c b2f is the vector at the velocity points integrated across all surfaces,
+!               so we only add in once
                 IF(ic .eq. ic2) &
-                    tmp = tmp + bb( (ic-1)*(3*Y%nt*Y%np)+1 : (ic)*(3*Y%nt*Y%np))/(1D0 + cell%lam)
+                    b2r = b2r + b2f( (ic-1)*(3*Y%nt*Y%np)+1 : (ic)*(3*Y%nt*Y%np))/(1D0 + cell%lam)
             ENDIF
 
 !           Perform the Galerkin
-            CALL info%Gal(Ai2t, tmp, A2, b2)
+            CALL info%Gal(A2r, b2r, A2, b2)
 !           Put sub matrix into big matrix
             A(row:row + info%Nmat - 1, col:col + info%Nmat - 1) = A2
 !           Sum over all the integrals
             b(row:row + info%Nmat - 1) = b(row:row + info%Nmat - 1) + b2
         ENDDO
     ENDDO
+    CALL SYSTEM_CLOCK(toc)
+    ! print *, REAL(toc-tic)/REAL(rate)
 
     DO i = 1,info%NmatT
         A(:,i) = prob%cm%reduce(REAL(A(:,i))) + prob%cm%reduce(AIMAG(A(:,i)))*ii
@@ -589,9 +579,6 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !       Update array containing support points
         CALL SuppPoints(info)
     ENDIF
-
-    CALL SYSTEM_CLOCK(toc)
-    !print *, REAL(toc-tic)/REAL(rate)
 
     prob%cts = prob%cts + 1
     prob%t = prob%t + info%dt

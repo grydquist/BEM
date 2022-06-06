@@ -673,16 +673,17 @@ END FUNCTION LJ
 !   wgprim:   Gauss weight at point in primary cell
 FUNCTION PGij(r, bxs, bv, eye, xi) RESULT(A)
     REAL(KIND = 8) :: r(3), bv(3,3), eye(3,3), A(3,3), xi, tau, &
-                      rcur(3)
+                      rcur(3)!, kv(3,3), kcur(3)
     INTEGER :: bxs, i, j, k
 
     A = 0D0
 
-!   Calculate the Ewald parameter (function of vol of primary cell, tau)
+!   Volume of lattice unit cell (likely could pass as arg, but not huge deal)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
-    !!!!!!! TAU SHOULDN'T CHANGE (LINEAR FLOW, NO DILATATION)
 
-!!!!!!!! calculate all of above ahead, use as argument? !!!!!!!
+    ! kv(:,1) = 2*pi/tau*cross(bv(:,2),bv(:,3))
+    ! kv(:,2) = 2*pi/tau*cross(bv(:,3),bv(:,1))
+    ! kv(:,3) = 2*pi/tau*cross(bv(:,1),bv(:,2))
 
 !   We do the real and Fourier sums in the same loops
     DO i = -bxs, bxs
@@ -726,15 +727,17 @@ END FUNCTION PGij
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -!
 FUNCTION PTij(r, bxs, bv, n, eye, xi) RESULT(A)
     REAL(KIND = 8) :: r(3), bv(3,3), n(3), eye(3,3), A(3,3), xi, tau, &
-                      rcur(3)
+                      rcur(3)!, kv(3,3), kcur(3)
     INTEGER :: bxs, i, j, k
 
     A  = 0D0
 
-!   Calculate the Ewald parameter (function of vol of primary cell, tau)
+!   Volume of lattice unit cell (likely could pass as arg, but not huge deal)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
 
-!!!!!!!! calculate all of above ahead, use as argument? !!!!!!!
+    ! kv(:,1) = 2*pi/tau*cross(bv(:,2),bv(:,3))
+    ! kv(:,2) = 2*pi/tau*cross(bv(:,3),bv(:,1))
+    ! kv(:,3) = 2*pi/tau*cross(bv(:,1),bv(:,2))
 
 !   We do the real and Fourier sums in the same loops
     DO i = -bxs, bxs

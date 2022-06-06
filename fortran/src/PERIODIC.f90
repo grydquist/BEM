@@ -222,8 +222,6 @@ SUBROUTINE EwaldG(Ht, info, x0, f, full, u3, u1)
 !   Now perform the convolution with the kernel (which is a truncated sum in spectral space)
 !   (gp needs to be even)
 !   Also assumes the Hh matrix has negative and positive parts
-
-!!!!!!!!!!!!!!!!! FIND TRUNCATION (if eta.gt.1 kn>40 no longer works)
     DO iw = -gp/2, gp/2 - 1
         DO jw = -gp/2, gp/2 - 1
             DO kw = -gp/2, gp/2 - 1
@@ -253,7 +251,7 @@ SUBROUTINE EwaldG(Ht, info, x0, f, full, u3, u1)
         ENDDO
     ENDDO
 
-!!!!!!!!!!!! Note: FFTshift only for even number grid. Need to make iFFTshift for odds
+!!!! Note: FFTshift only for even number grid. Need to make iFFTshift for odds
     Htmp = Hht(1,:,:,:)
     CALL FFTSHIFT(Htmp)
     Htmp = iFFT3(Htmp, info%WSAVE)
@@ -420,7 +418,7 @@ SUBROUTINE EwaldT(Ht, info, x0, f, full, um, u3, strt)
         ENDDO
     ENDDO
 
-!!!!!!!!!!!! Note: FFTshift only for even number grid. Need to make iFFTshift for odds
+!!!! Note: FFTshift only for even number grid. Need to make iFFTshift for odds
     DO i = 1,3
         DO j = 1,3
             Htmp = Hht(i,j,:,:,:)

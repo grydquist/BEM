@@ -33,3 +33,15 @@ DO i = 1,prob%NT
 ENDDO
 
 END PROGRAM MAIN
+
+! The program still runs fine, but there are a few things that should be
+! done to make it better/faster:
+
+!!! Needs better parallelization. Real space sums should be able to be split
+  ! into both target and integration surfaces instead of integration surfaces
+  ! as they are now (i.e., Pcells(2,2)).
+  ! Loops inside both Ewald and real can maybe be parallelized
+!!! Instead of cycling in real space integral calculations, put the points into
+  ! search boxes to only calculate nearest interactions
+!!! Can maybe decrease memory in A2f by calculating the matrices one at a time
+!!! mult cell not working at all

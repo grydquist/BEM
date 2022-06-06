@@ -774,7 +774,7 @@ END SUBROUTINE Stresscell
 ! -------------------------------------------------------------------------!
 ! Knowing the force jump get the velocity on the surface of the cell via
 ! the fluid problem
-SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo) !!! Make large vectors with extra space nm types
+SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
     CLASS(cellType), INTENT(IN), TARGET :: cell
     COMPLEX(KIND = 8), INTENT(OUT), ALLOCATABLE, OPTIONAL ::  A2(:,:), b2(:)
     COMPLEX(KIND = 8), INTENT(OUT), ALLOCATABLE, OPTIONAL :: Ao(:,:,:,:,:,:), bo(:)
