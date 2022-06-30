@@ -162,28 +162,28 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     print *, 'Max velocity coefficient w.r.t. membrane time (want less than 0.005*Ca):'
     Gfac = (((4D0*PI/3D0)/((0.95D0**(3D0))*(PI/6D0)))**(1D0/3D0))/2D0
     DO ic = 1, prob%NCell
-            CALL prob%cell(ic)%relax(0.005D0)!!!
+            ! CALL prob%cell(ic)%relax(0.005D0)!!!
             CALL prob%cell(ic)%derivs()
             CALL prob%cell(ic)%stress()
             prob%cell(ic)%V0 = prob%cell(ic)%Vol()
             !! Test                                        !!!!!
-            SELECT CASE(MOD(ic,4) )
+            SELECT CASE(MOD(ic, 4))!9) )
             CASE(1)
-                prob%cell(ic)%xmn(1,1) = .010D0!(Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = .010D0!(1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.75D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = .010D0!(Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)
-            CASE(2)
-                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!1.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.75D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (Gfac)/(ispi*0.5D0)!2D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (Gfac)/(ispi*0.5D0)!0.50D0/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!0.50D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(3,1) = (Gfac)/(ispi*0.5D0)!0.50D0/(ispi*0.5D0)!
             CASE(3)
-                prob%cell(ic)%xmn(1,1) = (Gfac)/(ispi*0.5D0)!2.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.75D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!3.5D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (Gfac)/(ispi*0.5D0) !+ info%bvl/(ispi*0.5D0)!3D0/(ispi*0.5D0)! 
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)!
+            CASE(2)
+                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!1.5D0/(ispi*0.5D0)!
             CASE(0)
-                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!2.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!1.25D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(2,1) = (-1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(3,1) = (Gfac)/(ispi*0.5D0)!1.5D0/(ispi*0.5D0)!
             CASE(5)
                 prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!3.5D0/(ispi*0.5D0)
                 prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)
@@ -351,7 +351,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !   If periodic, make variables for the Fourier part
     IF(info%periodic) THEN
         ALLOCATE( &
-        A2f(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np, prob%Ncell, prob%PCells(2) - prob%PCells(1) + 1), &
+        A2f(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np, prob%Ncell, prob%Ncell), & !!! Note that in parallel, many entries will be 0 here
         b2f(3*Y%nt*Y%np*prob%NCell))
         A2f = 0D0
     ENDIF
@@ -370,6 +370,12 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !   First, calculate geometric quantities and stresses in all of the cells
     DO ic = 1, prob%NCell
         cell => prob%cell(ic)
+
+!       For periodic, check if cells are outside primary cell, and put them in if so
+        IF(info%periodic) THEN
+            CALL cell%inPrim()
+        ENDIF
+
         CALL cell%derivs()
         CALL cell%stress()
 
@@ -560,13 +566,6 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     
 !       Update position and current time step
         cell%xmn = xmnt + umnt*info%dt
-
-!       For periodic, check if cells are outside primary cell, and put them in if so
-        IF(info%periodic) THEN
-            DO ic2 = 1, prob%NCell
-                CALL prob%cell(ic2)%inPrim()
-            ENDDO
-        ENDIF
 
         cell%x(1,:,:) = Y%backward(cell%xmn(1,:))
         cell%x(2,:,:) = Y%backward(cell%xmn(2,:))

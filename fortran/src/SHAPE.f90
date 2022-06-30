@@ -786,7 +786,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
                colm, ind, im3, nt, np, indi = 1, indj = 1, iper, jper, kper
     LOGICAL sing, periodic
     COMPLEX(KIND = 8) :: bt(3), tmpsum(3,3)
-    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), minr, dphi, rn, rcur(3)
+    REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), minr, dphi, rn, rcur(3), rt(3)
     COMPLEX(KIND = 8), ALLOCATABLE :: b(:), Ci(:,:,:,:), Ei(:,:,:,:), & 
                                       Dr(:,:,:), Ai(:,:,:,:,:,:), &
                                       fmnR(:,:), xmnR(:,:), nmnR(:,:)
@@ -865,7 +865,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
                 DO i2 = 1,celli%info%Yf%nt
                     DO j2 = 1,celli%info%Yf%np
                         r = celli%xf(:,i2,j2) - xcr
-                        minr = MIN(norm2(r), minr)
+                        minr = MIN(NORM2(r), minr)
 !                       We need to check all of the periodic images of the cell as well
 !                       Just check immediately surrounding boxes
                         IF(periodic) THEN
@@ -876,8 +876,8 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
                                              - iper*info%bv(:,1) &
                                              - jper*info%bv(:,2) &
                                              - kper*info%bv(:,3) 
-                                        minr = MIN(norm2(rcur), minr)
-                                        IF(minr .eq. norm2(rcur)) THEN
+                                        minr = MIN(NORM2(rcur), minr)
+                                        IF(minr .eq. NORM2(rcur)) THEN
                                             indi = i2
                                             indj = j2
                                         ENDIF
@@ -886,7 +886,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
                             ENDDO
                         ENDIF
 !                       Save indices of min spacing
-                        IF(minr .eq. norm2(r)) THEN
+                        IF(minr .eq. NORM2(r)) THEN
                             indi = i2
                             indj = j2
                         ENDIF
@@ -1141,30 +1141,50 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
 !                           Matrix of integration grid about i,j-th point
 !                           Gauss weights used in calculation, because different weights are needed when in primary cell
                             
-                            IF(norm2(r)*info%xi.gt.3.5) THEN 
+                            IF(NORM2(r)*info%xi.gt.3.5) THEN
                                 ft2= 0D0
                                 ft = 0D0
                                 Bi(1:3,1:3,i2,j2) = -8D0*PI/info%tau*OUTER(r, nJt(:,i2,j2))*wgi(i2)
                             ELSE
-                                Bi(1:3,1:3,i2,j2) = PTij(r, 0, info%bv, nJt(:,i2,j2), info%eye, info%xi)*wgi(i2)
+                                Bi(1:3,1:3,i2,j2) = PTij(r, 1, info%bv, nJt(:,i2,j2), info%eye, info%xi)*wgi(i2)
 !                               RHS vector
-                                ft2 = PGij(r, 0, info%bv, info%eye, info%xi)*wgi(i2)
+                                ft2 = PGij(r, 1, info%bv, info%eye, info%xi)*wgi(i2)
                                 ft  = frot(:,i2,j2)
                             ENDIF
                         ELSE
-!                           All weights the same regardless of cell, keep outside
-!                           Matrix of integration grid about i,j-th point
-                            
- !!!!!!!!!!!!!!!!!!!!!!!! mult cells, same as above
-                            Bi(1:3,1:3,i2,j2) = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye, info%xi)*wgi(i2)
-                            ft2 = PGij(r, 2, info%bv, info%eye, info%xi)*wgi(i2)
-                            ft  = frot(:,i2,j2)
+!                           Check over surrounding boxes to see if there's a nearby point
+                !!!!        Quite janky, could use some work
+                            minr = NORM2(r)
+                            DO iper = -1,1
+                                DO jper = -1,1
+                                    DO kper = -1,1
+                                        rcur = r &
+                                             - iper*info%bv(:,1) &
+                                             - jper*info%bv(:,2) &
+                                             - kper*info%bv(:,3)
+                                        IF(NORM2(rcur) .le. minr) THEN
+                                            rt = rcur
+                                            minr = NORM2(rcur)
+                                        ENDIF
+                                    ENDDO
+                                ENDDO
+                            ENDDO
+
+                            IF(NORM2(rt)*info%xi.gt.3.5) THEN
+                                ft2= 0D0
+                                ft = 0D0
+                                Bi(1:3,1:3,i2,j2) = -8D0*PI/info%tau*OUTER(r, nJt(:,i2,j2))*wgi(i2)
+                            ELSE
+                                Bi(1:3,1:3,i2,j2) = PTij(r, 1, info%bv, nJt(:,i2,j2), info%eye, info%xi)*wgi(i2) !!! There should be a wayt to make this better/faster (need 1 box for non-periodic/linear part)
+!                               RHS vector
+                                ft2 = PGij(r, 1, info%bv, info%eye, info%xi)*wgi(i2)
+                                ft  = frot(:,i2,j2)
+                            ENDIF
 
 !                           We need to check if the periodic images give short range cell-cell interactions.
 !                           This needs to be added separately, because it uses the normal Stokeslet, not the periodic.
 !                           Go to each of the surrounding boxes, and check if the image point is within the cutoff distance
 !                           If it is, add it directly to b with non-periodic Green's function
- !!!!!!!!!!!!!!!!!!!!!!!! needs some working out... or does it? these additions aren't periodic
                             IF(info%CellCell) THEN
                                 IF(sing) THEN
                                     bt = bt + PeriodicCellCell(info, r)*wgi(i2)*dphi/SIN(tht_t(i2))
@@ -1305,21 +1325,20 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
 END SUBROUTINE Fluidcell
 
 ! -------------------------------------------------------------------------!
-! Calculates the double and single layer integrals at theta point i, phi point j
+! Calculates the velocity from one cell at an (external) point
 ! Originally meant as a way to solve the equation that ended up being slower
 ! despite better scaling. Now a potentially useful debug tool.
 !!! May not be fully up to date
-FUNCTION LayerCell(cell, i, j, periodic_in, celli) RESULT(rhs)
+FUNCTION LayerCell(cell, x, periodic_in) RESULT(rhs)
     CLASS(cellType), TARGET :: cell
-    INTEGER :: i,j
+    REAL(KIND = 8), INTENT(IN) :: x(3)
     REAL(KIND = 8) :: rhs(3)
-    TYPE(cellType), POINTER, OPTIONAL :: celli
     LOGICAL, OPTIONAL :: periodic_in
 
     TYPE(sharedType), POINTER :: info
     LOGICAL sing, periodic
-    REAL(KIND = 8) :: xcr(3), r(3), rcur(3), minr, dphi, rn, &
-                      Gl(3), Gr(3,3), Tl(3), Tr(3,3), Utmp(3,3), Uc(3)
+    REAL(KIND = 8) :: r(3), rcur(3), minr, dphi, &
+                      Gl(3), Gr(3,3), Tl(3), Tr(3,3), xi
     INTEGER :: i2, j2, iper, jper, kper, indi, indj, nt, np
     TYPE(YType), POINTER :: Y, Yfi
     REAL(KIND = 8), ALLOCATABLE :: xcg(:,:,:), frot(:,:,:), urot(:,:,:), &
@@ -1340,235 +1359,170 @@ FUNCTION LayerCell(cell, i, j, periodic_in, celli) RESULT(rhs)
         fmnR(3, (info%p+1)*(info%p+1)), &
         nmnR(3, (info%p+1)*(info%p+1)), &
         xmnR(3, (info%p+1)*(info%p+1)), &
-        JtmnR  ((info%p+1)*(info%p+1)), &
+        JtmnR(  (info%p+1)*(info%p+1)), &
         umnR(3, (info%p+1)*(info%p+1)))
 
-!   Location of north pole in unrotated frame (just current integration point)
-    xcr = cell%x(:,i,j)
+!   xi here because I don't do fast Ewald
+    xi = SQRT(PI)/(info%tau**(1D0/3D0))
 
-!   If the integration and target surfaces are different, check minimum spacing
-    IF(PRESENT(celli)) THEN
-        minr = celli%h + 1D0
-        DO i2 = 1,celli%info%Yf%nt
-            DO j2 = 1,celli%info%Yf%np
-                r = celli%xf(:,i2,j2) - xcr
-                minr = MIN(norm2(r), minr)
-!               We need to check all of the periodic images of the cell as well
-!               Just check immediately surrounding boxes
-                IF(periodic) THEN
-                    DO iper = -1,1
-                        DO jper = -1,1
-                            DO kper = -1,1
-                                rcur = r &
-                                     - iper*info%bv(:,1) &
-                                     - jper*info%bv(:,2) &
-                                     - kper*info%bv(:,3) 
-                                minr = MIN(norm2(rcur), minr)
-                                IF(minr .eq. norm2(rcur)) THEN
-                                    indi = i2
-                                    indj = j2
-                                ENDIF
-                            ENDDO
+!   Check distance of point to surface
+    minr = cell%h + 4D0
+    DO i2 = 1,cell%info%Yf%nt
+        DO j2 = 1,cell%info%Yf%np
+            r = cell%xf(:,i2,j2) - x
+            minr = MIN(NORM2(r), minr)
+!           We need to check all of the periodic images of the cell as well
+!           Just check immediately surrounding boxes
+            IF(periodic) THEN
+                DO iper = -1,1
+                    DO jper = -1,1
+                        DO kper = -1,1
+                            rcur = r &
+                                    - iper*info%bv(:,1) &
+                                    - jper*info%bv(:,2) &
+                                    - kper*info%bv(:,3) 
+                            minr = MIN(NORM2(rcur), minr)
+                            IF(minr .eq. NORM2(rcur)) THEN
+                                indi = i2
+                                indj = j2
+                            ENDIF
                         ENDDO
                     ENDDO
-                ENDIF
-!               Save indices of min spacing
-                IF(minr .eq. norm2(r)) THEN
-                    indi = i2
-                    indj = j2
-                ENDIF
-            ENDDO
+                ENDDO
+            ENDIF
+!           Save indices of min spacing
+            IF(minr .eq. NORM2(r)) THEN
+                indi = i2
+                indj = j2
+            ENDIF
         ENDDO
+    ENDDO
+    
+!   If min spacing is small, we need to do near-singular integration
+    IF(minr .lt. cell%h) THEN
+        sing = .true.
+        Yfi => cell%info%Yf
+
+!       Need to integrate on finer grid
+        nt = cell%info%Yf%nt + Y%nt
+        np = cell%info%Yf%np + Y%np
+
+!       Allocate integration items
+        ALLOCATE( &
+        frot(3, nt, np), &
+        Jtrot(nt, np), &
+        xcg(3,  nt, np), &
+        nJt(3,  nt, np), &
+        urot(3, nt, np), &
+        wgi(nt), &
+        tht_t(nt))
+
+        dphi = cell%info%Y%dphi
+
+!       Manage the additional prefactors stemming from the integrals
+        wgi(1:Y%nt)  = cell%info%Y%wg*(pi - info%thtc)/2D0
+        wgi(Y%nt + 1:Y%nt + Yfi%nt)  = Yfi%wg*info%h*(-info%k)*COSH(info%k*info%xsf - info%k)
+
+!       We don't do cosine transformation to cluster points near near-singularity, mult sine back in
+        wgi = wgi*SIN(cell%info%Ys%th(:,1))
+        tht_t = cell%info%Ys%th(:,1)
+
+!       The below formulation is slightly inefficient. To remain general, I want to just have a single
+!       grid. However, the singular integral is calculated on 2 grids, one fine and one coarse.
+!       I put this in one grid and there is some overlap, so that there are points that aren't used.
+!       When calculating the integrals, I just cycle past these points.
+
+!       Rotate about nearest point to projected singularity
+        xmnR(1,:) = Yfi%rotate(cell%xmn(1,:), indi, indj, -Yfi%phi(indj))
+        xmnR(2,:) = Yfi%rotate(cell%xmn(2,:), indi, indj, -Yfi%phi(indj))
+        xmnR(3,:) = Yfi%rotate(cell%xmn(3,:), indi, indj, -Yfi%phi(indj))
+
+        xcg(1,:,:) = cell%info%Ys%backward(xmnR(1,:))
+        xcg(2,:,:) = cell%info%Ys%backward(xmnR(2,:))
+        xcg(3,:,:) = cell%info%Ys%backward(xmnR(3,:))
+
+!       Area/sin
+        JtmnR = Yfi%rotate(cell%Jtmn(1:(cell%info%p+1)*(cell%info%p+1)), indi, indj, -Yfi%phi(indj))
+        Jtrot = cell%info%Ys%backward(JtmnR, cell%info%p)
+
+!       Forces on rotated grid
+        fmnR(1,:) = Yfi%rotate(cell%fmn(1,1:(cell%info%p+1)*(cell%info%p+1)), indi, indj, -Yfi%phi(indj))
+        fmnR(2,:) = Yfi%rotate(cell%fmn(2,1:(cell%info%p+1)*(cell%info%p+1)), indi, indj, -Yfi%phi(indj))
+        fmnR(3,:) = Yfi%rotate(cell%fmn(3,1:(cell%info%p+1)*(cell%info%p+1)), indi, indj, -Yfi%phi(indj))
+
+        frot(1,:,:) = cell%info%Ys%backward(fmnR(1,:), cell%info%p)
+        frot(2,:,:) = cell%info%Ys%backward(fmnR(2,:), cell%info%p)
+        frot(3,:,:) = cell%info%Ys%backward(fmnR(3,:), cell%info%p)
         
-!       If min spacing is small, we need to do near-singular integration
-        IF(minr .lt. celli%h) THEN
-            sing = .true.
-            Yfi => celli%info%Yf
+!       Velocities on rotated grid
+        umnR(1,:) = Yfi%rotate(cell%umn(1,1:(cell%info%p+1)*(cell%info%p+1)), indi, indj, -Yfi%phi(indj))
+        umnR(2,:) = Yfi%rotate(cell%umn(2,1:(cell%info%p+1)*(cell%info%p+1)), indi, indj, -Yfi%phi(indj))
+        umnR(3,:) = Yfi%rotate(cell%umn(3,1:(cell%info%p+1)*(cell%info%p+1)), indi, indj, -Yfi%phi(indj))
 
-!           Need to integrate on finer grid
-            nt = cell%info%Yf%nt + Y%nt
-            np = cell%info%Yf%np + Y%np
+        urot(1,:,:) = cell%info%Ys%backward(umnR(1,:), cell%info%p)
+        urot(2,:,:) = cell%info%Ys%backward(umnR(2,:), cell%info%p)
+        urot(3,:,:) = cell%info%Ys%backward(umnR(3,:), cell%info%p)
 
-!           Allocate integration items
-            ALLOCATE( &
-            frot(3, nt, np), &
-            Jtrot(nt, np), &
-            xcg(3,  nt, np), &
-            nJt(3,  nt, np), &
-            urot(3, nt, np), &
-            wgi(nt), &
-            tht_t(nt))
+!       Rotate the normal vector total constants
+        nmnR(1,:) = Yfi%rotate(cell%nkt(1,1:(cell%info%p+1)*(cell%info%p+1)), indi, indj, -Yfi%phi(indj))
+        nmnR(2,:) = Yfi%rotate(cell%nkt(2,1:(cell%info%p+1)*(cell%info%p+1)), indi, indj, -Yfi%phi(indj))
+        nmnR(3,:) = Yfi%rotate(cell%nkt(3,1:(cell%info%p+1)*(cell%info%p+1)), indi, indj, -Yfi%phi(indj))
 
-            dphi = celli%info%Y%dphi
-
-!           Manage the additional prefactors stemming from the integrals
-            wgi(1:Y%nt)  = celli%info%Y%wg*(pi - info%thtc)/2D0
-            wgi(Y%nt + 1:Y%nt + Yfi%nt)  = Yfi%wg*info%h*(-info%k)*COSH(info%k*info%xsf - info%k)
-
-!           We don't do cosine transformation to cluster points near near-singularity, mult sine back in
-            wgi = wgi*SIN(celli%info%Ys%th(:,1))
-            tht_t = celli%info%Ys%th(:,1)
-
-!           The below formulation is slightly inefficient. To remain general, I want to just have a single
-!           grid. However, the singular integral is calculated on 2 grids, one fine and one coarse.
-!           I put this in one grid and there is some overlap, so that there are points that aren't used.
-!           When calculating the integrals, I just cycle past these points.
-
-!           Rotate about nearest point to projected singularity
-            xmnR(1,:) = Yfi%rotate(celli%xmn(1,:), indi, indj, -Yfi%phi(indj))
-            xmnR(2,:) = Yfi%rotate(celli%xmn(2,:), indi, indj, -Yfi%phi(indj))
-            xmnR(3,:) = Yfi%rotate(celli%xmn(3,:), indi, indj, -Yfi%phi(indj))
-
-            xcg(1,:,:) = celli%info%Ys%backward(xmnR(1,:))
-            xcg(2,:,:) = celli%info%Ys%backward(xmnR(2,:))
-            xcg(3,:,:) = celli%info%Ys%backward(xmnR(3,:))
-
-!           Area/sin
-            JtmnR = Yfi%rotate(celli%Jtmn(1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
-            Jtrot = celli%info%Ys%backward(JtmnR, celli%info%p)
-
-!           Forces on rotated grid
-            fmnR(1,:) = Yfi%rotate(celli%fmn(1,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
-            fmnR(2,:) = Yfi%rotate(celli%fmn(2,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
-            fmnR(3,:) = Yfi%rotate(celli%fmn(3,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
-
-            frot(1,:,:) = celli%info%Ys%backward(fmnR(1,:), celli%info%p)
-            frot(2,:,:) = celli%info%Ys%backward(fmnR(2,:), celli%info%p)
-            frot(3,:,:) = celli%info%Ys%backward(fmnR(3,:), celli%info%p)
-            
-!           Velocities on rotated grid(NEED 1/SINES IN THERE SOMEWHERE!!!!!)
-            umnR(1,:) = Yfi%rotate(celli%umn(1,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
-            umnR(2,:) = Yfi%rotate(celli%umn(2,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
-            umnR(3,:) = Yfi%rotate(celli%umn(3,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
-
-            urot(1,:,:) = celli%info%Ys%backward(umnR(1,:), celli%info%p)
-            urot(2,:,:) = celli%info%Ys%backward(umnR(2,:), celli%info%p)
-            urot(3,:,:) = celli%info%Ys%backward(umnR(3,:), celli%info%p)
-
-!           Rotate the normal vector total constants
-            nmnR(1,:) = Yfi%rotate(celli%nkmn(1,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
-            nmnR(2,:) = Yfi%rotate(celli%nkmn(2,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
-            nmnR(3,:) = Yfi%rotate(celli%nkmn(3,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
-
-            nJt(1,:,:) = celli%info%Ys%backward(nmnR(1,:), celli%info%p)*Jtrot
-            nJt(2,:,:) = celli%info%Ys%backward(nmnR(2,:), celli%info%p)*Jtrot
-            nJt(3,:,:) = celli%info%Ys%backward(nmnR(3,:), celli%info%p)*Jtrot
-!       Well-separated, normal grid/integration
-        ELSE
-            sing = .false.
-
-!           We can use the coarse grid
-            nt = Y%nt
-            np = Y%np
-
-!           Deallocate integ. quants
-            ALLOCATE( &
-            frot(3, nt, np), &
-            Jtrot(nt, np), &
-            xcg(3,  nt, np), &
-            nJt(3,  nt, np), &
-            urot(3, nt, np), &
-            wgi(nt), &
-            tht_t(nt))
-            
-            dphi = celli%info%Y%dphi
-            wgi  = celli%info%Y%wg
-            tht_t= celli%info%Y%tht
-
-            JtmnR = celli%Jtmn(1:(info%p+1)*(info%p+1))
-            Jtrot = Y%backward(JtmnR, info%p)
-
-            xcg(1,:,:) = celli%x(1,:,:)
-            xcg(2,:,:) = celli%x(2,:,:)
-            xcg(3,:,:) = celli%x(3,:,:)
-
-            fmnR(1,:) = celli%fmn(1,1:(info%p+1)*(info%p+1))
-            fmnR(2,:) = celli%fmn(2,1:(info%p+1)*(info%p+1))
-            fmnR(3,:) = celli%fmn(3,1:(info%p+1)*(info%p+1))
-
-            frot(1,:,:) = Y%backward(fmnR(1,:), info%p)
-            frot(2,:,:) = Y%backward(fmnR(2,:), info%p)
-            frot(3,:,:) = Y%backward(fmnR(3,:), info%p)
-            
-            umnR(1,:) = celli%umn(1,1:(info%p+1)*(info%p+1))
-            umnR(2,:) = celli%umn(2,1:(info%p+1)*(info%p+1))
-            umnR(3,:) = celli%umn(3,1:(info%p+1)*(info%p+1))
-
-            urot(1,:,:) = Y%backward(umnR(1,:), info%p)
-            urot(2,:,:) = Y%backward(umnR(2,:), info%p)
-            urot(3,:,:) = Y%backward(umnR(3,:), info%p)
-
-            nmnR(1,:) = celli%nkmn(1,1:(info%p+1)*(info%p+1))
-            nmnR(2,:) = celli%nkmn(2,1:(info%p+1)*(info%p+1))
-            nmnR(3,:) = celli%nkmn(3,1:(info%p+1)*(info%p+1))
-
-            nJt(1,:,:) = Y%backward(nmnR(1,:), info%p)*Jtrot
-            nJt(2,:,:) = Y%backward(nmnR(2,:), info%p)*Jtrot
-            nJt(3,:,:) = Y%backward(nmnR(3,:), info%p)*Jtrot
-        ENDIF
-
-!   Fully singular integration on same cell: Get rotated constants
+        nJt(1,:,:) = cell%info%Ys%backward(nmnR(1,:), cell%info%p)
+        nJt(2,:,:) = cell%info%Ys%backward(nmnR(2,:), cell%info%p)
+        nJt(3,:,:) = cell%info%Ys%backward(nmnR(3,:), cell%info%p)
+!   Well-separated, normal grid/integration
     ELSE
         sing = .false.
 
-!       Velocity at integration point
-        Utmp = TRANSPOSE(info%dU)
-        Uc = INNER3_33(cell%x(:,i,j), Utmp)
-
-!       For integration (changes if need a finer grid)
-        dphi = Y%dphi
-
+!       We can use the coarse grid
         nt = Y%nt
         np = Y%np
-        ALLOCATE(frot(3, nt, np), &
-                 Jtrot(nt, np), &
-                 xcg(3, nt, np), &
-                 nJt(3, nt, np), &
-                 urot(3, nt, np), &
-                 wgi(Y%nt),&
-                 tht_t(Y%nt))
 
-!       Area/sin
-        JtmnR = Y%rotate(cell%Jtmn(1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+!       Deallocate integ. quants
+        ALLOCATE( &
+        frot(3, nt, np), &
+        Jtrot(nt, np), &
+        xcg(3,  nt, np), &
+        nJt(3,  nt, np), &
+        urot(3, nt, np), &
+        wgi(nt), &
+        tht_t(nt))
+        
+        dphi = cell%info%Y%dphi
+        wgi  = cell%info%Y%wg
+        tht_t= cell%info%Y%tht
+
+        JtmnR = cell%Jtmn(1:(info%p+1)*(info%p+1))
         Jtrot = Y%backward(JtmnR, info%p)
 
-        xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
-        xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
-        xmnR(3,:) = Y%rotate(cell%xmn(3,:), i, j, -Y%phi(j))
+        xcg(1,:,:) = cell%x(1,:,:)
+        xcg(2,:,:) = cell%x(2,:,:)
+        xcg(3,:,:) = cell%x(3,:,:)
 
-!       Rotated integration points in unrotated frame
-        xcg(1,:,:) = Y%backward(xmnR(1,:))
-        xcg(2,:,:) = Y%backward(xmnR(2,:))
-        xcg(3,:,:) = Y%backward(xmnR(3,:))
-
-!       Forces on rotated grid
-        fmnR(1,:) = Y%rotate(cell%fmn(1,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
-        fmnR(2,:) = Y%rotate(cell%fmn(2,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
-        fmnR(3,:) = Y%rotate(cell%fmn(3,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+        fmnR(1,:) = cell%fmn(1,1:(info%p+1)*(info%p+1))
+        fmnR(2,:) = cell%fmn(2,1:(info%p+1)*(info%p+1))
+        fmnR(3,:) = cell%fmn(3,1:(info%p+1)*(info%p+1))
 
         frot(1,:,:) = Y%backward(fmnR(1,:), info%p)
         frot(2,:,:) = Y%backward(fmnR(2,:), info%p)
         frot(3,:,:) = Y%backward(fmnR(3,:), info%p)
-
-!       Velocities on rotated grid
-        umnR(1,:) = Y%rotate(cell%umn(1,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
-        umnR(2,:) = Y%rotate(cell%umn(2,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
-        umnR(3,:) = Y%rotate(cell%umn(3,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+        
+        umnR(1,:) = cell%umn(1,1:(info%p+1)*(info%p+1))
+        umnR(2,:) = cell%umn(2,1:(info%p+1)*(info%p+1))
+        umnR(3,:) = cell%umn(3,1:(info%p+1)*(info%p+1))
 
         urot(1,:,:) = Y%backward(umnR(1,:), info%p)
         urot(2,:,:) = Y%backward(umnR(2,:), info%p)
         urot(3,:,:) = Y%backward(umnR(3,:), info%p)
 
-!       Rotate the normal vector total constants
-        nmnR(1,:) = Y%rotate(cell%nkmn(1,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
-        nmnR(2,:) = Y%rotate(cell%nkmn(2,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
-        nmnR(3,:) = Y%rotate(cell%nkmn(3,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+        nmnR(1,:) = cell%nkt(1,1:(info%p+1)*(info%p+1))
+        nmnR(2,:) = cell%nkt(2,1:(info%p+1)*(info%p+1))
+        nmnR(3,:) = cell%nkt(3,1:(info%p+1)*(info%p+1))
 
-        nJt(1,:,:) = Y%backward(nmnR(1,:), info%p)*Jtrot
-        nJt(2,:,:) = Y%backward(nmnR(2,:), info%p)*Jtrot
-        nJt(3,:,:) = Y%backward(nmnR(3,:), info%p)*Jtrot
-
-        wgi = Y%ws
+        nJt(1,:,:) = Y%backward(nmnR(1,:), info%p)
+        nJt(2,:,:) = Y%backward(nmnR(2,:), info%p)
+        nJt(3,:,:) = Y%backward(nmnR(3,:), info%p)
     ENDIF
 
 !   Now perform the actual integrations
@@ -1576,9 +1530,9 @@ FUNCTION LayerCell(cell, i, j, periodic_in, celli) RESULT(rhs)
         DO i2 = 1,nt
 !           Need an exception for near-singular int for if we're in mis-matched grids
             IF(sing .and. ((i2.gt.Y%nt .and. j2.le.Y%np) .or. (i2.le.Y%nt .and. j2.gt.Y%np))) CYCLE
-            IF(sing .and. j2 .eq. Y%np + 1) dphi = celli%info%Yf%dphi
+            IF(sing .and. j2 .eq. Y%np + 1) dphi = cell%info%Yf%dphi
 
-            r = xcg(:,i2,j2) - xcr
+            r = xcg(:,i2,j2) - x
 !           Use periodic Greens (or not)
             IF(periodic) THEN
 !               Three cases need consideration here: singular (integ on same cell), near-singular, non-singular
@@ -1587,28 +1541,20 @@ FUNCTION LayerCell(cell, i, j, periodic_in, celli) RESULT(rhs)
                 Gl = frot(:,i2,j2)!nJt(:,i2,j2)!
 
 !               Below, calculate some intermediate matrices, as well as RHS vector, pre-Galerkin
-                IF(.not.PRESENT(celli)) THEN
-!                   Double and single layers
-!                   Gauss weights used in calculation, because different weights are needed when in primary cell
-                    Tr = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye, info%xi)*wgi(i2)
-!                   HS vectorR
-                    Gr = PGij(r, 2, info%bv, info%eye, info%xi)*wgi(i2)
-                ELSE
-!                   All weights the same regardless of cell, keep outside
-                    Tr = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye, info%xi)*wgi(i2)
-                    Gr = PGij(r, 2, info%bv, info%eye, info%xi)*wgi(i2)
+                Tr = PTij(r, 2, info%bv, nJt(:,i2,j2), info%eye, xi, r, .true.)*wgi(i2)
+                Gr = PGij(r, 2, info%bv, info%eye, xi, .true.)*wgi(i2)
 
-!                   We need to check if the periodic images give short range cell-cell interactions.
-!                   This needs to be added separately, because it uses the normal Stokeslet, not the periodic.
-!                   Go to each of the surrounding boxes, and check if the image point is within the cutoff distance
-!                   If it is, add it directly to b with non-periodic Green's function
-                    IF(sing) THEN
-                        rhs = rhs + PeriodicCellCell(info, r)*wgi(i2)*dphi/SIN(tht_t(i2))
-                    ELSE
-                        rhs = rhs + PeriodicCellCell(info, r)*wgi(i2)*dphi
-                    ENDIF
+!               We need to check if the periodic images give short range cell-cell interactions.
+!               This needs to be added separately, because it uses the normal Stokeslet, not the periodic.
+!               Go to each of the surrounding boxes, and check if the image point is within the cutoff distance
+!               If it is, add it directly to b with non-periodic Green's function
+                !!! ????
+                ! IF(sing) THEN
+                !     rhs = rhs + PeriodicCellCell(info, r)*wgi(i2)*dphi/SIN(tht_t(i2))
+                ! ELSE
+                !     rhs = rhs + PeriodicCellCell(info, r)*wgi(i2)*dphi
+                ! ENDIF
 
-                ENDIF
             ELSE
 !               Double and single layers eval'd on grid
                 Tr = Tij(r, nJt(:,i2,j2))*wgi(i2)
@@ -1616,22 +1562,21 @@ FUNCTION LayerCell(cell, i, j, periodic_in, celli) RESULT(rhs)
                 Gr = Gij(r, info%eye)*wgi(i2)
                 Gl = frot(:,i2,j2)!nJt(:,i2,j2)!
 
-!               Add in Morse potential if cells are close enough
-                rn = NORM2(r)
-                IF(PRESENT(celli) .and. (rn .lt. 3D0*info%r0) .and. info%CellCell) THEN 
-                    Gl = Gl + Morse(r, rn, info%D, info%r0, info%Beta)
-                    Gl = Gl +    LJ(r, rn, info%epsi, info%r0)
-                    IF(.not.sing) Gl = Gl/SIN(tht_t(i2))
-                ENDIF
+!               Add in Morse potential if cells are close enough (????)
+                ! rn = NORM2(r)
+                ! IF(PRESENT(celli) .and. (rn .lt. 3D0*info%r0) .and. info%CellCell) THEN 
+                !     Gl = Gl + Morse(r, rn, info%D, info%r0, info%Beta)
+                !     Gl = Gl +    LJ(r, rn, info%epsi, info%r0)
+                !     IF(.not.sing) Gl = Gl/SIN(tht_t(i2))
+                ! ENDIF
             ENDIF
             
-            rhs = rhs - INNER3_33(Gl,Gr)*dphi/(1D0+cell%lam)/4D0/PI &
-                      + INNER3_33(Tl,Tr)*dphi*(1D0-cell%lam)/(1D0+cell%lam)/4D0/PI
+            Tr = TRANSPOSE(Tr)
+            Gr = TRANSPOSE(Gr)
+            rhs = rhs - INNER3_33(Gl,Gr)*dphi/8D0/PI &
+                      + INNER3_33(Tl,Tr)*dphi*(1D0-cell%lam)/8D0/PI
         ENDDO
     ENDDO
-
-    IF(.not. PRESENT(celli)) &
-    rhs = rhs + Uc*2D0/(1D0 + cell%lam)
 
 END FUNCTION LayerCell
 ! -------------------------------------------------------------------------!
@@ -1814,6 +1759,10 @@ SUBROUTINE InPrimcell(cell)
                   - (REAL(move(1))*bv1)/(0.5D0*ispi) &
                   - (REAL(move(2))*bv2)/(0.5D0*ispi) &
                   - (REAL(move(3))*bv3)/(0.5D0*ispi)
+
+    cell%x(1,:,:) = info%Y%backward(cell%xmn(1,:))
+    cell%x(2,:,:) = info%Y%backward(cell%xmn(2,:))
+    cell%x(3,:,:) = info%Y%backward(cell%xmn(3,:))
 
 END SUBROUTINE InPrimcell
 

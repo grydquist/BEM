@@ -115,7 +115,7 @@ FUNCTION newinfo(filein) RESULT (info)
 !       Some parameters for the Ewald sum
         info%gp = 2**5
 !       Smoothing parameter (Dimensional quantity with unit 1/L, so should be based on box size)
-        info%xi = 3.5D0*5D0/info%bvl!SQRT(PI)/(info%tau**(1D0/3D0))
+        info%xi = 2.5D0*5D0/info%bvl!SQRT(PI)/(info%tau**(1D0/3D0))!
 
 !       3D FFT Info
         info%LENSAVE = 2*info%gp + INT(LOG(REAL(info%gp))) + 4

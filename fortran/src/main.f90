@@ -43,5 +43,6 @@ END PROGRAM MAIN
   ! Loops inside both Ewald and real can maybe be parallelized
 !!! Instead of cycling in real space integral calculations, put the points into
   ! search boxes to only calculate nearest interactions
+  ! Maybe low priority, since the actual interactions are O(p^4), and the expensive
+  ! part is the Green's functions, which I already skip over
 !!! Can maybe decrease memory in A2f by calculating the matrices one at a time
-!!! mult cell not working at all

@@ -671,19 +671,26 @@ END FUNCTION LJ
 !   n (Tij):  Normal vector
 !   wg:       Gauss weight at point
 !   wgprim:   Gauss weight at point in primary cell
-FUNCTION PGij(r, bxs, bv, eye, xi) RESULT(A)
+FUNCTION PGij(r, bxs, bv, eye, xi, fourier) RESULT(A)
     REAL(KIND = 8) :: r(3), bv(3,3), eye(3,3), A(3,3), xi, tau, &
-                      rcur(3)!, kv(3,3), kcur(3)
+                      rcur(3), kv(3,3), kcur(3)
     INTEGER :: bxs, i, j, k
+    LOGICAL, OPTIONAL :: fourier
+    LOGICAL :: flag
+
+    flag  = .false.
+    IF(PRESENT(fourier)) flag = fourier
 
     A = 0D0
 
 !   Volume of lattice unit cell (likely could pass as arg, but not huge deal)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
 
-    ! kv(:,1) = 2*pi/tau*cross(bv(:,2),bv(:,3))
-    ! kv(:,2) = 2*pi/tau*cross(bv(:,3),bv(:,1))
-    ! kv(:,3) = 2*pi/tau*cross(bv(:,1),bv(:,2))
+    IF(flag) THEN
+        kv(:,1) = 2*pi/tau*cross(bv(:,2),bv(:,3))
+        kv(:,2) = 2*pi/tau*cross(bv(:,3),bv(:,1))
+        kv(:,3) = 2*pi/tau*cross(bv(:,1),bv(:,2))
+    ENDIF
 
 !   We do the real and Fourier sums in the same loops
     DO i = -bxs, bxs
@@ -691,13 +698,17 @@ FUNCTION PGij(r, bxs, bv, eye, xi) RESULT(A)
             DO k = -bxs, bxs
 
 !               Fourier part
-                IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
-                    ! kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
-                    ! A = A + FOURIER_G_HAS(kcur, xi, eye)/tau*COS(DOT(kcur,r))
+                IF(flag .and. .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
+                    kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
+                    A = A + FOURIER_G_HAS(kcur, xi, eye)/tau*COS(DOT(kcur,r))
                 ENDIF
 
 !               Real part (get current vector first)
                 rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
+
+!               Check cutoff in here as well
+                IF(.not. flag .and. norm2(rcur)*xi.gt.3.5) CYCLE
+
 !               Cycle if the contribution will be small enough
                 A    = A + REAL_G_HAS(rcur, xi, eye)
 
@@ -725,19 +736,32 @@ FUNCTION PGij(r, bxs, bv, eye, xi) RESULT(A)
 END FUNCTION PGij
 
 ! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -!
-FUNCTION PTij(r, bxs, bv, n, eye, xi) RESULT(A)
+FUNCTION PTij(r, bxs, bv, n, eye, xi, x, fourier) RESULT(A)
     REAL(KIND = 8) :: r(3), bv(3,3), n(3), eye(3,3), A(3,3), xi, tau, &
-                      rcur(3)!, kv(3,3), kcur(3)
+                      rcur(3), kv(3,3), kcur(3), xr(3)
     INTEGER :: bxs, i, j, k
+    LOGICAL, OPTIONAL :: fourier
+    REAL(KIND = 8), OPTIONAL :: x(3)
+    LOGICAL :: flag
+
+    flag = .false.
+    IF(PRESENT(fourier)) flag = fourier
+    IF(.not. PRESENT(x)) THEN
+        xr = r
+    ELSE
+        xr = x
+    ENDIF 
 
     A  = 0D0
 
 !   Volume of lattice unit cell (likely could pass as arg, but not huge deal)
     tau = DOT(CROSS(bv(:,1), bv(:,2)), bv(:,3))
 
-    ! kv(:,1) = 2*pi/tau*cross(bv(:,2),bv(:,3))
-    ! kv(:,2) = 2*pi/tau*cross(bv(:,3),bv(:,1))
-    ! kv(:,3) = 2*pi/tau*cross(bv(:,1),bv(:,2))
+    IF(flag) THEN
+        kv(:,1) = 2*pi/tau*cross(bv(:,2),bv(:,3))
+        kv(:,2) = 2*pi/tau*cross(bv(:,3),bv(:,1))
+        kv(:,3) = 2*pi/tau*cross(bv(:,1),bv(:,2))
+    ENDIF
 
 !   We do the real and Fourier sums in the same loops
     DO i = -bxs, bxs
@@ -746,20 +770,24 @@ FUNCTION PTij(r, bxs, bv, n, eye, xi) RESULT(A)
 
 !               Real part (get current vector first)
                 rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
+
+!               Check cutoff in here as well
+                IF(.not. flag .and. norm2(rcur)*xi.gt.3.5) CYCLE
+
                 ! A   = A + REAL_T_HAS(rcur, xi, n, eye)
                 A   = A + REAL_T_MAR(rcur, xi, n, eye)
 
 !               Fourier part
-                IF( .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
-                    ! kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
+                IF(flag .and. .not.((i .eq. 0) .and. (j .eq. 0) .and. (k.eq.0)) ) THEN
+                    kcur = i*kv(:,1) + j*kv(:,2) + k*kv(:,3)
                     ! A = A + FOURIER_T_HAS(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))
-                    ! A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))
+                    A = A - FOURIER_T_MAR(kcur, xi, n, eye)/tau*SIN(DOT(kcur,r))
                 ENDIF
             ENDDO
         ENDDO
     ENDDO
 !   Non-periodic portion comgin from pressure to balance net force
-    A = A - 8D0*PI/tau*OUTER(r,n)
+    A = A - 8D0*PI/tau*OUTER(xr,n) ! Doesn't actually matter r or surface, as constant disappears in integral
     
     CONTAINS
 !   Hasimotos
