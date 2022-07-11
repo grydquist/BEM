@@ -26,6 +26,9 @@ TYPE probType
 
 !   Pointer to the cells
     TYPE(cellType), POINTER :: cell(:)
+    
+!   Name of output file
+    CHARACTER(:), ALLOCATABLE :: fileout
 
 !   MPI stuff
     TYPE(cmType), POINTER :: cm
@@ -97,8 +100,9 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
         prob%cell(ic) = celltmp
         prob%cell(ic)%id = ic
         write(icC, "(I0.1)") ic
-        prob%cell(ic)%fileout = TRIM(fileout//icC)
+        prob%cell(ic)%fileout = TRIM('cell_'//icC)
     ENDDO
+    prob%fileout=TRIM(fileout)
     
 !   Which cells will the current processor handle? Integer div. rounds down
     n = MOD(prob%NCell, prob%cm%np())
@@ -225,7 +229,7 @@ END FUNCTION newprob
 SUBROUTINE WriteProb(prob)
     TYPE(cellType), POINTER :: cell
     CLASS(probType), INTENT(IN) :: prob
-    CHARACTER (LEN = 25) ctsst, datdir, filename
+    CHARACTER (LEN = 45) ctsst, datdir, filename
     INTEGER ic
     COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:)
 
@@ -233,6 +237,12 @@ SUBROUTINE WriteProb(prob)
 !   Don't write if it's not a timestep to write
     IF(.not.((prob%cts .eq. 1) .or. &
          (MOD(prob%cts,prob%dtinc)) .eq. 0)) RETURN
+
+!   Write top-level directory containing all lower level directoriesx
+    IF(.not. prob%cell(1)%writ) THEN
+        datdir = TRIM('dat/'//prob%fileout//'/')
+        CALL MAKEDIRQQ(datdir)
+    ENDIF
 
     DO ic = 1,prob%NCell
     cell => prob%cell(ic)
@@ -242,7 +252,7 @@ SUBROUTINE WriteProb(prob)
 
 !   Formatting pain
     write(ctsst, "(I0.5)") prob%cts
-    datdir = TRIM('dat/'//cell%fileout//'/')
+    datdir = TRIM('dat/'//prob%fileout//'/'//cell%fileout//'/')
     filename = TRIM('x_'//ctsst)
 
 !   Write position - first half - real, x,y,z groups, second half imag
