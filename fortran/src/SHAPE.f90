@@ -63,6 +63,7 @@ TYPE cellType
     PROCEDURE :: Intg    => Intgcell
     PROCEDURE :: InPrim  => InPrimcell
     PROCEDURE :: Layer   => LayerCell
+    PROCEDURE :: Reparam => ReparamCell
 END TYPE cellType
 
 ! -------------------------------------------------------------------------!
@@ -1798,5 +1799,98 @@ FUNCTION PeriodicCellCell(info, r) RESULT(fG)
     RETURN
 
 END FUNCTION PeriodicCellCell
+
+! -------------------------------------------------------------------------!
+! Reparametrize the surface if the surface grid gets distorted
+!   Note that this is usually not neccessary for RBCs, because the in-plane
+!   shear resistance is a built-in mechanism for preventing distortions
+!   As a result, this function is somewhat underdeveloped since I only used
+!   it or a single validation case
+!   (e.g., we could measure grid to know when to reparam)
+SUBROUTINE ReparamCell(cell)
+    CLASS(cellType), INTENT(INOUT), TARGET :: cell
+    TYPE(YType), POINTER :: Y, Yc
+    TYPE(nmType), POINTER :: nm
+    REAL(KIND = 8) :: dtau, N1, N2, nkc(3), g(3,3), delE(3)
+    COMPLEX(KIND = 8), ALLOCATABLE :: xmntmp(:)
+    INTEGER :: ncut, no, n, m, it, i, j, t, ih, im
+
+    Y => cell%info%Yf
+    Yc=> cell%info%Y
+    ALLOCATE(xmntmp((Y%p+1)*(Y%p+1)))
+    
+!   Pseudo-time step (chosen somewhat arbitrarily)
+    dtau = 0.25D0
+
+!   Get the cutoff mode (see Sorgentone).
+    DO no = 1, Yc%p
+        N2 = 0
+        it = no*no
+        DO n = no, Yc%p
+            DO m = -n, n
+                it = it + 1
+                N2 = N2 + NORM2(ABS(cell%xmn(:,it)))
+            ENDDO
+        ENDDO
+        IF(no .eq. 1) N1 = N2
+        IF(N2/N1 .lt. 0.2) THEN
+            ncut = no - 1
+            EXIT
+        ENDIF
+    ENDDO
+
+!   Psuedo time-step loop
+    DO t = 1, 15
+    DO i = 1,Y%nt
+        DO j = 1,Y%np
+!           Normal vector at this point
+            nkc = CROSS(cell%dxt(:,i,j), cell%dxp(:,i,j))
+            nkc = -nkc/NORM2(nkc)
+            ! print *, cell%xf(:,i,j)
+            ! print *, NKc
+            ! stop
+
+            delE = 0D0
+            DO n = ncut, Yc%p
+                ih = n+1
+                it = n*n
+                im = 0
+                nm => Y%nm(ih)
+
+!               Calc optimization gradient
+                DO m = -n, n
+                    im = im + 1
+                    it = it + 1
+                    delE = delE + REAL(cell%xmn(:,it)*nm%v(im,i,j))
+                ENDDO
+            ENDDO
+            g = (cell%info%eye - OUTER(nkc,nkc))
+            nkc = INNER3_33(delE, g)
+
+!           Step this x-point forward
+            cell%xf(:,i,j) = cell%xf(:,i,j) - dtau*nkc
+
+        ENDDO
+    ENDDO
+!   Need to get new shape quantities associated with the new grid to step again,
+!   starting with shape coefficients
+!       A bit overkill, but, again, not worth optimizing
+    xmntmp = Y%forward(cell%xf(1,:,:))
+    cell%xmn(1,:) = xmntmp(1:(Yc%p+1)*(Yc%p+1))
+    xmntmp = Y%forward(cell%xf(2,:,:))
+    cell%xmn(2,:) = xmntmp(1:(Yc%p+1)*(Yc%p+1))
+    xmntmp = Y%forward(cell%xf(3,:,:))
+    cell%xmn(3,:) = xmntmp(1:(Yc%p+1)*(Yc%p+1))
+    CALL cell%derivs()
+
+    ENDDO
+
+!   Make sure to get the coarse grid too!
+    cell%x(1,:,:) = cell%info%Y%backward(cell%xmn(1,:))
+    cell%x(2,:,:) = cell%info%Y%backward(cell%xmn(2,:))
+    cell%x(3,:,:) = cell%info%Y%backward(cell%xmn(3,:))
+
+    RETURN
+END SUBROUTINE ReparamCell
 
 END MODULE SHAPEMOD
