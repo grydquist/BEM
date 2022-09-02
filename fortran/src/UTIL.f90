@@ -662,6 +662,223 @@ FUNCTION LJ(r, rn, e, s) RESULT(f)
 END FUNCTION LJ
 
 ! -------------------------------------------------------------------------!
+! Given basis vectors and point, gives partial coordinates
+FUNCTION bvPartial(bv, x) RESULT(px)
+    REAL(KIND = 8) bv(3,3), x(3), px(3), bv1(3), bv2(3), bv3(3), d, pd, n(3)
+    
+!   Here's how: the cell is composed of 6 planes, or
+!   3 pairs of parallel planes. We need to check if the point
+!   is between each pair of these planes. For each pair, one of
+!   the planes goes through (0,0) which are the ones we'll look at.
+!   There are 3 basis vectors, and two basis vectors define a plane.
+!   The projection of the third vector onto the normal defines the
+!   distance between the pair of parallel planes. We just need to
+!   check the points distance to this distance, and make sure it's
+!   smaller (paying attention to the sign)
+
+!   Get each basis vector so it's a little easier to work with
+    bv1 = bv(:,1)
+    bv2 = bv(:,2)
+    bv3 = bv(:,3)
+
+!   Get normal vector to first plane
+    n = CROSS(bv1,bv2)
+    n = n/NORM2(n)
+!   Get projected distance of 3rd vector and point
+    d  = DOT(n, bv3)
+    pd = DOT(n, x)
+    px(3) = pd/d
+
+!   And just repeat for the other two directions
+    n = CROSS(bv2,bv3)
+    n = n/NORM2(n)
+    d  = DOT(n, bv1)
+    pd = DOT(n, x)
+    px(1) = pd/d
+
+    n = CROSS(bv3,bv1)
+    n = n/NORM2(n)
+    d  = DOT(n, bv2)
+    pd = DOT(n, x)
+    px(2) = pd/d
+
+END FUNCTION bvPartial
+
+! -------------------------------------------------------------------------!
+! Given a point, the basis vectors, and a distance, gives the boxes that
+! must be checked for minimum periodic distance
+FUNCTION bvBxs(bv, h, x) RESULT(bxs)
+    REAL(KIND = 8) bv(3,3), h, x(3), nv(3), d, dpt
+    INTEGER, ALLOCATABLE :: bxs(:,:)
+    INTEGER fcs(6), bxst(3,27), it
+
+    fcs = 0
+    it = 0
+!   Do each individual face and find distance, then see if that distance is
+!   is less than h
+    nv = CROSS(bv(:,1), bv(:,2))
+    d = DOT(nv, x)/NORM2(nv)
+    IF(d .lt. h) fcs(1) = 1
+
+!   Now do for parallel plane, and the distance must be greater than -h
+    dpt = -DOT(nv, bv(:,3))
+    d = (DOT(nv, x) + dpt)/NORM2(nv)
+    IF(d .gt. -h) fcs(2) = 1
+
+!   And then the other 2 faces
+    nv = CROSS(bv(:,2), bv(:,3))
+    d = DOT(nv, x)/NORM2(nv)
+    IF(d .lt. h) fcs(3) = 1
+    
+    dpt = -DOT(nv, bv(:,1))
+    d = (DOT(nv, x) + dpt)/NORM2(nv)
+    IF(d .gt. -h) fcs(4) = 1
+
+    nv = CROSS(bv(:,3), bv(:,1))
+    d = DOT(nv, x)/NORM2(nv)
+    IF(d .lt. h) fcs(5) = 1
+    
+    dpt = -DOT(nv, bv(:,2))
+    d = (DOT(nv, x) + dpt)/NORM2(nv)
+    IF(d .gt. -h) fcs(6) = 1
+
+!   Now we want a list of boxes we need to check.
+!   Just basically done via brute force
+
+!   Bottom
+    IF(fcs(1) .eq. 1) THEN
+        it = it + 1
+        bxst(:,it) = (/ 0, 0,-1/)
+
+!       Left
+        IF(fcs(3) .eq. 1) THEN
+            it = it + 1
+            bxst(:,it) = (/-1, 0,-1/)
+
+!           Back
+            IF(fcs(5) .eq. 1) THEN
+                it = it + 1
+                bxst(:,it) = (/-1,-1,-1/)
+!           Front
+            ELSEIF(fcs(6).eq.1) THEN
+                it = it + 1
+                bxst(:,it) = (/-1, 1,-1/)
+            ENDIF
+!       Right
+        ELSEIF(fcs(4) .eq. 1) THEN
+            it = it + 1
+            bxst(:,it) = (/ 1, 0,-1/)
+
+!           Back
+            IF(fcs(5) .eq. 1) THEN
+                it = it + 1
+                bxst(:,it) = (/ 1,-1,-1/)
+!           Front
+            ELSEIF(fcs(6).eq.1) THEN
+                it = it + 1
+                bxst(:,it) = (/ 1, 1,-1/)
+            ENDIF
+        ENDIF
+
+!   Top
+    ELSEIF(fcs(2) .eq. 1) THEN
+        it = it + 1
+        bxst(:,it) = (/ 0, 0, 1/)
+
+!       Left
+        IF(fcs(3) .eq. 1) THEN
+            it = it + 1
+            bxst(:,it) = (/-1, 0, 1/)
+
+!           Back
+            IF(fcs(5) .eq. 1) THEN
+                it = it + 1
+                bxst(:,it) = (/-1,-1, 1/)
+!           Front
+            ELSEIF(fcs(6).eq.1) THEN
+                it = it + 1
+                bxst(:,it) = (/-1, 1, 1/)
+            ENDIF
+!       Right
+        ELSEIF(fcs(4) .eq. 1) THEN
+            it = it + 1
+            bxst(:,it) = (/ 1, 0, 1/)
+
+!           Back
+            IF(fcs(5) .eq. 1) THEN
+                it = it + 1
+                bxst(:,it) = (/ 1,-1, 1/)
+!           Front
+            ELSEIF(fcs(6).eq.1) THEN
+                it = it + 1
+                bxst(:,it) = (/ 1, 1, 1/)
+            ENDIF
+        ENDIF
+    ENDIF
+
+!   Left
+    If(fcs(3) .eq. 1) THEN
+        it = it + 1
+        bxst(:,it) = (/-1, 0, 0/)
+
+!       Back
+        IF(fcs(5) .eq. 1) THEN
+            it = it + 1
+            bxst(:,it) = (/-1,-1, 0/)
+!       Front
+        ELSEIF(fcs(6).eq.1) THEN
+            it = it + 1
+            bxst(:,it) = (/-1, 1, 0/)
+        ENDIF
+!   Right
+    ELSEIF(fcs(4) .eq. 1) THEN
+        it = it + 1
+        bxst(:,it) = (/ 1, 0, 0/)
+
+!       Back
+        IF(fcs(5) .eq. 1) THEN
+            it = it + 1
+            bxst(:,it) = (/ 1,-1, 0/)
+!       Front
+        ELSEIF(fcs(6).eq.1) THEN
+            it = it + 1
+            bxst(:,it) = (/ 1, 1, 0/)
+        ENDIF
+    ENDIF
+
+!   Back
+    IF(fcs(5) .eq. 1) THEN
+        it = it + 1
+        bxst(:,it) = (/ 0,-1, 0/)
+!   Front
+    ELSEIF(fcs(6).eq.1) THEN
+        it = it + 1
+        bxst(:,it) = (/ 0, 1, 0/)
+    ENDIF
+
+!   Last four:
+    IF((fcs(1) .eq. 1) .and. (fcs(3) .eq. 0) .and. (fcs(4) .eq. 0) .and. (fcs(5) .eq. 1)) THEN
+        it = it + 1
+        bxst(:,it) = (/ 0,-1,-1/)
+    ENDIF
+    IF((fcs(1) .eq. 1) .and. (fcs(3) .eq. 0) .and. (fcs(4) .eq. 0) .and. (fcs(6) .eq. 1)) THEN
+        it = it + 1
+        bxst(:,it) = (/ 0, 1,-1/)
+    ENDIF
+    IF((fcs(2) .eq. 1) .and. (fcs(3) .eq. 0) .and. (fcs(4) .eq. 0) .and. (fcs(5) .eq. 1)) THEN
+        it = it + 1
+        bxst(:,it) = (/ 0,-1, 1/)
+    ENDIF
+    IF((fcs(2) .eq. 1) .and. (fcs(3) .eq. 0) .and. (fcs(4) .eq. 0) .and. (fcs(6) .eq. 1)) THEN
+        it = it + 1
+        bxst(:,it) = (/ 0, 1, 1/)
+    ENDIF
+    
+    ALLOCATE(bxs(3,it))
+    bxs = bxst(:,1:it)
+END FUNCTION bvBxs
+
+! -------------------------------------------------------------------------!
 ! Periodic functions to calculate the kernels
 ! Arguments:
 !   r:        Distance from eval point to source point in primary cell

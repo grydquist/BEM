@@ -53,8 +53,12 @@ TYPE sharedType
     CONTAINS
     PROCEDURE :: bvAdvance => bvAdvanceInfo
     PROCEDURE :: Gal => GalInfo
+    PROCEDURE :: init => initInfo
 END TYPE sharedType
 
+TYPE cellprops
+    REAL(KIND = 8) lam, Ca, C, Eb, c0, int_pres
+END TYPE cellprops
 ! -------------------------------------------------------------------------!
 INTERFACE sharedType
     PROCEDURE :: newinfo
@@ -70,9 +74,7 @@ FUNCTION newinfo(filein) RESULT (info)
     CHARACTER(:), ALLOCATABLE :: cellchar
     INTEGER :: NCell
     TYPE(sharedType) :: info
-    INTEGER fali, p, nt, np, ntf, npf, ic, m, ind, it, n, im, im2
-    REAL(KIND = 8), ALLOCATABLE :: cPt(:,:), ths(:,:), phs(:,:), thts(:), phis(:), xs(:), wg(:)
-    REAL(KIND = 8) :: dphi
+    INTEGER fali, p, ic
     
     CALL READ_MFS(info%dt, filein, 'Time_step')
 !   Coarse and fine grids    
@@ -97,6 +99,19 @@ FUNCTION newinfo(filein) RESULT (info)
     info%eye = 0D0
     FORALL(ic = 1:3) info%eye(ic,ic) = 1D0
     CALL READ_MFS(info%bvl, filein, 'Periodic_box_size')
+
+END FUNCTION newinfo
+
+! -------------------------------------------------------------------------!
+! Initialization
+SUBROUTINE initInfo(info)
+    CLASS(sharedType), INTENT(INOUT) :: info
+    INTEGER p, q, nt, np, ntf, npf, ic, m, ind, it, n, im, im2
+    REAL(KIND = 8), ALLOCATABLE :: cPt(:,:), ths(:,:), phs(:,:), thts(:), phis(:), xs(:), wg(:)
+    REAL(KIND = 8) :: dphi
+
+    p = info%p
+    q = info%q
     IF(info%bvl .eq. 0) THEN
         info%periodic = .false.
 
@@ -125,7 +140,7 @@ FUNCTION newinfo(filein) RESULT (info)
 
 !   Make harmonics(order, # of derivs, if we'll rotate or not)
     info%Y = YType(p, 1, .true.)
-    info%Yf = YType(p*fali, 4, .true., p)
+    info%Yf = YType(q, 4, .true., p)
     
 !   Stuff needed for calcs
     nt  = info%Y%nt
@@ -136,7 +151,7 @@ FUNCTION newinfo(filein) RESULT (info)
 !   Harmonics for the singular integration, slightly tricky
 !   Construct the singular integration grid, with patch. Essentially 2 grids at once,
 !   a fine patch with a sinh transform and a coarse one.
-    IF(NCell .gt. 1 .or. info%periodic) THEN
+    IF(info%NCell .gt. 1 .or. info%periodic) THEN
         ALLOCATE(thts(nt + ntf), phis(np + npf), &
                  ths (nt + ntf, np + npf), phs(nt + ntf, np + npf))
 !       Cutoff theta, can affect accuracy. Depends on spacing, but want consistent. Just hardcode for now
@@ -185,7 +200,7 @@ FUNCTION newinfo(filein) RESULT (info)
 
 !   Matrix size
     info%Nmat = 3*(info%Y%p)*(info%Y%p)
-    info%NmatT= info%Nmat*NCell
+    info%NmatT= info%Nmat*info%NCell
 
 !   Exponential calculation part (coarse and fine)
     DO m = -(p-1),(p-1)
@@ -213,7 +228,7 @@ FUNCTION newinfo(filein) RESULT (info)
         ENDDO
     ENDDO
 
-    IF(NCell .gt. 1 .or. info%periodic) THEN
+    IF(info%NCell .gt. 1 .or. info%periodic) THEN
 !       Fine part, essentially done on 2 grids
 !       Technically the grid goes up to order q, but we only calculate up to p
         DO m = -(p-1),(p-1)
@@ -261,7 +276,7 @@ FUNCTION newinfo(filein) RESULT (info)
     info%Beta = 10D0! was at 1.5, but probably need around 10 so it decays fast
     info%epsi = 0.023D0
 
-END FUNCTION newinfo
+END SUBROUTINE initInfo
 
 ! -------------------------------------------------------------------------!
 ! Advances the basis vectors in time, reparameterizes if needed

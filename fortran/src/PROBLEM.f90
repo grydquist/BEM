@@ -66,6 +66,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     REAL(KIND = 8) :: Gfac
     REAL(KIND = 8), ALLOCATABLE :: Gtmp(:,:,:,:)
     LOGICAL :: fl = .false.
+    TYPE(cellprops) props
 
     prob%cm => cm
     prob%info => info
@@ -84,6 +85,18 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     prob%cts = 0
     prob%t = 0D0
 
+!   The rest of the parameters specific to the cell go here
+    CALL READ_MFS(props%lam, filein, 'Viscosity_Ratio')
+    CALL READ_MFS(props%Ca, filein, 'Capillary')
+    CALL READ_MFS(props%C, filein, 'Dilatation_Ratio')
+    CALL READ_MFS(props%Eb, filein, 'Bending_Modulus')
+    CALL READ_MFS(props%c0, filein, 'Spont_Curvature')
+    CALL READ_MFS(props%int_pres, filein, 'Internal_Pressure')
+
+!   Initialize info now
+    IF(prob%cm%mas()) print *, 'Done with init file!'
+    CALL info%init()
+
 !   Check if there are more processors than cells (can't handle)
     IF(prob%cm%np() .gt. prob%NCell) THEN
         print *, 'ERROR: More processors than cells'
@@ -93,7 +106,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     ALLOCATE(prob%cell(prob%NCell))
 
 !   Make a master cell of sorts
-    celltmp = cellType(filein, reduce, info)
+    celltmp = cellType(filein, reduce, info, props)
 
 !   Loop and make individual cells
     DO ic = 1, prob%NCell

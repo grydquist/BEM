@@ -51,9 +51,11 @@ TYPE YType
 
     CONTAINS
     PROCEDURE :: forward  => forwardYDirect! forwardY! 
-    PROCEDURE :: backward => backwardY
+    PROCEDURE :: backwardD=> backwardY
+    PROCEDURE :: backwardfast=> backwardfastY
     PROCEDURE :: rotate   => rotateY
-    PROCEDURE :: rotcnst   => rotcnstY
+    PROCEDURE :: rotcnst  => rotcnstY
+    GENERIC   :: backward =>  backwardfast, backwardD
 
 END TYPE YType
 
@@ -448,6 +450,53 @@ FUNCTION backwardY(Y, fmn, p) RESULT(f)
         ENDDO
     ENDDO
 END FUNCTION backwardY
+
+!------------------------------------------------------------------!
+! Faster backward specifically for bare harmonics
+FUNCTION backwardfastY(Y, fmn, nt, np, p) RESULT(f)
+    COMPLEX(KIND = 8), INTENT(IN) :: fmn(:)
+    CLASS(Ytype), TARGET, INTENT(IN) :: Y
+    REAL(KIND = 8), ALLOCATABLE :: f(:,:)
+    INTEGER, OPTIONAL, INTENT(IN) :: p
+    INTEGER, INTENT(IN) :: nt, np
+
+    INTEGER pp, it, n, m, im
+    TYPE(nmType), POINTER :: nm
+
+!   You can choose the order, but if you don't it'll just do max order
+    IF(PRESENT(p)) THEN
+        pp = p
+    ELSE
+        pp = Y%p
+    ENDIF
+
+!   Performed at all theta and phi in Y
+    ALLOCATE(f(Y%nt,Y%np))
+    f = 0
+    it = 0
+!   Just loop through and perform the sums
+    DO n = 0,pp
+        nm => Y%nm(n+1)
+        im = n
+        it = it + n
+!       Exploit symmetry properties
+        DO m = 0,n
+            it = it + 1
+            im = im + 1
+!           This assumes f is a real-valued function,
+!           and that the imaginary values will have canceled anyway
+            IF(m .ne. 0) THEN
+                ! f = f + REAL(2D0*fmn(it)*nm%v(im,:,:))
+                f(1:nt, 1:np)  = f(1:nt, 1:np)  + REAL(2D0*fmn(it)*nm%v(im,1:nt, 1:np))
+                f(nt+1:,np+1:) = f(nt+1:,np+1:) + REAL(2D0*fmn(it)*nm%v(im,nt+1:,np+1:))
+            ELSE
+                ! f = f + REAL(fmn(it)*nm%v(im,:,:))
+                f(1:nt, 1:np)  = f(1:nt, 1:np)  + REAL(fmn(it)*nm%v(im,1:nt, 1:np))
+                f(nt+1:,np+1:) = f(nt+1:,np+1:) + REAL(fmn(it)*nm%v(im,nt+1:,np+1:))
+            ENDIF
+        ENDDO
+    ENDDO
+END FUNCTION backwardfastY
 
 ! -------------------------------------------------------------------------!
 ! Get constants for given angles and order

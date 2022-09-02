@@ -37,6 +37,8 @@ END PROGRAM MAIN
 ! The program still runs fine, but there are a few things that should be
 ! done to make it better/faster:
 
+!!! Needs better same-cell interactions for when points get close together.
+  ! Perhaps very close-range force, past a given theta distance
 !!! Needs better parallelization. Real space sums should be able to be split
   ! into both target and integration surfaces instead of integration surfaces
   ! as they are now (i.e., Pcells(2,2)).

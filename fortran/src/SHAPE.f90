@@ -77,7 +77,7 @@ CONTAINS
 !=============================================================================!
 
 ! Constructs cell object, takes in order
-FUNCTION newcell(filein, reduce, info) RESULT(cell)
+FUNCTION newcell(filein, reduce, info, props) RESULT(cell)
     CHARACTER(len = *), INTENT(IN) :: filein
     LOGICAL, INTENT(IN) :: reduce
     TYPE(sharedType), INTENT(INOUT), TARGET :: info
@@ -85,8 +85,17 @@ FUNCTION newcell(filein, reduce, info) RESULT(cell)
     CHARACTER(:), ALLOCATABLE :: restart, restfile
     REAL(KIND = 8) lam, Ca, C, Eb, c0, int_pres
     INTEGER :: nt, np, ntf, npf
+    TYPE(cellprops), INTENT(IN) :: props
 
     cell%info => info
+
+!   Material properties from input
+    lam      = props%lam
+    Ca       = props%Ca
+    C        = props%C
+    Eb       = props%Eb
+    c0       = props%c0
+    int_pres = props%int_pres
 
 !   Material properties from input
     CALL READ_MFS(lam, filein, 'Viscosity_Ratio')
@@ -1062,8 +1071,8 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
                     Yfi => cell%info%Yf
 
 !                   Need to integrate on finer grid
-                    nt = cell%info%Yf%nt + Y%nt
-                    np = cell%info%Yf%np + Y%np
+                    nt = Yfi%nt + Y%nt
+                    np = Yfi%np + Y%np
 
 !                   Deallocate integ. quants
                     IF(i.eq.1 .and. j.eq.1) THEN
@@ -1080,15 +1089,15 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
 
                     es   => info%esf
                     cPmn => info%cPmnf
-                    dphi = cell%info%Y%dphi
+                    dphi = info%Y%dphi
 
 !                   Manage the additional prefactors stemming from the integrals
-                    wgi(1:Y%nt)  = cell%info%Y%wg*(pi - info%thtc)/2D0
+                    wgi(1:Y%nt)  = info%Y%wg*(pi - info%thtc)/2D0
                     wgi(Y%nt + 1:Y%nt + Yfi%nt)  = Yfi%wg*info%h*(-info%k)*COSH(info%k*info%xsf - info%k)
 
 !                   We don't do cosine transformation to cluster points near near-singularity, mult sine back in
-                    wgi = wgi*SIN(cell%info%Ys%th(:,1))
-                    tht_t = cell%info%Ys%th(:,1)
+                    wgi = wgi*SIN(info%Ys%th(:,1))
+                    tht_t = info%Ys%th(:,1)
 
 !                   See above note on inefficient formulation
 
@@ -1097,27 +1106,28 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
                     xmnR(2,:) = Y%rotate(cell%xmn(2,:), i, j, -Y%phi(j))
                     xmnR(3,:) = Y%rotate(cell%xmn(3,:), i, j, -Y%phi(j))
 
-                    xcg(1,:,:) = cell%info%Ys%backward(xmnR(1,:))
-                    xcg(2,:,:) = cell%info%Ys%backward(xmnR(2,:))
-                    xcg(3,:,:) = cell%info%Ys%backward(xmnR(3,:))
+!                   These backward trnsforms are quite expensive
+                    xcg(1,:,:) = info%Ys%backward(xmnR(1,:), Y%nt, Y%np, info%p)
+                    xcg(2,:,:) = info%Ys%backward(xmnR(2,:), Y%nt, Y%np, info%p)
+                    xcg(3,:,:) = info%Ys%backward(xmnR(3,:), Y%nt, Y%np, info%p)
 
 !                   Forces on rotated grid
-                    fmnR(1,:) = Y%rotate(cell%fmn(1,1:(cell%info%p+1)*(cell%info%p+1)), i, j, -Y%phi(j))
-                    fmnR(2,:) = Y%rotate(cell%fmn(2,1:(cell%info%p+1)*(cell%info%p+1)), i, j, -Y%phi(j))
-                    fmnR(3,:) = Y%rotate(cell%fmn(3,1:(cell%info%p+1)*(cell%info%p+1)), i, j, -Y%phi(j))
+                    fmnR(1,:) = Y%rotate(cell%fmn(1,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+                    fmnR(2,:) = Y%rotate(cell%fmn(2,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+                    fmnR(3,:) = Y%rotate(cell%fmn(3,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
 
-                    frot(1,:,:) = cell%info%Ys%backward(fmnR(1,:), cell%info%p)
-                    frot(2,:,:) = cell%info%Ys%backward(fmnR(2,:), cell%info%p)
-                    frot(3,:,:) = cell%info%Ys%backward(fmnR(3,:), cell%info%p)
+                    frot(1,:,:) = info%Ys%backward(fmnR(1,:), Y%nt, Y%np, info%p)
+                    frot(2,:,:) = info%Ys%backward(fmnR(2,:), Y%nt, Y%np, info%p)
+                    frot(3,:,:) = info%Ys%backward(fmnR(3,:), Y%nt, Y%np, info%p)
 
 !                   Rotate the normal vector total constants
-                    nmnR(1,:) = Y%rotate(cell%nkt(1,1:(cell%info%p+1)*(cell%info%p+1)), i, j, -Y%phi(j))
-                    nmnR(2,:) = Y%rotate(cell%nkt(2,1:(cell%info%p+1)*(cell%info%p+1)), i, j, -Y%phi(j))
-                    nmnR(3,:) = Y%rotate(cell%nkt(3,1:(cell%info%p+1)*(cell%info%p+1)), i, j, -Y%phi(j))
+                    nmnR(1,:) = Y%rotate(cell%nkt(1,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+                    nmnR(2,:) = Y%rotate(cell%nkt(2,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
+                    nmnR(3,:) = Y%rotate(cell%nkt(3,1:(info%p+1)*(info%p+1)), i, j, -Y%phi(j))
 
-                    nJt(1,:,:) = cell%info%Ys%backward(nmnR(1,:), cell%info%p)
-                    nJt(2,:,:) = cell%info%Ys%backward(nmnR(2,:), cell%info%p)
-                    nJt(3,:,:) = cell%info%Ys%backward(nmnR(3,:), cell%info%p)
+                    nJt(1,:,:) = info%Ys%backward(nmnR(1,:), Y%nt, Y%np, info%p)
+                    nJt(2,:,:) = info%Ys%backward(nmnR(2,:), Y%nt, Y%np, info%p)
+                    nJt(3,:,:) = info%Ys%backward(nmnR(3,:), Y%nt, Y%np, info%p)
 
                 ENDIF
             ENDIF
@@ -1707,7 +1717,7 @@ END FUNCTION Intgcell
 ! Checks if the cell is in the primary cell, and gets the image that is if not
 SUBROUTINE InPrimcell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
-    REAL(KIND = 8) :: xc(3), n(3), bv1(3), bv2(3), bv3(3), d, pd
+    REAL(KIND = 8) :: xc(3), bv1(3), bv2(3), bv3(3)
     INTEGER :: move(3)
     TYPE(sharedType), POINTER:: info
 
@@ -1716,45 +1726,9 @@ SUBROUTINE InPrimcell(cell)
 !   Get center of cell
     xc = REAL(cell%xmn(:,1)*0.5D0*ispi)
 
-!   Now the actual calculation of if this point is in
-!   Here's how: the cell is composed of 6 planes, or
-!   3 pairs of parallel planes. We need to check if the point
-!   is between each pair of these planes. For each pair, one of
-!   the planes goes through (0,0) which are the ones we'll look at.
-!   There are 3 basis vectors, and two basis vectors define a plane.
-!   The projection of the third vector onto the normal defines the
-!   distance between the pair of parallel planes. We just need to
-!   check the points distance to this distance, and make sure it's
-!   smaller (paying attention to the sign)
+!   Get number of boxes to move based on partial coordinates
+    move = FLOOR(bvPartial(info%bv, xc))
 
-!   Get each basis vector so it's a little easier to work with
-    bv1 = info%bv(:,1)
-    bv2 = info%bv(:,2)
-    bv3 = info%bv(:,3)
-
-!   Get normal vector to first plane
-    n = CROSS(bv1,bv2)
-    n = n/NORM2(n)
-!   Get projected distance of 3rd vector and point
-    d  = DOT(n, bv3)
-    pd = DOT(n, xc)
-
-!   Get number of boxes we need to go to get into the box
-    move(3) = FLOOR(pd/d)
-
-!   And just repeat for the other two directions
-    n = CROSS(bv2,bv3)
-    n = n/NORM2(n)
-    d  = DOT(n, bv1)
-    pd = DOT(n, xc)
-    move(1) = FLOOR(pd/d)
-
-    n = CROSS(bv3,bv1)
-    n = n/NORM2(n)
-    d  = DOT(n, bv2)
-    pd = DOT(n, xc)
-    move(2) = FLOOR(pd/d)
-    
 !   Now move them back the specified number of cells, accounting for spherical hamronics
     cell%xmn(:,1) = cell%xmn(:,1) &
                   - (REAL(move(1))*bv1)/(0.5D0*ispi) &
@@ -1807,6 +1781,7 @@ END FUNCTION PeriodicCellCell
 !   As a result, this function is somewhat underdeveloped since I only used
 !   it or a single validation case
 !   (e.g., we could measure grid to know when to reparam)
+!   Combo of Sorgentone and Rahimian
 SUBROUTINE ReparamCell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
     TYPE(YType), POINTER :: Y, Yc
@@ -1834,7 +1809,7 @@ SUBROUTINE ReparamCell(cell)
         ENDDO
         IF(no .eq. 1) N1 = N2
         IF(N2/N1 .lt. 0.2) THEN
-            ncut = no - 1
+            ncut = no
             EXIT
         ENDIF
     ENDDO
