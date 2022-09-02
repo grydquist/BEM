@@ -97,14 +97,6 @@ FUNCTION newcell(filein, reduce, info, props) RESULT(cell)
     c0       = props%c0
     int_pres = props%int_pres
 
-!   Material properties from input
-    CALL READ_MFS(lam, filein, 'Viscosity_Ratio')
-    CALL READ_MFS(Ca, filein, 'Capillary')
-    CALL READ_MFS(C, filein, 'Dilatation_Ratio')
-    CALL READ_MFS(Eb, filein, 'Bending_Modulus')
-    CALL READ_MFS(c0, filein, 'Spont_Curvature')
-    CALL READ_MFS(int_pres, filein, 'Internal_Pressure')
-
 !   Restart location
     CALL READ_MFS(restart, filein, 'Restart')
 !   Choose file to restart from (assuming that this is after deflation)
