@@ -50,6 +50,10 @@ TYPE sharedType
     LOGICAL :: CellCell
     INTEGER :: NCell
 
+!   MPI Stuff
+    INTEGER :: PCells(2, 2)
+    INTEGER, ALLOCATABLE :: CProcs(:,:)
+
     CONTAINS
     PROCEDURE :: bvAdvance => bvAdvanceInfo
     PROCEDURE :: Gal => GalInfo

@@ -537,7 +537,7 @@ SUBROUTINE EwaldintT(Ht, info, x0, u3, um)
     REAL(KIND = 8) :: Jbv, xcur(3), rr(3), r2, &
                       bv_gr(3,3), bvi_gr(3,3), h
     INTEGER :: nt, np, nc, tpts, i, curijk(3), inds(3), &
-               iper, jper, kper, pts, gp, sz(5), it, ip, ic
+               iper, jper, kper, pts, gp, sz(5), it, ip, ic, i1, i2
 
     tpts = size(x0)/3
     gp = info%gp
@@ -545,6 +545,11 @@ SUBROUTINE EwaldintT(Ht, info, x0, u3, um)
     bv_gr = info%bv/REAL(gp)
     bvi_gr = INVERT33(bv_gr)
     h = 1D0/REAL(gp)
+
+!   Get indices for looping parallel
+!   The master list of points goes cell -> theta -> phi
+    i1 = (info%PCells(1,1) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,1) - 1)*info%Y%np + 1
+    i2 = (info%PCells(1,2) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,2)    )*info%Y%np
 
 !   Often, we want an output matrix of size (3,3,nt,np,ncell) as output.
 !   Exception checking for this option
@@ -555,8 +560,8 @@ SUBROUTINE EwaldintT(Ht, info, x0, u3, um)
         nt = sz(3)
         np = sz(4)
         nc = sz(5)
-        ic = 1
-        it = 1
+        ic = info%PCells(1,1)
+        it = info%PCells(2,1)
         ip = 0
     ENDIF
     IF(PRESENT(u3) .and. PRESENT(um)) THEN
@@ -566,7 +571,7 @@ SUBROUTINE EwaldintT(Ht, info, x0, u3, um)
     ENDIF
 
 !   This is the "interpolate back" step, where we have and send it back to discrete points
-    DO i = 1, tpts
+    DO i = i1, i2
 !       Lots of managing of indices if we want matrix-type output
         IF(PRESENT(um)) THEN
             ip = ip + 1

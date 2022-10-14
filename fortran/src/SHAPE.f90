@@ -776,16 +776,18 @@ END SUBROUTINE Stresscell
 ! -------------------------------------------------------------------------!
 ! Knowing the force jump get the velocity on the surface of the cell via
 ! the fluid problem
-SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
+SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo, itt1, itt2)
     CLASS(cellType), INTENT(IN), TARGET :: cell
     COMPLEX(KIND = 8), INTENT(OUT), ALLOCATABLE, OPTIONAL ::  A2(:,:), b2(:)
     COMPLEX(KIND = 8), INTENT(OUT), ALLOCATABLE, OPTIONAL :: Ao(:,:,:,:,:,:), bo(:)
     TYPE(cellType), INTENT(IN), POINTER, OPTIONAL :: celli
     TYPE(sharedType), POINTER :: info
     LOGICAL, INTENT(IN), OPTIONAL :: periodic_in
+    INTEGER, INTENT(IN), OPTIONAL :: itt1, itt2
 
-    INTEGER :: ip, ic, i, j, i2, j2, n, m, it, im, row, col, im2, m2, &
-               colm, ind, im3, nt, np, indi = 1, indj = 1, iper, jper, kper
+    INTEGER :: ic, i, j, i2, j2, n, m, it, im, row, col, im2, m2, &
+               colm, ind, im3, nt, np, indi = 1, indj = 1, iper, jper, kper, &
+               it1, it2
     LOGICAL sing, periodic
     COMPLEX(KIND = 8) :: bt(3), tmpsum(3,3)
     REAL(KIND = 8) :: Uc(3), xcr(3), Utmp(3,3), r(3), minr, dphi, rn, rcur(3), rt(3)
@@ -806,6 +808,18 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
         periodic = periodic_in
     ELSE
         periodic = info%periodic
+    ENDIF
+
+    IF(PRESENT(itt1)) THEN
+        it1 = itt1
+    ELSE
+        it1 = 1
+    ENDIF
+
+    IF(PRESENT(itt2)) THEN
+        it2 = itt2
+    ELSE
+        it2 = Y%nt
     ENDIF
 
 !   Allocate things
@@ -832,6 +846,8 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
              tht_t(Y%nt))
 
     Ai = 0D0
+    b = 0D0
+    
 !   We need to do two integral loops: the first calculates the integral 
 !   that is the convolution of the Stokeslets and stresslets. We need those
 !   values at the integration points for the next step. Next we do the
@@ -846,12 +862,11 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
 !   the spherical harmonic functions evaluated at the Gauss points (rows=>GP,
 !   cols=>Sph fns).
 
-    ip = 0
-    ic = 0
+    ic = (it1 - 1)*Y%np
     CALL SYSTEM_CLOCK(tic,rate)
 !   First loops: singular integral points
-    DO i = 1,Y%nt
-        DO j = 1,Y%np
+    DO i = it1, it2
+        DO j = 1, Y%np
 !           Bookkeeping
             ic = ic + 1
             row = 3*(ic - 1)  + 1
@@ -860,6 +875,11 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
             xcr = cell%x(:,i,j)
 
             sing = .false.
+
+!           Find near boxes if periodic
+            ! IF(periodic .and. PRESENT(celli)) THEN
+            !     bxs = bvBxs(info%bv, celli%h, xcr)
+            ! ENDIF
 !           Construct grid appropriate to problem
 !           If the integration and target surfaces are different, check minimum spacing
             IF(PRESENT(celli)) THEN
@@ -869,7 +889,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
                         r = celli%xf(:,i2,j2) - xcr
                         minr = MIN(NORM2(r), minr)
 !                       We need to check all of the periodic images of the cell as well
-!                       Just check immediately surrounding boxes
+!                       Just check immediately surrounding boxes the point is close to
                         IF(periodic) THEN
                             DO iper = -1,1
                                 DO jper = -1,1
@@ -937,27 +957,27 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
                     xmnR(2,:) = Yfi%rotate(celli%xmn(2,:), indi, indj, -Yfi%phi(indj))
                     xmnR(3,:) = Yfi%rotate(celli%xmn(3,:), indi, indj, -Yfi%phi(indj))
 
-                    xcg(1,:,:) = celli%info%Ys%backward(xmnR(1,:))
-                    xcg(2,:,:) = celli%info%Ys%backward(xmnR(2,:))
-                    xcg(3,:,:) = celli%info%Ys%backward(xmnR(3,:))
+                    xcg(1,:,:) = info%Ys%backward(xmnR(1,:), Y%nt, Y%np, info%p)
+                    xcg(2,:,:) = info%Ys%backward(xmnR(2,:), Y%nt, Y%np, info%p)
+                    xcg(3,:,:) = info%Ys%backward(xmnR(3,:), Y%nt, Y%np, info%p)
 
 !                   Forces on rotated grid
                     fmnR(1,:) = Yfi%rotate(celli%fmn(1,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
                     fmnR(2,:) = Yfi%rotate(celli%fmn(2,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
                     fmnR(3,:) = Yfi%rotate(celli%fmn(3,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
 
-                    frot(1,:,:) = celli%info%Ys%backward(fmnR(1,:), celli%info%p)
-                    frot(2,:,:) = celli%info%Ys%backward(fmnR(2,:), celli%info%p)
-                    frot(3,:,:) = celli%info%Ys%backward(fmnR(3,:), celli%info%p)
+                    frot(1,:,:) = info%Ys%backward(fmnR(1,:), Y%nt, Y%np, info%p)
+                    frot(2,:,:) = info%Ys%backward(fmnR(2,:), Y%nt, Y%np, info%p)
+                    frot(3,:,:) = info%Ys%backward(fmnR(3,:), Y%nt, Y%np, info%p)
 
 !                   Rotate the normal vector total constants
                     nmnR(1,:) = Yfi%rotate(celli%nkt(1,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
                     nmnR(2,:) = Yfi%rotate(celli%nkt(2,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
                     nmnR(3,:) = Yfi%rotate(celli%nkt(3,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
 
-                    nJt(1,:,:) = celli%info%Ys%backward(nmnR(1,:), celli%info%p)
-                    nJt(2,:,:) = celli%info%Ys%backward(nmnR(2,:), celli%info%p)
-                    nJt(3,:,:) = celli%info%Ys%backward(nmnR(3,:), celli%info%p)
+                    nJt(1,:,:) = info%Ys%backward(nmnR(1,:), Y%nt, Y%np, info%p)
+                    nJt(2,:,:) = info%Ys%backward(nmnR(2,:), Y%nt, Y%np, info%p)
+                    nJt(3,:,:) = info%Ys%backward(nmnR(3,:), Y%nt, Y%np, info%p)
 !               Well-separated, normal grid/integration
                 ELSE
                     sing = .false.
@@ -1067,7 +1087,7 @@ SUBROUTINE Fluidcell(cell, A2, b2, periodic_in, celli, Ao, bo)
                     np = Yfi%np + Y%np
 
 !                   Deallocate integ. quants
-                    IF(i.eq.1 .and. j.eq.1) THEN
+                    IF(i.eq.it1 .and. j.eq.1) THEN
                         DEALLOCATE(frot, xcg, nJt, Bi, Ci, wgi, tht_t)
                         ALLOCATE( &
                         frot(3, nt, np), &
@@ -1720,6 +1740,9 @@ SUBROUTINE InPrimcell(cell)
 
 !   Get number of boxes to move based on partial coordinates
     move = FLOOR(bvPartial(info%bv, xc))
+    bv1 = info%bv(:,1)
+    bv2 = info%bv(:,2)
+    bv3 = info%bv(:,3)
 
 !   Now move them back the specified number of cells, accounting for spherical hamronics
     cell%xmn(:,1) = cell%xmn(:,1) &

@@ -32,7 +32,6 @@ TYPE probType
 
 !   MPI stuff
     TYPE(cmType), POINTER :: cm
-    INTEGER :: PCells(2)
 
     CONTAINS
     PROCEDURE :: Update  => UpdateProb
@@ -62,7 +61,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     TYPE(cellType) :: celltmp
     CHARACTER(:), ALLOCATABLE :: fileout, cont, gfile
     CHARACTER(len = 30) :: icC
-    INTEGER :: m, n, ic, pthline
+    INTEGER :: m, n, ic, pthline, it
     REAL(KIND = 8) :: Gfac
     REAL(KIND = 8), ALLOCATABLE :: Gtmp(:,:,:,:)
     LOGICAL :: fl = .false.
@@ -97,12 +96,6 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     IF(prob%cm%mas()) print *, 'Done with init file!'
     CALL info%init()
 
-!   Check if there are more processors than cells (can't handle)
-    IF(prob%cm%np() .gt. prob%NCell) THEN
-        print *, 'ERROR: More processors than cells'
-        STOP
-    ENDIF
-    
     ALLOCATE(prob%cell(prob%NCell))
 
 !   Make a master cell of sorts
@@ -117,18 +110,76 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     ENDDO
     prob%fileout=TRIM(fileout)
     
-!   Which cells will the current processor handle? Integer div. rounds down
-    n = MOD(prob%NCell, prob%cm%np())
-    m = prob%NCell/prob%cm%np()
+!   For parallel, we split the particles up based on theta
+!   integration point coordinates
 
-!   Get the top and bottom cell indices for this processor,
-!   giving the remainder to the first processors
-    IF (prob%cm%id() .lt. n) THEN
-        prob%PCells(1) = (prob%cm%id()    )*(m + 1) + 1
-        prob%PCells(2) = (prob%cm%id() + 1)*(m + 1)
+!   If we have fewer processors than cells, each proc must handle multiple cells
+!   We only want each cell to be assigned to one proc in this case
+!   Otherwise, we want each proc only assigned to one cell
+!   PCells(1,:) are starting/ending cell indices,
+!   PCells(2,:) are starting/ending theta points (in the cells)
+
+!   Also need to find all the procs corresponding to a cell
+    ALLOCATE(info%CProcs(prob%NCell, 2))
+    info%CProcs = 0
+
+!   First case: more procs than cells
+    IF(prob%cm%np() .ge. prob%NCell) THEN
+!       Number of procs in each cell rounded up
+        m = prob%cm%np()/prob%NCell + 1
+        n = MOD(prob%cm%np(), prob%NCell)
+        it = 0
+        ic = 0
+!       To find the cell for a proc, count up through cell procs
+        DO WHILE(it .lt. (prob%cm%id() + 1))
+            IF(ic .eq. n) m = m - 1
+            
+!           Current top processor
+            it = it + m
+            ic = ic + 1
+        ENDDO
+        info%PCells(1,1) = ic
+        info%PCells(1,2) = ic
+
+!       Also use above to get top and bottom cells of processor
+        info%CProcs(ic, 1) = it - m
+        info%CProcs(ic, 2) = it - 1
+
+!       Current position in this proc
+        it = prob%cm%id() - (it - m)
+
+!       Then allocate thetas in that proc with a similar process as above
+        n = MOD(info%Y%nt, m)
+        m = info%Y%nt/m
+        
+        IF (it .lt. n) THEN
+            info%PCells(2, 1) = (it    )*(m + 1) + 1
+            info%PCells(2, 2) = (it + 1)*(m + 1)
+        ELSE
+            info%PCells(2, 1) = n*(m + 1) + (it     - n)*m + 1
+            info%PCells(2, 2) = n*(m + 1) + (it + 1 - n)*m
+        ENDIF
     ELSE
-        prob%PCells(1) = n*(m + 1) + (prob%cm%id()     - n)*m + 1
-        prob%PCells(2) = n*(m + 1) + (prob%cm%id() + 1 - n)*m
+!       Number of cells per proc rounded down
+        m = prob%NCell/prob%cm%np()
+        n = MOD(prob%NCell, prob%cm%np())
+        IF (prob%cm%id() .lt. n) THEN
+            info%PCells(1, 1) = (prob%cm%id()    )*(m + 1) + 1
+            info%PCells(1, 2) = (prob%cm%id() + 1)*(m + 1)
+        ELSE
+            info%PCells(1, 1) = n*(m + 1) + (prob%cm%id()     - n)*m + 1
+            info%PCells(1, 2) = n*(m + 1) + (prob%cm%id() + 1 - n)*m
+        ENDIF
+
+!       Do the whole range of thetas for each cell
+        info%PCells(2,1) = 1
+        info%PCells(2,2) = info%Y%nt
+
+!       Need to deal with cells per procs
+        DO ic = info%PCells(1, 1), info%PCells(1, 2)
+            info%CProcs(ic, 1) = prob%cm%id()
+            info%CProcs(ic, 2) = prob%cm%id()
+        ENDDO
     ENDIF
 
 !   Velocity gradient information
@@ -344,12 +395,13 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
                                       fmnR(:,:), xmnR(:,:), &
                                       fv1(:), fv2(:), fv3(:), fv(:,:), &
                                       b2f(:), b2r(:), YVt(:), um(:,:,:,:,:), &
-                                      A2f(:,:,:,:,:,:,:,:), A2r(:,:,:,:,:,:)
-    INTEGER :: ic, ic2, i, row, col, iter, p_info, m, n, im, im2, it
+                                      A2f(:,:,:,:,:,:,:,:), A2r(:,:,:,:,:,:), &
+                                      A2t(:,:,:,:,:,:), b2t(:)
+    INTEGER :: ic, ic2, i, row, col, iter, p_info, m, n, im, im2, it, th_st, th_end
     REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:), nJt(:,:,:), xv(:,:)
     COMPLEX, ALLOCATABLE :: swrk(:)
     INTEGER, ALLOCATABLE :: IPIV(:)
-    INTEGER(KIND = 8) tic, toc, rate
+    INTEGER(KIND = 8) tic, toc, rate, tic0, toc0
     TYPE(nmType), ALLOCATABLE :: YV(:)
 
     Y => prob%info%Y
@@ -369,12 +421,16 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
              fmnR(3, (info%p+1)*(info%p+1)), &
              xmnR(3, (info%p+1)*(info%p+1)), &
              A2r(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
-             b2r(3*info%NmatT))
+             A2t(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
+             b2r(3*Y%nt*Y%np), &
+             b2t(3*Y%nt*Y%np), &
+             A2(info%Nmat, info%Nmat), &
+             b2(info%Nmat))
 
 !   If periodic, make variables for the Fourier part
     IF(info%periodic) THEN
         ALLOCATE( &
-        A2f(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np, prob%Ncell, prob%Ncell), & !!! Note that in parallel, many entries will be 0 here
+        A2f(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np, prob%NCell, prob%NCell), & !!! Note that in parallel, many entries will be 0 here
         b2f(3*Y%nt*Y%np*prob%NCell))
         A2f = 0D0
     ENDIF
@@ -431,7 +487,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 
 !       Start with the long range part, as this calculates all points for one integral surface
 !       The "forces" here are the spherical harmonics multiplied by the normal vector
-        DO ic = prob%PCells(1), prob%PCells(2)
+        DO ic = 1, prob%NCell
             cell => prob%cell(ic)
 
 !           We need to make a vector for all of the spherical harmonics,
@@ -485,37 +541,66 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     CALL SYSTEM_CLOCK(tic,rate)
 !   Now the real space part
 !   First loop: velocity surface
-    DO ic = 1,prob%NCell
+    DO ic = info%PCells(1,1), info%PCells(1,2)
         row = (ic - 1)*info%Nmat + 1
         cell => prob%cell(ic)
 
+!       Get starting and ending theta current cell for parallel
+        th_st  = info%PCells(2,1)
+        th_end = info%PCells(2,2)
+
 !       Second loop: integral surface
-        DO ic2 = prob%PCells(1), prob%PCells(2)
+        DO ic2 = 1,prob%NCell
             col = (ic2-1)*info%Nmat + 1
             celli => prob%cell(ic2)
             
 !           Get velocity sub-matrix for cell-cell combo (Same or diff cell)
             IF(ic .eq. ic2) THEN
-                CALL cell%fluid(Ao = A2r, bo = b2r)
+                CALL cell%fluid(Ao = A2r, bo = b2r, itt1 = th_st, itt2 = th_end)
             ELSE
-                CALL cell%fluid(Ao = A2r, bo = b2r, celli = celli)
+                CALL cell%fluid(Ao = A2r, bo = b2r, itt1 = th_st, itt2 = th_end, celli = celli)
             ENDIF
 
 !           Add long range interactions if periodic
             IF(info%periodic) THEN
                 A2r = A2r + A2f(:,:,:,:,:,:,ic,ic2)*(1D0-cell%lam)/(1D0+cell%lam)
-!               This is b/c b2f is the vector at the velocity points integrated across all surfaces,
-!               so we only add in once
-                IF(ic .eq. ic2) &
-                    b2r = b2r + b2f( (ic-1)*(3*Y%nt*Y%np)+1 : (ic)*(3*Y%nt*Y%np))/(1D0 + cell%lam)
             ENDIF
 
+!           Here we need to take back in the velocity/integral cell combo info across all processors
+!           that had a part in this combo
+!           All info is sent to the processor that has the theta = 1 point (skip if one proc has all points)
+            IF((prob%cm%id() .eq. info%CProcs(ic,1)) .and. (info%CProcs(ic,1) .ne. info%CProcs(ic,2))) THEN
+                DO i = info%CProcs(ic,1) + 1, info%CProcs(ic,2)
+                    CALL prob%cm%recv(A2t, i)
+                    A2r = A2r + A2t
+
+                    CALL prob%cm%recv(b2t, i)
+                    b2r = b2r + b2t
+                ENDDO
+            ELSEIF(info%CProcs(ic,1) .ne. info%CProcs(ic,2)) THEN
+                A2t = A2r
+                CALL prob%cm%send(A2t, info%CProcs(ic,1)) 
+
+                b2t = b2r
+                CALL prob%cm%send(b2t, info%CProcs(ic,1))
+            ENDIF
+
+!           This is b/c b2f is the vector at the velocity points integrated across all surfaces,
+!           so we only add in once
+!           We also do after send/receive so it doesn't double ass
+            IF(ic .eq. ic2 .and. info%periodic) &
+                b2r = b2r + b2f( (ic-1)*(3*Y%nt*Y%np)+1 : (ic)*(3*Y%nt*Y%np))/(1D0 + cell%lam)
+
 !           Perform the Galerkin
-            CALL info%Gal(A2r, b2r, A2, b2)
-!           Put sub matrix into big matrix
-            A(row:row + info%Nmat - 1, col:col + info%Nmat - 1) = A2
-!           Sum over all the integrals
-            b(row:row + info%Nmat - 1) = b(row:row + info%Nmat - 1) + b2
+            A2 = 0D0
+            b2 = 0D0
+            IF(prob%cm%id() .eq. info%CProcs(ic,1)) THEN ! Only if in the processor with the info though
+                CALL info%Gal(A2r, b2r, A2, b2) !!!!!!!!!!!!! Ideally could be parallelized...
+!               Put sub matrix into big matrix
+                A(row:row + info%Nmat - 1, col:col + info%Nmat - 1) = A2
+!               Sum over all the integrals
+                b(row:row + info%Nmat - 1) = b(row:row + info%Nmat - 1) + b2
+            ENDIF
         ENDDO
     ENDDO
     CALL SYSTEM_CLOCK(toc)
@@ -680,34 +765,38 @@ END FUNCTION StrnRtProb
 SUBROUTINE ContinueProb(prob)
     CLASS(probType), INTENT(INOUT) :: prob
     TYPE(cellType), POINTER :: cell
-    CHARACTER (LEN = 25) contfile, cfile2
+    CHARACTER (LEN = 35) contfile, cfile2
     INTEGER ic, endt, stat, p, i, jmp
     REAL(KIND = 8), ALLOCATABLE :: xmnraw(:,:)
     LOGICAL :: exist_in
 
     DO ic = 1,prob%NCell
         cell => prob%cell(ic)
-        INQUIRE(FILE = TRIM('dat/'//TRIM(cell%fileout)//'/maxdt'), EXIST = exist_in)
+        INQUIRE(FILE = TRIM('dat/'//prob%fileout//'/'//TRIM(cell%fileout)//'/maxdt'), EXIST = exist_in)
         IF(.not. exist_in) THEN
             print *, "ERROR: Files not found for continue. Have you run previous cases with the same number of cells?"
             stop
         ENDIF
 
 !       Get the timestep of where we left off
-        contfile = TRIM('dat/'//TRIM(cell%fileout))
-        cfile2 = TRIM('dat/'//TRIM(cell%fileout)//'/maxdt')
+        contfile = TRIM('dat/'//prob%fileout//'/'//TRIM(cell%fileout))
+        cfile2 = TRIM('dat/'//prob%fileout//'/'//TRIM(cell%fileout)//'/maxdt')
         OPEN(unit = 13, file = TRIM(cfile2), action = 'read')
         READ(13, '(I16)', iostat = stat) endt
         CLOSE(13)
+        IF(endt .eq. 0) THEN
+!           Starting at 0 anyways, just return
+            RETURN
+        ENDIF
         prob%cts = endt
 
 !       Open the file of where we left off and get the shape
         write(cfile2, "(I0.5)") endt
-        cfile2 = TRIM('dat/'//TRIM(cell%fileout)//'/x_'//TRIM(cfile2))
+        cfile2 = TRIM('dat/'//prob%fileout//'/'//TRIM(cell%fileout)//'/x_'//TRIM(cfile2))
 
 !       Read in the files
         p = (cell%info%p + 1)*(cell%info%p + 1)*2
-        ALLOCATE(xmnraw(3,p))
+        IF(.not.ALLOCATED(xmnraw)) ALLOCATE(xmnraw(3,p))
         OPEN(unit = 13, file = cfile2, action = 'read')
         DO i = 1,p
             READ(13, *, iostat = stat) xmnraw(:,i)
@@ -727,8 +816,20 @@ SUBROUTINE ContinueProb(prob)
         cell%xmn(1,1:(p+1)*(p+1)) = cell%xmn(1,1:(p+1)*(p+1)) + xmnraw(1, jmp+1: 2*jmp)*ii
         cell%xmn(2,1:(p+1)*(p+1)) = cell%xmn(2,1:(p+1)*(p+1)) + xmnraw(2, jmp+1: 2*jmp)*ii
         cell%xmn(3,1:(p+1)*(p+1)) = cell%xmn(3,1:(p+1)*(p+1)) + xmnraw(3, jmp+1: 2*jmp)*ii
-        
+
+        CALL cell%derivs()
+        CALL cell%stress()        
     ENDDO
+
+!   Also need to bring the basis vectors back in. Only works for shear flow 1 right now
+    prob%info%dU = 0D0
+    prob%info%dU(1,3) = 1D0
+
+    prob%info%bv = prob%info%bv + MATMUL(prob%info%dU, prob%info%bv)*(endt - 5)*prob%info%dt
+    DO ic = 1,5
+        CALL prob%info%bvAdvance()
+    ENDDO
+
     prob%t = prob%cts*prob%info%dt
 END SUBROUTINE ContinueProb
 
