@@ -212,7 +212,7 @@ FUNCTION newnm(n, dero, Y) RESULT(nm)
     unif = .false.
 !   Get some info on n
     nm%n = n
-    ALLOCATE(nm%v(2*n + 1, Y%nt, Y%np), nm%dY(dero, 2*n + 1, Y%nt, Y%np))
+    ALLOCATE(nm%v(2*n + 1, Y%nt, Y%np), nm%dY(4, 2*n + 1, Y%nt, Y%np))
 
 !   Check if uniform grid    
     sz  = shape(Y%legs)

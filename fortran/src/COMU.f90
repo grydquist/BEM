@@ -70,19 +70,22 @@
          PROCEDURE :: BCASTSV
          PROCEDURE :: BCASTCS
          PROCEDURE :: BCASTCV
+         PROCEDURE :: BCASTC5
          GENERIC :: bcast => BCASTLS, BCASTLV, BCASTIS, BCASTIV,&
            BCASTIM, BCASTRS, BCASTRV, BCASTRM, BCASTSS, BCASTSV, &
-           BCASTCS, BCASTCV
+           BCASTCS, BCASTCV, BCASTC5
 !        Blocking MPI send
          PROCEDURE :: SENDRV
          PROCEDURE :: SENDCV
-         PROCEDURE :: SENDCA
-         GENERIC :: send => SENDRV, SENDCV, SENDCA
+         PROCEDURE :: SENDC5
+         PROCEDURE :: SENDC6
+         GENERIC :: send => SENDRV, SENDCV, SENDC5, SENDC6
 !        Blocking MPI recv
          PROCEDURE :: RECVRV
          PROCEDURE :: RECVCV
-         PROCEDURE :: RECVCA
-         GENERIC :: recv => RECVRV, RECVCV, RECVCA
+         PROCEDURE :: RECVC5
+         PROCEDURE :: RECVC6
+         GENERIC :: recv => RECVRV, RECVCV, RECVC5, RECVC6
 !        Non-blocking MPI send
          PROCEDURE :: isend => ISENDRV
 !        Non-blocking MPI recv
@@ -432,6 +435,18 @@
 
       RETURN
       END SUBROUTINE BCASTCV
+!--------------------------------------------------------------------
+      SUBROUTINE BCASTC5(cm, u)
+      CLASS(cmType), INTENT(IN) :: cm
+      COMPLEX(KIND=8), INTENT(INOUT) :: u(:,:,:,:,:)
+
+      INTEGER m, ierr
+
+      m = SIZE(u)
+      CALL MPI_BCAST(u, m, mpcplx, master, cm%com(), ierr)
+
+      RETURN
+      END SUBROUTINE BCASTC5
 
 !####################################################################
       
@@ -473,7 +488,7 @@
       RETURN
       END SUBROUTINE SENDCV
 !--------------------------------------------------------------------
-      SUBROUTINE SENDCA(cm, u, to, tag)
+      SUBROUTINE SENDC6(cm, u, to, tag)
       CLASS(cmType), INTENT(IN) :: cm
       COMPLEX(KIND=8), INTENT(IN) :: u(:,:,:,:,:,:)
       INTEGER, INTENT(IN) :: to
@@ -490,7 +505,26 @@
       CALL MPI_SEND(u, m, mpcplx, to, ftag, cm%com(), ierr)
 
       RETURN
-      END SUBROUTINE SENDCA
+      END SUBROUTINE SENDC6
+!--------------------------------------------------------------------
+      SUBROUTINE SENDC5(cm, u, to, tag)
+      CLASS(cmType), INTENT(IN) :: cm
+      COMPLEX(KIND=8), INTENT(IN) :: u(:,:,:,:,:)
+      INTEGER, INTENT(IN) :: to
+      INTEGER, INTENT(IN), OPTIONAL :: tag
+
+      INTEGER m, ierr, ftag
+
+      ftag = 0
+      IF (PRESENT(tag)) ftag = cm%np()*tag
+      ftag = MOD(ftag + cm%id(), tagUB)
+
+      IF (to .EQ. cm%id()) RETURN
+      m = SIZE(u)
+      CALL MPI_SEND(u, m, mpcplx, to, ftag, cm%com(), ierr)
+
+      RETURN
+      END SUBROUTINE SENDC5
 !--------------------------------------------------------------------
       SUBROUTINE RECVRV(cm, u, from, tag)
       CLASS(cmType), INTENT(IN) :: cm
@@ -532,7 +566,7 @@
       RETURN
       END SUBROUTINE RECVCV
 !--------------------------------------------------------------------
-      SUBROUTINE RECVCA(cm, u, from, tag)
+      SUBROUTINE RECVC6(cm, u, from, tag)
       CLASS(cmType), INTENT(IN) :: cm
       COMPLEX(KIND=8), INTENT(OUT) :: u(:,:,:,:,:,:)
       INTEGER, INTENT(IN) :: from
@@ -550,7 +584,27 @@
          MPI_STATUS_IGNORE, ierr)
 
       RETURN
-      END SUBROUTINE RECVCA
+      END SUBROUTINE RECVC6
+!--------------------------------------------------------------------
+      SUBROUTINE RECVC5(cm, u, from, tag)
+      CLASS(cmType), INTENT(IN) :: cm
+      COMPLEX(KIND=8), INTENT(OUT) :: u(:,:,:,:,:)
+      INTEGER, INTENT(IN) :: from
+      INTEGER, INTENT(IN), OPTIONAL :: tag
+
+      INTEGER m, ierr, ftag
+
+      ftag = 0
+      IF (PRESENT(tag)) ftag = cm%np()*tag
+      ftag = MOD(ftag + from, tagUB)
+      
+      IF (from .EQ. cm%id()) RETURN
+      m = SIZE(u)
+      CALL MPI_RECV(u, m, mpcplx, from, ftag, cm%com(), &
+         MPI_STATUS_IGNORE, ierr)
+
+      RETURN
+      END SUBROUTINE RECVC5
 !--------------------------------------------------------------------
       FUNCTION ISENDRV(cm, u, to, tag) RESULT(req)
       CLASS(cmType), INTENT(IN) :: cm

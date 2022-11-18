@@ -660,7 +660,24 @@ FUNCTION LJ(r, rn, e, s) RESULT(f)
     REAL(KIND = 8) :: r(3), rn, e, s, f(3)
     f = -24D0*e*(s**6)*(rn**6 - 2D0*s**6)/(rn**13)*(r/rn)
 END FUNCTION LJ
+! -------------------------------------------------------------------------!
+! Takes in points to split, total procs, and proc number; gives lower bound for proc
+FUNCTION ParallelSplit(tot_pts, tot_procs) RESULT(inds)
+    INTEGER :: tot_pts, tot_procs, inds(tot_procs)
+    INTEGER :: ptsproc, rem, i
 
+    ptsproc = tot_pts/tot_procs + 1
+    rem = MOD(tot_pts, tot_procs)
+
+    DO i = 1, tot_procs
+        IF(i .le. rem) THEN
+            inds(i) = ptsproc*(i - 1) + 1
+        ELSE
+            inds(i) = ptsproc*(rem) + (ptsproc - 1)*(i - rem - 1) + 1
+        ENDIF
+    ENDDO
+
+END FUNCTION ParallelSplit
 ! -------------------------------------------------------------------------!
 ! Given basis vectors and point, gives partial coordinates
 FUNCTION bvPartial(bv, x) RESULT(px)

@@ -304,7 +304,7 @@ SUBROUTINE EwaldT(Ht, info, x0, f, full, um, u3, strt)
     INTEGER, INTENT(IN), OPTIONAL :: strt
     COMPLEX(KIND = 8), INTENT(OUT), OPTIONAL :: um(:,:,:,:,:), u3(:,:,:)
     COMPLEX(KIND = 8), ALLOCATABLE ::  H(:,:,:,:), Hh(:,:,:,:), &
-        Hht(:,:,:,:,:), Htmp(:,:,:), Htout(:,:,:,:,:)
+        Hht(:,:,:,:,:), Htmp(:,:,:)
     COMPLEX(KIND = 8) :: B(3,3,3)
     REAL(KIND = 8) :: bvi_gr(3,3), bv_gr(3,3), rr(3), r2, k3(3), &
                       kn, xcur(3)
@@ -320,7 +320,7 @@ SUBROUTINE EwaldT(Ht, info, x0, f, full, um, u3, strt)
     nt = size(f)/3
 
     ALLOCATE(H(3,gp,gp,gp), Hh(3,gp,gp,gp), &
-           Hht(3,3,gp,gp,gp), Htmp(gp,gp,gp), Htout(3,3,gp,gp,gp))
+           Hht(3,3,gp,gp,gp), Htmp(gp,gp,gp))
     H = 0D0
     IF(PRESENT(strt)) strti=strt
 
@@ -424,11 +424,11 @@ SUBROUTINE EwaldT(Ht, info, x0, f, full, um, u3, strt)
             Htmp = Hht(i,j,:,:,:)
             CALL FFTSHIFT(Htmp)
             Htmp = iFFT3(Htmp, info%WSAVE)
-            Htout(i,j,:,:,:) = Htmp
+            Hht(i,j,:,:,:) = Htmp
         ENDDO
     ENDDO
 
-    IF(PRESENT(Ht)) Ht = Htout
+    IF(PRESENT(Ht)) Ht = Hht
 
 !   If we want, we can just do the next step and integrate
     IF(PRESENT(full) .and. full) THEN
@@ -441,10 +441,10 @@ SUBROUTINE EwaldT(Ht, info, x0, f, full, um, u3, strt)
             RETURN
         ENDIF
         IF(PRESENT(um)) THEN
-            CALL Ewaldint(Htout, info, x0, um=um)
+            CALL Ewaldint(Hht, info, x0, um=um)
         ENDIF
         IF(PRESENT(u3)) THEN
-            CALL Ewaldint(Htout, info, x0, u3=u3)
+            CALL Ewaldint(Hht, info, x0, u3=u3)
         ENDIF
     ENDIF
 END SUBROUTINE EwaldT
