@@ -672,8 +672,10 @@ FUNCTION ParallelSplit(tot_pts, tot_procs) RESULT(inds)
     DO i = 1, tot_procs
         IF(i .le. rem) THEN
             inds(i) = ptsproc*(i - 1) + 1
+            ! inds(2) = ptsproc*(i    )
         ELSE
             inds(i) = ptsproc*(rem) + (ptsproc - 1)*(i - rem - 1) + 1
+            ! inds(2) = ptsproc*(rem) + (ptsproc - 1)*(i - rem    )
         ENDIF
     ENDDO
 
