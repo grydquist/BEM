@@ -32,6 +32,8 @@ TYPE probType
 
 !   MPI stuff
     TYPE(cmType), POINTER :: cm
+    INTEGER :: ictxt, desca(9), descb(9)
+    INTEGER, ALLOCATABLE :: map_A(:,:), map_b(:)
 
     CONTAINS
     PROCEDURE :: Update  => UpdateProb
@@ -61,7 +63,9 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     TYPE(cellType) :: celltmp
     CHARACTER(:), ALLOCATABLE :: fileout, cont, gfile
     CHARACTER(len = 30) :: icC
-    INTEGER :: m, n, ic, pthline, it
+    INTEGER :: m, n, ic, pthline, it, sqre, nprow, npcol, nb, p_inf, &
+               myrow, mycol, np, nq, nqrhs, ictxt, tot_blocks, &
+               xblx, yblx, itb, i, ib, j, jb, strti, strtj, nbx, nby
     REAL(KIND = 8) :: Gfac
     REAL(KIND = 8), ALLOCATABLE :: Gtmp(:,:,:,:)
     LOGICAL :: fl = .false.
@@ -190,6 +194,101 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     ALLOCATE(Gtmp(prob%nts,3,3,ic))
     READ(1) Gtmp
     CLOSE(1)
+
+!   Some pre-processing for the parallel linear solver
+    IF(prob%cm%np().gt.1) THEN
+        
+!       We need to make a grid out of the processors: make as square as possible
+        sqre = FLOOR(SQRT(REAL(prob%cm%np()))) + 1
+        DO WHILE(MOD(prob%cm%np(), sqre) .ne. 0)
+            sqre = sqre - 1
+        ENDDO
+
+!       Proc rows and columns for square grid
+        nprow = MAX(sqre, prob%cm%np()/sqre)
+        npcol = MIN(sqre, prob%cm%np()/sqre)
+
+!       Oranizes data matrix into blocks: make same size as proc grid
+        nb = (prob%cm%np() + nprow - 1) / nprow
+
+!       Normal setup things
+        CALL blacs_get( -1, 0, prob%ictxt )
+        CALL blacs_gridinit( prob%ictxt, 'Row-major', nprow, npcol )
+        CALL blacs_gridinfo( prob%ictxt, nprow, npcol, myrow, mycol )
+
+!       number of points this proc is responsible for in x/y
+        np    = numroc( info%NmatT, nb, myrow, nprow )
+        nq    = numroc( info%NmatT, nb, mycol, npcol )
+        nqrhs = numroc( 1, nb, mycol, npcol )
+
+        CALL descinit( prob%desca, info%NmatT, info%NmatT, nb, nb, 0, 0, prob%ictxt, max( 1, np ),p_inf)
+        CALL descinit( prob%descb, info%NmatT, 1,          nb, nb, 0, 0, prob%ictxt, max( 1, np ),p_inf)
+
+!       Maps points in A and b to those needed by processor
+        ALLOCATE(prob%map_A(2, np*nq))
+        IF(nqrhs.gt.0) THEN
+            ALLOCATE(prob%map_b(np))
+        ENDIF
+
+!       Total blocks in both directions
+        tot_blocks = (info%NmatT + nb - 1)/nb
+
+!       Number of blocks this processor gets in each dir
+        xblx = tot_blocks/nprow
+        yblx = tot_blocks/npcol
+
+!       Distribute extra blocks
+        IF(MOD(tot_blocks, nprow) .gt. (myrow)) xblx = xblx + 1
+        IF(MOD(tot_blocks, npcol) .gt. (mycol)) yblx = yblx + 1
+
+!       Get the coordinate mapping from the matrix we need to solve for the points we need to solve with this proc
+        it = 0
+        itb = 0
+
+!       Loops have a very specific order for scalapack
+        DO j = 1, yblx
+!           Get the indices of the first point in this block
+            strtj = (mycol)*nb + (j-1)*nb*npcol + 1
+        
+!           Check for partial block if this is the last block
+            IF(mycol + (j-1)*npcol + 1 .eq. tot_blocks) THEN
+                nby = info%NmatT - strtj + 1
+            ELSE
+                nby = nb
+            ENDIF
+        
+!           Points in this block
+            DO jb = 1,nby
+        
+!               Block loop
+                DO i = 1, xblx
+                
+!                   Get the indices of the first point in this block
+                    strti = (myrow)*nb + (i-1)*nb*nprow + 1
+                
+!                   Check for partial block if this is the last block
+                    IF(myrow + (i-1)*nprow + 1 .eq. tot_blocks) THEN
+                        nbx = info%NmatT - strti + 1
+                    ELSE
+                        nbx = nb
+                    ENDIF
+        
+!                   Points in block again
+                    DO ib = 1,nbx
+                        it = it + 1
+                        prob%map_A(1, it) = strti + ib - 1
+                        prob%map_A(2, it) = strtj + jb - 1
+                        
+!                       Also distribute b here
+                        IF(nqrhs.gt.0 .and. jb.eq.1 .and. j.eq.1) THEN
+                            itb = itb + 1
+                            prob%map_b(itb) = strti + ib - 1
+                        ENDIF
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    ENDIF
 
 !   How many timesteps from G do we actually need?
     Gfac = prob%nts*prob%kfr/(prob%NT*prob%info%dt) ! Gfac: Ratio of total time in velgrad to total time requested
@@ -397,7 +496,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
                                       b2f(:), b2r(:), YVt(:), um(:,:,:,:,:), &
                                       A2f(:,:,:,:,:,:,:,:), A2r(:,:,:,:,:,:), &
                                       A2t(:,:,:,:,:,:), b2t(:), &
-                                      v(:,:,:)
+                                      v(:,:,:), Ap(:), bp(:)
     INTEGER :: ic, ic2, i, j, row, col, iter, p_info, m, n, im, im2, &
                it, th_st, th_end, tot_gs, curid, inds_proc(2)
     REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:), nJt(:,:,:), xv(:,:)
@@ -676,21 +775,41 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !   Invert big matrix to get a list of all the vel constants of all cells
     ut = 0D0
     CALL SYSTEM_CLOCK(tic)
-    IF(prob%cm%mas()) THEN
+    IF(prob%cm%np() .gt. 1) THEN
+
+!       Submatrix proc is responsible for
+        ALLOCATE(Ap(size(prob%map_A)/2))
+
+!       Fill this matrix
+        DO i = 1,size(Ap)
+            Ap(i) = A(prob%map_A(1,i), prob%map_A(2,i))
+        ENDDO
+
+!       Fill b if there's something to fill
+        IF(ALLOCATED(prob%map_b)) THEN
+            ALLOCATE(bp(size(prob%map_b)))
+            bp = b(prob%map_b)
+        ELSE
+            ALLOCATE(bp(0))
+            bp=0
+        ENDIF
+
+        CALL pzgesv( info%NmatT, 1, Ap(1), 1, 1, prob%desca, ipiv(1), &
+                     bp(1), 1, 1, prob%descb, p_info )
+
+        b = 0D0
+        IF(ALLOCATED(prob%map_b)) b(prob%map_b) = bp
+        ut = prob%cm%reduce(REAL(b)) + prob%cm%reduce(AIMAG(b))*ii
+        
+        IF(ALLOCATED(bp)) DEALLOCATE(bp)
+        DEALLOCATE(Ap)
+
+    ELSE
         CALL zcgesv(info%NmatT, 1, A, info%NmatT, IPIV, b, info%NmatT, &
                     ut, info%NmatT, wrk, swrk, rwrk, iter, p_info)
     ENDIF
     CALL SYSTEM_CLOCK(toc)
     IF(prob%cm%mas()) print *, 'Invert: ',REAL(toc-tic)/REAL(rate)
-
-!   Broadcast to all processors
-    IF(prob%cm%np() .gt. 1) THEN
-        utr = REAL(ut)
-        uti = AIMAG(ut)
-        CALL prob%cm%bcast(utr)
-        CALL prob%cm%bcast(uti)
-        ut = utr + uti*ii
-    ENDIF
 
 !   Advance in time now
     DO ic = 1, prob%NCell

@@ -680,6 +680,38 @@ FUNCTION ParallelSplit(tot_pts, tot_procs) RESULT(inds)
     ENDDO
 
 END FUNCTION ParallelSplit
+
+! -------------------------------------------------------------------------!
+! THIS IS A SCALAPACK UTIL FUNCTION
+! Takes in points to split, total procs, and proc number; gives lower bound for proc
+INTEGER FUNCTION NUMROC( N, NB, IPROC, NPROCS )
+    INTEGER :: IPROC, N, NB, NPROCS
+    INTEGER :: EXTRABLKS, MYDIST, NBLOCKS
+
+!   Figure PROC's distance from source process
+    MYDIST = MOD( NPROCS+IPROC, NPROCS )
+
+!   Figure the total number of whole NB blocks N is split up into
+    NBLOCKS = N / NB
+
+!   Figure the minimum number of rows/cols a process can have
+    NUMROC = (NBLOCKS/NPROCS) * NB
+
+!   See if there are any extra blocks
+    EXTRABLKS = MOD( NBLOCKS, NPROCS )
+
+!   If I have an extra block
+    IF( MYDIST.LT.EXTRABLKS ) THEN
+        NUMROC = NUMROC + NB
+
+!   If I have last block, it may be a partial block
+    ELSE IF( MYDIST.EQ.EXTRABLKS ) THEN
+        NUMROC = NUMROC + MOD( N, NB )
+    END IF
+
+    RETURN
+END FUNCTION NUMROC
+
 ! -------------------------------------------------------------------------!
 ! Given basis vectors and point, gives partial coordinates
 FUNCTION bvPartial(bv, x) RESULT(px)

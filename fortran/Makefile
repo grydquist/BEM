@@ -2,7 +2,9 @@ FC=mpiifort
 LIBDIR= ./lib/
 LA_LDIR= $(LIBDIR)lapack/
 IDIR= $(LIBDIR)FFT/
+SCA_LDIR= $(LIBDIR)scalapack
 LA_LIBS= -llapack
+SCA_LIBS= -lscalapack
 OBJDIR=obj/
 MODDIR=mod/
 DATDIR=dat/
@@ -61,7 +63,7 @@ $(OBJDIR)%.o : $(SRC)%.f90 | $(OBJDIR) $(MODDIR) $(DATDIR)
 	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ -c $<
 
 $(MYEXEC): $(OBJ)
-	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ $^ $(DEPS) $(MPI_LIBS) -L$(LA_LDIR) $(LA_LIBS)
+	$(FC) $(FFLAGS) -module $(MODDIR) -o $@ $^ $(DEPS) $(MPI_LIBS) -L$(LA_LDIR) $(LA_LIBS) -L$(SCA_LDIR) $(SCA_LIBS)
 	@echo "-----------------------"
 	@echo "Compiled successfully!!"
 	@echo "-----------------------"
