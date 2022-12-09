@@ -750,11 +750,6 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             b2 = 0D0
             IF(prob%cm%id() .eq. info%CProcs(ic,1)) THEN ! Only if in the processor with the info though
                 
-                ! print *, ABS(A2r(1,1,:,:,:,:))
-                ! print *, ABS(A2f(1,1,2,:,1,2,ic,ic2)) !!!!!!! Cross cell terms n=0 missing
-                ! print *, ABS(b2r)
-                ! print *, ABS(b2f( (ic-1)*(3*Y%nt*Y%np)+1 : (ic)*(3*Y%nt*Y%np)))
-                ! print *, ' '
                 CALL info%Gal(A2r, b2r, A2, b2) !!!!!!!!!!!!! Ideally could be parallelized...
 !               Put sub matrix into big matrix
                 A(row:row + info%Nmat - 1, col:col + info%Nmat - 1) = A2
