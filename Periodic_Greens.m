@@ -4,10 +4,10 @@ clear eps1
 global eps1
 
 % First, define the lattice (columns vectors)
-bv = [1 0 0; 0 1 0; 0 0 1];
+bv = [1 0 0; 0 1 0; 0 0 1]*1;
 x0 = [.25,.5,.5
       .75,.5,.5]';
-x = [.5;.91,;.5];
+x = [.5;.75,;.5];
 xh0 = x0;
 xh0(:,1) = x-x0(:,1);
 xh0(:,2) = x-x0(:,2);
@@ -19,14 +19,14 @@ kv(:,1) = 2*pi/tau*cross(bv(:,2),bv(:,3));
 kv(:,2) = 2*pi/tau*cross(bv(:,3),bv(:,1));
 kv(:,3) = 2*pi/tau*cross(bv(:,1),bv(:,2));
 
-eps1 = pi^0.5/tau^(1/3); % 10
-
+eps1 = 10;% pi^0.5/tau^(1/3); % 10
+pts=2;
 f= [1,0,0
    -1,0,0]';
 n = [0;1;0];
 
 %% Calculate them. Calculate force at one point between two forces
-bxs = 2;
+bxs = 25;
 bxt = bxs;
 ucv = zeros(3,bxt);
 uu=[0;0;0];
@@ -38,31 +38,31 @@ Gt2 = Gt;
 
 
 
-pts1 = 10;
-pts = pts1^2;
-x0 = zeros(3,pts);
-xh0 = x0;
-f = zeros(3,pts);
-rng(69420);
-for i = 1:pts
-%   forces alternate up and down
-    f(1,i) = mod(i,2)*2 - 1;
-    
-%   Locations randomly in z = 0.5 plane
-    l = rand;
-    r = rand;
-    x0(:,i) = [l,r,.5]';
-
-end
-l1 = linspace(0,1,pts1+1);
-it = 0;
-for i = 1:pts1
-    for j = 1:pts1
-        it = it+1;
-%         x0(:,it) = [l1(i),l1(j),0.5]';
-        xh0(:,it) = x-x0(:,it);
-    end
-end
+% pts1 = 10;
+% pts = pts1^2;
+% x0 = zeros(3,pts);
+% xh0 = x0;
+% f = zeros(3,pts);
+% rng(69420);
+% for i = 1:pts
+% %   forces alternate up and down
+%     f(1,i) = mod(i,2)*2 - 1;
+%     
+% %   Locations randomly in z = 0.5 plane
+%     l = rand;
+%     r = rand;
+%     x0(:,i) = [l,r,.5]';
+% 
+% end
+% l1 = linspace(0,1,pts1+1);
+% it = 0;
+% for i = 1:pts1
+%     for j = 1:pts1
+%         it = it+1;
+% %         x0(:,it) = [l1(i),l1(j),0.5]';
+%         xh0(:,it) = x-x0(:,it);
+%     end
+% end
 
 
 

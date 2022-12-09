@@ -19,7 +19,7 @@ kvx = kv(:,1);
 kvy = kv(:,2);
 kvz = kv(:,3);
 
-eps1 = pi^0.5/tau^(1/3);
+eps1 = 10;%pi^0.5/tau^(1/3);
 
 f= [1,0,0
    -1,0,0]';
@@ -49,7 +49,7 @@ ur = G(:,:,1)*f(:,1) + G(:,:,2)*f(:,2);
 %% Doing the Fourier part
 
 % First, make grid over periodic cell
-np = 2^6;
+np = 2^5;
 h = 1/np;
 % Basis vectors for our uniform grid
 bv_gr = bv*h;
@@ -67,17 +67,20 @@ xs = zeros(np,np);
 ys = zeros(np,np);
 
 % Parameters dealing with shape of Gaussian interpolator
-P = np;
+P = 12;%np;
 m = 0.9*sqrt(pi*P);
 w = P*h/1.5;
 eta = (2*w*eps1/m)^2;
+cutpar = P*h;
+cut = 1e-12;
+eta = -cutpar^2/log(cut)*eps1^2*2;
 par = (2*eps1^2/pi/eta)^1.5;
 parexp = -2*eps1^2/eta;
 
 % grid (for plots)
 for i = 1:np
     for j = 1:np
-        rloc = bv_grx*(i-1) + bv_gry*(j-1);
+        rloc = bv_grx*(i) + bv_gry*(j);
         xs(i,j) = rloc(1);
         ys(i,j) = rloc(2);
     end

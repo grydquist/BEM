@@ -7,7 +7,17 @@ fclose all;
 % dir = 'fortran/dat/tmptmp';
 % dir = 'fortran/dat/tmptmptmp';
 % dir = 'fortran/dat/tmp';
-dir = 'fortran/dat/mult_cells';
+% dir = 'fortran/dat/bend_only/bend_only';
+% dir = 'fortran/dat/new16bnd25/new16bnd25';
+% dir = 'fortran/dat/repa12_8_25/cell_';
+% dir = 'fortran/dat/rbcsxtn/rbcsxtn';
+% dir = 'fortran/dat/CellCell16/cell_';
+% dir = 'fortran/dat/Hct20_12_8/cell_';
+% dir = 'fortran/dat/nrSR50/cell_';
+dir = 'fortran/dat/P13S10H45/cell_';
+% dir = 'fortran/dat/ERAZURE/cell_';
+% dir = 'C:/Users/Grant/Desktop/res/twlvs/eit_twlv';
+% dir = 'fortran/dat/TESTx2';
 % dir = 'fortran/dat/ERAZURE7/';
 % dir = 'pap_dat/TurbRes/Ca1/HITCa1_2/';
 % dir = 'pap_dat/TWZ/cmplTWZ/TWZp16F90pN/';
@@ -36,7 +46,7 @@ end
 fclose(fid);
 
 % How many timesteps to skip
-incr = floor(.125/ts);%500;
+incr = floor(.5/ts);%500;
 % Round down to fit w/ dt_inc
 incr = incr - mod(incr,dt_inc);
 if(incr == 0); incr = dt_inc; end
@@ -153,23 +163,43 @@ for i = 1:incr:tts + 1
         xq3 = real(SpHReconst(x3c,Yqv,p));
 
 %       Plot this timestep
-        sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
+%         sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
 
 %       surf(xf1,xf2,xf3,squeeze(fmns(1,:,:,(i-1)/incr + 1)./fmns(1,:,:,2)),'edgecolor','none')
-        surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 0 0], ...
+        surf(x1,x2,x3,'edgecolor','none','FaceColor',[0 0 1], ...
              'FaceAlpha',0.75,'FaceLighting','gouraud')
+%          if celln==6 %yellow
+%                      surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 1 0], ...
+%              'FaceAlpha',0.75,'FaceLighting','gouraud')
+%          end
+%          if celln==7 %white
+%                      surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 1 1], ...
+%              'FaceAlpha',0.75,'FaceLighting','gouraud')
+%          end
+%          if celln==2 %purple
+%                      surf(x1,x2,x3,'edgecolor','none','FaceColor',[1 0 1], ...
+%              'FaceAlpha',0.75,'FaceLighting','gouraud')
+%          end
+%          if celln==4 %cyan
+%                      surf(x1,x2,x3,'edgecolor','none','FaceColor',[0 1 1], ...
+%              'FaceAlpha',0.75,'FaceLighting','gouraud')
+%          end
         lightangle(gca,150,50)
         hold on
 
         set(gca,'nextplot','replacechildren','visible','off')
         % Top down
-    %     view(0,90);
+%         view(0,90);
         % Side
         view(0,0);
-        axis([-6,6,0,2,-2,2])
-        pbaspect([12,2,4])
+        % Iso
+%         view(45,45);
+        axis([0,7.5,0,7.5,0,7.5])
+        axis([0,5,0,5,0,5])
+%         axis([-3,3,0,5,-3,3])
+        pbaspect([5,5,5])
         hold on
-        quiver3(reshape(xq1,[1,numel(xq1)]),reshape(xq2,[1,numel(xq2)]),reshape(xq3,[1,numel(xq1)]),reshape(u1*2,[1,numel(xq1)]),reshape(u2*2,[1,numel(xq1)]),reshape(u3*2,[1,numel(xq1)]),'b')%,'AutoScale','off')
+%         quiver3(reshape(xq1,[1,numel(xq1)]),reshape(xq2,[1,numel(xq2)]),reshape(xq3,[1,numel(xq1)]),reshape(u1,[1,numel(xq1)]),reshape(u2,[1,numel(xq1)]),reshape(u3,[1,numel(xq1)]),'b')%,'AutoScale','off')
 
 %       Read in data file of current timestep, making exception for the first
         celln = celln + 1;

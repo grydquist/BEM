@@ -1,8 +1,8 @@
 %% Pre allocation
 fclose all;
 % Harmonics evaluated at fine grid
-ntf = 40;
-npf = 60;
+ntf = 25;
+npf = 50;
 thtf = linspace(.001,pi-.001,ntf);
 % [xsf,wgf] = lgwt(ntf,-1,1);
 % thtf = acos(xsf);
@@ -52,7 +52,10 @@ myf = zeros(3,ntf,npf);
 fab = myf;
 
 % Read Param file to get simulation info
-dir = 'fortran/dat/TEST1/';
+dir = 'fortran/dat/p12S250H45/cell_2/';
+% dir = 'fortran/dat/TEST/cell_1/';
+% dir = 'fortran/dat/IndNewSR250/cell_1/';
+% dir = 'fortran/dat/TurbRes/Turb20/cell_1/';
 fid = fopen(strcat(dir,'Params'));
 tline = fgetl(fid);
 while ischar(tline)
@@ -693,6 +696,7 @@ myf = real(myf);
     
     clf;
     sgtitle(['time = ',num2str(t((i-1)/incr + 1)),',  iter = ',num2str(i)])
+%%%%%%%%% UNCOMMENT BELOW
 %   Plot this timestep
 
     surf(squeeze(xf(1,:,:)),squeeze(xf(2,:,:)),squeeze(xf(3,:,:)), ...
@@ -710,8 +714,10 @@ myf = real(myf);
 %     axis([-2,2,0,2,-2,2])
 %     pbaspect([1,.5,1])
     view(45,45);
-    axis([-2,2,-2,2,-2,2])
+    axis([-2+real(x1c(1)/(2*sqrt(pi))),2+real(x1c(1)/(2*sqrt(pi))),-2+real(x2c(1)/(2*sqrt(pi))),2+real(x2c(1)/(2*sqrt(pi))),-2+real(x3c(1)/(2*sqrt(pi))),2+real(x3c(1)/(2*sqrt(pi)))])
     pbaspect([1,1,1])
+
+%%%%%%%%% UNCOMMENT ABOVE
 
 % [cent,rad, angs]=ellipsoid_fit_new([reshape(x1,[10201,1]),reshape(x2,[10201,1]),reshape(x3,[101*101,1])]);
 % % Dij((i-1)/incr + 1) = (rad(1)-rad(3))/(rad(1) + rad(3));

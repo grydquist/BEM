@@ -2,6 +2,8 @@
 *mat
 lib/lapack/liblapack.a
 lib/lapack/obj
+lib/scalapack/libscalapack.a
+lib/scalapack/obj
 lib/FFT/fftpack5.o
 lib/dummy_mpi/libmpi.a
 lib/dummy_mpi/mpi.o
