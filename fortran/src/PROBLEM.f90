@@ -666,7 +666,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     ENDDO
     ! CALL prob%cm%barrier()
     CALL SYSTEM_CLOCK(toc)
-    if(prob%cm%mas()) print *, 'Fluid: ',REAL(toc-tic)/REAL(rate), ', ', prob%cm%id()
+    IF(prob%cm%mas()) print *, 'Fluid: ',REAL(toc-tic)/REAL(rate)
 
     DO i = 1,info%NmatT
         A(:,i) = prob%cm%reduce(REAL(A(:,i))) + prob%cm%reduce(AIMAG(A(:,i)))*ii
@@ -681,7 +681,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
                     ut, info%NmatT, wrk, swrk, rwrk, iter, p_info)
     ENDIF
     CALL SYSTEM_CLOCK(toc)
-    if(prob%cm%mas()) print *, 'Invert: ',REAL(toc-tic)/REAL(rate), ', ', prob%cm%id()
+    IF(prob%cm%mas()) print *, 'Invert: ',REAL(toc-tic)/REAL(rate)
 
 !   Broadcast to all processors
     IF(prob%cm%np() .gt. 1) THEN
