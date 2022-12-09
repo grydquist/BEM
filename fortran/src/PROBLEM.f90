@@ -230,7 +230,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     IF(prob%cm%mas()) print *, 'Max velocity coefficient w.r.t. membrane time (want less than 0.005*Ca):'
     Gfac = (((4D0*PI/3D0)/((0.95D0**(3D0))*(PI/6D0)))**(1D0/3D0))/2D0
     DO ic = 1, prob%NCell
-            ! CALL prob%cell(ic)%relax(0.005D0)!!!
+            CALL prob%cell(ic)%relax(0.005D0)!!!
             CALL prob%cell(ic)%derivs()
             CALL prob%cell(ic)%stress()
             prob%cell(ic)%V0 = prob%cell(ic)%Vol()
@@ -397,9 +397,8 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
                                       b2f(:), b2r(:), YVt(:), um(:,:,:,:,:), &
                                       A2f(:,:,:,:,:,:,:,:), A2r(:,:,:,:,:,:), &
                                       A2t(:,:,:,:,:,:), b2t(:), &
-                                      Htfull(:,:,:,:,:,:), Httmp(:,:,:,:,:), &
                                       v(:,:,:)
-    INTEGER :: ic, ic2, i, row, col, iter, p_info, m, n, im, im2, &
+    INTEGER :: ic, ic2, i, j, row, col, iter, p_info, m, n, im, im2, &
                it, th_st, th_end, tot_gs, curid, inds_proc(2)
     REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:), nJt(:,:,:), xv(:,:)
     COMPLEX, ALLOCATABLE :: swrk(:)
@@ -417,7 +416,6 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
         um(3,3,Y%nt,Y%np, prob%NCell), &
         fmnR(3, (info%p+1)*(info%p+1)), &
         xmnR(3, (info%p+1)*(info%p+1)))
-        A2f = 0D0
     ENDIF
 
 
@@ -425,12 +423,13 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
 !! ============================
 !   Hardcoded shear
-    ! info%dU = 0D0 !!!
-    ! info%dU(1,3) = 1D0
+    info%dU = 0D0 !!!
+    info%dU(1,3) = 1D0
     ! prob%dU(1,1) =  1D0
     ! prob%dU(3,3) = -1D0
 !! ============================
 
+    CALL SYSTEM_CLOCK(tic,rate)
 !   First, calculate geometric quantities and stresses in all of the cells
     DO ic = 1, prob%NCell
         cell => prob%cell(ic)
@@ -455,6 +454,9 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             CALL EwaldPreCalc(fv3, Y, fmn=fmnR(3,:))
         ENDIF
     ENDDO
+    ! CALL prob%cm%barrier()
+    CALL SYSTEM_CLOCK(toc)
+    IF(prob%cm%mas()) print *, "Stress/derivs: ", REAL(toc-tic)/REAL(rate)
 
 !   Now we need to calculate the SpH velocity coefficients of the cells.
 !   For periodic, we calculate LHS matrix and RHS vector in two parts:
@@ -462,8 +464,8 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !   We calculate these two matrices individually at integration points,
 !   add them, and then perform the Galerkin transfo on these summed matrices.
 
-    CALL SYSTEM_CLOCK(tic,rate)
     IF(info%periodic) THEN
+        CALL SYSTEM_CLOCK(tic,rate)
 
 !       Configure parallel: Each cell has it's own grid to be sent to the grid for each n,m
 !       Split up the total resources among processors, done here
@@ -478,9 +480,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
         ELSE
             inds_proc(2) = tot_gs
         ENDIF
-        ALLOCATE(Htfull(inds_proc(2) - inds_proc(1) + 1, 3, 3, prob%info%gp, prob%info%gp, prob%info%gp), &
-                 Httmp(3, 3, prob%info%gp, prob%info%gp, prob%info%gp), &
-                 b2f(3*Y%nt*Y%np*prob%NCell))
+        ALLOCATE(b2f(3*Y%nt*Y%np*prob%NCell))
 
 !       Calculate RHS vector
         fv(1,:) = fv1 
@@ -488,7 +488,10 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
         fv(3,:) = fv3
         CALL EwaldG(info=info, x0=xv, f=fv, u1=b2f, full=.true.)
 
+        ALLOCATE(A2f(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np, prob%NCell, prob%NCell)) !!! Can really clean up memory here
+        A2f = 0D0
         it = 0
+
 !       Start with the long range part, as this calculates all points for one integral surface
 !       The "forces" here are the spherical harmonics multiplied by the normal vector
         DO ic = 1, prob%NCell
@@ -507,10 +510,18 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             DO n = 0, Y%p-1
                 ALLOCATE(v(n+1, 3, Y%nt*Y%np))
                 im = 0
-                DO m = -n,0
-                    it = it + 1
+                DO m = -n,n
                     im = im + 1
                     im2 = m + (Y%p)
+
+                    IF(m .gt. 0) THEN ! Symmetry
+                        ! A2f(:,:,im2,n+1,:,:,:, ic) = CONJG(A2f(:,:,im2 - 2*m,n+1,:,:,:, ic))*(-1D0)**m
+                        CYCLE
+                    ENDIF
+
+!                   Helps with indexing, but could be made slightly more efficient
+                    it = it + 1
+
 !                   Cycle if we're not doing this grid in this proc
                     IF( (it .lt. inds_proc(1)) .or. (it .gt. inds_proc(2)) ) CYCLE
 
@@ -527,64 +538,41 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
                     DEALLOCATE(YVt)
 
 !                   Do only the grid spreading this proc is responsible for
-                    CALL EwaldT(Ht=Httmp, info=info, x0=xv, f=v(im,:,:), strt=ic)
-                    Htfull(it - inds_proc(1) + 1, :,:,:,:,:) = Httmp
+                    CALL EwaldT(info=info, x0=xv, f=v(im,:,:), strt=ic, um=um, full=.true.)
+                    A2f(:,:, im2, n+1,:,:,:, ic) = um
                 ENDDO
                 DEALLOCATE(v)
             ENDDO
         ENDDO
+        DEALLOCATE(um)
 
-        ALLOCATE(A2f(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np, prob%NCell, prob%NCell)) !!! Can really clean up memory here
-        A2f = 0D0
+        ! CALL prob%cm%barrier()
+        CALL SYSTEM_CLOCK(toc)
+        IF(prob%cm%mas()) print *, "Ewald: ", REAL(toc-tic)/REAL(rate)
 
-        it = 0
-        curid = -1
-!       Now a second loop, in parallel, to interpolate back to the cell location points
-        DO ic = 1, prob%NCell
-            cell => prob%cell(ic)
-            DO n = 0, Y%p-1
-                im = 0
-                DO m = -n,n
-                    im = im + 1
-                    im2 = m + (Y%p)
+        CALL SYSTEM_CLOCK(tic,rate)
+!       Get this info to all procs
+!       Memory issues, so unfortunately just do this piece by piece
+!       Reduce only the first half, then use symmetry to get the back half
+!       For now, this is the main scaling cost
+        DO n = 0, Y%p-1
+            DO m = -n,n
+                im = m + (Y%p)
+                DO ic2 = 1, prob%NCell
                     IF(m .gt. 0) THEN ! Symmetry
-                        A2f(:,:,im2,n+1,:,:,:, ic) = CONJG(A2f(:,:,im2 - 2*m,n+1,:,:,:, ic))*(-1D0)**m
+                        A2f(:,:,im,n+1,:,:,:, ic2) = CONJG(A2f(:,:,im - 2*m,n+1,:,:,:, ic2))*(-1D0)**m
                         CYCLE
                     ENDIF
-                    it = it + 1
-
-!                   Iterate current processor id for this grid if needed
-                    IF((curid .ne. prob%cm%np() - 1)) THEN ! Exception for final processor
-                        IF(it .ge. inds(curid + 2)) curid  = curid + 1
-                    ENDIF
-
-                    httmp = 0
-!                   Get the grid associated with this cell/n/m 
-                    IF(curid .eq. prob%cm%id()) Httmp = Htfull(it - inds_proc(1) + 1,:,:,:,:,:)
-
-!                   Send the current grid to the master processor, then broadcast it
-                    IF(curid .eq. prob%cm%id() .or. prob%cm%mas()) THEN
-                        IF(.not. prob%cm%mas()) THEN
-                            CALL prob%cm%send(Httmp, 0)
-                        ELSE
-                            IF(.not. (curid .eq. prob%cm%id())) THEN
-                                CALL prob%cm%recv(Httmp, curid)
-                            ENDIF
-                        ENDIF
-                    ENDIF
-                    
-!                   !!! These mpi communications require a lot of overhead
-                    CALL prob%cm%bcast(Httmp)
-                    CALL Ewaldint(Httmp, info, xv, um=um)
-
-                    A2f(:,:, im2, n+1,:,:,:, ic) = um
+                    !!! Memory: don't need all of these, can deallocate some parts
+                    A2f(:,:,im,n+1,:,:,:,ic2) = prob%cm%reduce(A2f(:,:,im,n+1,:,:,:,ic2))
                 ENDDO
             ENDDO
         ENDDO
-        DEALLOCATE(Htfull, Httmp)
+        
+        ! CALL prob%cm%barrier()
+        CALL SYSTEM_CLOCK(toc)
+        IF(prob%cm%mas()) print *, "Reduce: ", REAL(toc-tic)/REAL(rate)
     ENDIF
-    CALL SYSTEM_CLOCK(toc)
-    ! print *, REAL(toc-tic)/REAL(rate)
 
     ALLOCATE( &
         ut(info%NmatT), &
@@ -629,11 +617,6 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
                 CALL cell%fluid(Ao = A2r, bo = b2r, itt1 = th_st, itt2 = th_end, celli = celli)
             ENDIF
 
-!           Add long range interactions if periodic
-            IF(info%periodic) THEN
-                A2r = A2r + A2f(:,:,:,:,:,:,ic,ic2)*(1D0-cell%lam)/(1D0+cell%lam)
-            ENDIF
-
 !           Here we need to take back in the velocity/integral cell combo info across all processors
 !           that had a part in this combo
 !           All info is sent to the processor that has the theta = 1 point (skip if one proc has all points)
@@ -653,16 +636,26 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
                 CALL prob%cm%send(b2t, info%CProcs(ic,1))
             ENDIF
 
-!           This is b/c b2f is the vector at the velocity points integrated across all surfaces,
-!           so we only add in once
+!           Add long range interactions if periodic
 !           We also do after send/receive so it doesn't double add
-            IF(ic .eq. ic2 .and. info%periodic) &
-                b2r = b2r + b2f( (ic-1)*(3*Y%nt*Y%np)+1 : (ic)*(3*Y%nt*Y%np))/(1D0 + cell%lam)
+            IF(info%periodic) THEN
+                A2r = A2r + A2f(:,:,:,:,:,:,ic,ic2)*(1D0-cell%lam)/(1D0+cell%lam)
+
+!               b2f is the vector at the velocity points integrated across all surfaces,
+!               so we only add in once
+                IF(ic .eq. ic2) b2r = b2r + b2f( (ic-1)*(3*Y%nt*Y%np)+1 : (ic)*(3*Y%nt*Y%np))/(1D0 + cell%lam)
+            ENDIF
 
 !           Perform the Galerkin
             A2 = 0D0
             b2 = 0D0
             IF(prob%cm%id() .eq. info%CProcs(ic,1)) THEN ! Only if in the processor with the info though
+                
+                ! print *, ABS(A2r(1,1,:,:,:,:))
+                ! print *, ABS(A2f(1,1,2,:,1,2,ic,ic2)) !!!!!!! Cross cell terms n=0 missing
+                ! print *, ABS(b2r)
+                ! print *, ABS(b2f( (ic-1)*(3*Y%nt*Y%np)+1 : (ic)*(3*Y%nt*Y%np)))
+                ! print *, ' '
                 CALL info%Gal(A2r, b2r, A2, b2) !!!!!!!!!!!!! Ideally could be parallelized...
 !               Put sub matrix into big matrix
                 A(row:row + info%Nmat - 1, col:col + info%Nmat - 1) = A2
@@ -671,8 +664,9 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             ENDIF
         ENDDO
     ENDDO
+    ! CALL prob%cm%barrier()
     CALL SYSTEM_CLOCK(toc)
-    ! print *, REAL(toc-tic)/REAL(rate)
+    if(prob%cm%mas()) print *, 'Fluid: ',REAL(toc-tic)/REAL(rate), ', ', prob%cm%id()
 
     DO i = 1,info%NmatT
         A(:,i) = prob%cm%reduce(REAL(A(:,i))) + prob%cm%reduce(AIMAG(A(:,i)))*ii
@@ -687,7 +681,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
                     ut, info%NmatT, wrk, swrk, rwrk, iter, p_info)
     ENDIF
     CALL SYSTEM_CLOCK(toc)
-    ! if(prob%cm%mas()) print *, 'invert: ',REAL(toc-tic)/REAL(rate), ', ', prob%cm%id()
+    if(prob%cm%mas()) print *, 'Invert: ',REAL(toc-tic)/REAL(rate), ', ', prob%cm%id()
 
 !   Broadcast to all processors
     IF(prob%cm%np() .gt. 1) THEN

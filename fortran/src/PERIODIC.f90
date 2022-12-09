@@ -546,10 +546,10 @@ SUBROUTINE EwaldintT(Ht, info, x0, u3, um)
     bvi_gr = INVERT33(bv_gr)
     h = 1D0/REAL(gp)
 
-!   Get indices for looping parallel
+!   Get indices for looping parallel (was previous way to parallelize)
 !   The master list of points goes cell -> theta -> phi
-    i1 = (info%PCells(1,1) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,1) - 1)*info%Y%np + 1
-    i2 = (info%PCells(1,2) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,2)    )*info%Y%np
+    i1 = 1!(info%PCells(1,1) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,1) - 1)*info%Y%np + 1
+    i2 = tpts!(info%PCells(1,2) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,2)    )*info%Y%np
 
 !   Often, we want an output matrix of size (3,3,nt,np,ncell) as output.
 !   Exception checking for this option
@@ -560,8 +560,8 @@ SUBROUTINE EwaldintT(Ht, info, x0, u3, um)
         nt = sz(3)
         np = sz(4)
         nc = sz(5)
-        ic = info%PCells(1,1)
-        it = info%PCells(2,1)
+        ic = 1!info%PCells(1,1) ! Again, previous, less efficient way to parallelize
+        it = 1!info%PCells(2,1)
         ip = 0
     ENDIF
     IF(PRESENT(u3) .and. PRESENT(um)) THEN
