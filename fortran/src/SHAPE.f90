@@ -748,6 +748,8 @@ SUBROUTINE Stresscell(cell)
                               + cell%fab(3, i, j)*(-nk) &
                               + 0D0 !fbt
             
+            nks(:,i,j) = -nk
+            
         ENDDO inner
     ENDDO
 
