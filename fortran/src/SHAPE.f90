@@ -339,6 +339,8 @@ SUBROUTINE Derivscell(cell)
         ENDDO
     ENDDO
 
+    nm => NULL()
+    Y => NULL()
 END SUBROUTINE Derivscell
 
 ! -------------------------------------------------------------------------!
@@ -347,6 +349,7 @@ SUBROUTINE Stresscell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
     TYPE(YType), POINTER :: Y
     INTEGER :: i, j, q, rc
+    REAL(KIND = 8), ALLOCATABLE :: nks(:,:,:)
     REAL(KIND = 8) :: nk(3), E, F, G, L, M, N, D, k, dnt(3), dnp(3), &
                       dnt2(3), dnp2(3), dntp(3), gv(2,2), gn(2,2), &
                       dgt(2,2), dgp(2,2), dgt2(2,2), dgp2(2,2), dgtp(2,2), &
@@ -378,6 +381,7 @@ SUBROUTINE Stresscell(cell)
     c0 = cell%c0
 
     Y => cell%info%Yf
+    ALLOCATE(nks(3, Y%nt, Y%np))
     
 !   Big loop over all points in grid
     DO i = 1, Y%nt
@@ -744,10 +748,6 @@ SUBROUTINE Stresscell(cell)
                               + cell%fab(3, i, j)*(-nk) &
                               + 0D0 !fbt
             
-!           This is pretty lazy, but I need to save the normal vector and not the
-!           surface forces, when it was opposite at one time, so I just swap them
-            cell%fab(:,i,j) = -nk
-
         ENDDO inner
     ENDDO
 
@@ -759,14 +759,14 @@ SUBROUTINE Stresscell(cell)
         cell%fmn(3,:) = Y%forward(cell%ff(3,:,:)*cell%J/SIN(Y%th), cell%info%q)
 
 !       Normal vector for volume correction
-        cell%nkmn(1,:) = Y%forward(cell%fab(1,:,:), cell%info%q) 
-        cell%nkmn(2,:) = Y%forward(cell%fab(2,:,:), cell%info%q)
-        cell%nkmn(3,:) = Y%forward(cell%fab(3,:,:), cell%info%q)
+        cell%nkmn(1,:) = Y%forward(nks(1,:,:), cell%info%q) 
+        cell%nkmn(2,:) = Y%forward(nks(2,:,:), cell%info%q)
+        cell%nkmn(3,:) = Y%forward(nks(3,:,:), cell%info%q)
 
 !       Normal and area for fluid
-        cell%nkt(1,:) = Y%forward(cell%fab(1,:,:)*cell%J/SIN(Y%th), cell%info%q) 
-        cell%nkt(2,:) = Y%forward(cell%fab(2,:,:)*cell%J/SIN(Y%th), cell%info%q)
-        cell%nkt(3,:) = Y%forward(cell%fab(3,:,:)*cell%J/SIN(Y%th), cell%info%q)
+        cell%nkt(1,:) = Y%forward(nks(1,:,:)*cell%J/SIN(Y%th), cell%info%q) 
+        cell%nkt(2,:) = Y%forward(nks(2,:,:)*cell%J/SIN(Y%th), cell%info%q)
+        cell%nkt(3,:) = Y%forward(nks(3,:,:)*cell%J/SIN(Y%th), cell%info%q)
 
 !       Area/sin(theta)
         cell%Jtmn = Y%forward(cell%J/SIN(Y%th), cell%info%q)

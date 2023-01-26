@@ -929,6 +929,29 @@ FUNCTION bvBxs(bv, h, x) RESULT(bxs)
     bxs = bxst(:,1:it)
 END FUNCTION bvBxs
 
+
+! -------------------------------------------------------------------------!
+! (Coarsely and not robustly) Calculate the matrix exponential of a matrix
+FUNCTION EXPM (A) RESULT(EA)
+    REAL(KIND = 8), ALLOCATABLE :: A(:,:), EA(:,:), fact(:,:)
+    INTEGER :: i, n
+
+    fact = A
+    fact = 0D0
+
+    n = INT(SQRT(REAL(SIZE(A))))
+    DO i = 1,n
+        fact(i,i) = 1D0
+    ENDDO
+    EA = fact
+
+    DO i = 1, 35
+        fact = MATMUL(fact, A)/REAL(i)
+        EA = EA + fact
+    ENDDO
+
+END FUNCTION EXPM
+
 ! -------------------------------------------------------------------------!
 ! Periodic functions to calculate the kernels
 ! Arguments:

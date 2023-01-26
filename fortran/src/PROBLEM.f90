@@ -472,6 +472,7 @@ SUBROUTINE WriteProb(prob)
     filename = 'maxdt'
     OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
     WRITE(88,*) prob%cts
+    WRITE(88,*) prob%t
     CLOSE(88)
     
     IF(.not. cell%writ) cell%writ = .true.
@@ -522,10 +523,24 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
 !! ============================
 !   Hardcoded shear
-    info%dU = 0D0 !!!
-    info%dU(1,3) = 1D0
-    ! prob%dU(1,1) =  1D0
-    ! prob%dU(3,3) = -1D0
+    IF(info%shear) THEN
+        info%dU = 0D0
+        info%dU(1,3) = 1D0
+    ENDIF
+
+!   Hardcoded periodic extension
+    IF(info%extens) THEN
+        info%dU = 0D0
+        zm = (3D0 + sqrt(9D0 - 4D0))/2D0
+        zm = atan2(1D0 - zm, 1D0)
+        zm = PI/2D0 + zm
+        zm = -zm*2D0
+        info%dU(1,1) = cos(zm)
+        info%dU(1,3) = sin(zm)
+        info%dU(3,1) = sin(zm)
+        info%dU(3,3) =-cos(zm)
+        info%dU = info%dU*SQRT(2D0)/2D0
+    ENDIF
 !! ============================
 
     CALL SYSTEM_CLOCK(tic,rate)
@@ -750,7 +765,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             b2 = 0D0
             IF(prob%cm%id() .eq. info%CProcs(ic,1)) THEN ! Only if in the processor with the info though
                 
-                CALL info%Gal(A2r, b2r, A2, b2) !!!!!!!!!!!!! Ideally could be parallelized...
+                CALL info%Gal(A2r, b2r, A2, b2) 
 !               Put sub matrix into big matrix
                 A(row:row + info%Nmat - 1, col:col + info%Nmat - 1) = A2
 !               Sum over all the integrals
@@ -861,7 +876,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 
 !   Advance periodic basis vectors
     IF(info%periodic) THEN
-        CALL info%bvAdvance()
+        CALL info%bvAdvance(prob%t)
 !       Update array containing support points
         CALL SuppPoints(info)
     ENDIF
@@ -944,9 +959,10 @@ END FUNCTION StrnRtProb
 SUBROUTINE ContinueProb(prob)
     CLASS(probType), INTENT(INOUT) :: prob
     TYPE(cellType), POINTER :: cell
-    CHARACTER (LEN = 35) contfile, cfile2
-    INTEGER ic, endt, stat, p, i, jmp
-    REAL(KIND = 8), ALLOCATABLE :: xmnraw(:,:)
+    CHARACTER (LEN = 35) contfile, cfile2, trash
+    INTEGER ic, endt, stat, p, i, jmp, trash2, repar_num
+    REAL(KIND = 8) tmpdt, endtime, zm, lamp
+    REAL(KIND = 8), ALLOCATABLE :: xmnraw(:,:), dUtmp(:,:), bvt(:,:)
     LOGICAL :: exist_in
 
     DO ic = 1,prob%NCell
@@ -962,6 +978,7 @@ SUBROUTINE ContinueProb(prob)
         cfile2 = TRIM('dat/'//prob%fileout//'/'//TRIM(cell%fileout)//'/maxdt')
         OPEN(unit = 13, file = TRIM(cfile2), action = 'read')
         READ(13, '(I16)', iostat = stat) endt
+        READ(13, *, iostat = stat) endtime
         CLOSE(13)
         IF(endt .eq. 0) THEN
 !           Starting at 0 anyways, just return
@@ -995,21 +1012,64 @@ SUBROUTINE ContinueProb(prob)
         cell%xmn(1,1:(p+1)*(p+1)) = cell%xmn(1,1:(p+1)*(p+1)) + xmnraw(1, jmp+1: 2*jmp)*ii
         cell%xmn(2,1:(p+1)*(p+1)) = cell%xmn(2,1:(p+1)*(p+1)) + xmnraw(2, jmp+1: 2*jmp)*ii
         cell%xmn(3,1:(p+1)*(p+1)) = cell%xmn(3,1:(p+1)*(p+1)) + xmnraw(3, jmp+1: 2*jmp)*ii
+        
+        cell%x(1,:,:) = prob%info%Y%backward(cell%xmn(1,:))
+        cell%x(2,:,:) = prob%info%Y%backward(cell%xmn(2,:))
+        cell%x(3,:,:) = prob%info%Y%backward(cell%xmn(3,:))
 
         CALL cell%derivs()
         CALL cell%stress()        
+        
+        cfile2 = TRIM('dat/'//prob%fileout//'/'//TRIM(cell%fileout)//'/Params')
+        OPEN(unit = 13, file = TRIM(cfile2), action = 'read')
+        READ(13, "(a)", iostat = stat) trash
+        READ(13, '(I16)', iostat = stat) trash2
+        READ(13, "(a)", iostat = stat) trash
+        READ(13, *, iostat = stat) tmpdt
+        CLOSE(13)
+
     ENDDO
 
-!   Also need to bring the basis vectors back in. Only works for shear flow 1 right now
-    prob%info%dU = 0D0
-    prob%info%dU(1,3) = 1D0
+!   Also need to bring the basis vectors back in.
+    IF(prob%info%shear) THEN
+        prob%info%dU = 0D0
+        prob%info%dU(1,3) = 1D0
+        prob%info%bv = prob%info%bv + MATMUL(prob%info%dU, prob%info%bv)*(endtime - 5*tmpdt)!)(endt - 5)*tmpdt!prob%info%dt
 
-    prob%info%bv = prob%info%bv + MATMUL(prob%info%dU, prob%info%bv)*(endt - 5)*prob%info%dt
+    ELSEIF(prob%info%extens) THEN
+        prob%info%dU = 0D0
+        zm = (3D0 + sqrt(9D0 - 4D0))/2D0
+        zm = atan2(1D0 - zm, 1D0)
+        zm = PI/2D0 + zm
+        zm = -zm*2D0
+        prob%info%dU(1,1) = cos(zm)
+        prob%info%dU(1,3) = sin(zm)
+        prob%info%dU(3,1) = sin(zm)
+        prob%info%dU(3,3) =-cos(zm)
+        prob%info%dU = prob%info%dU*SQRT(2D0)/2D0
+
+        dUtmp = prob%info%dU*(endtime - 5*tmpdt)
+        prob%info%bv = MATMUL(prob%info%bv, &
+                       EXPM(dUtmp))
+
+!       Now need to get the reparametrized box at this point in time
+        lamp = LOG((3D0 + sqrt(9D0 - 4D0))/2D0)
+        repar_num = FLOOR((endtime - 5*tmpdt)/lamp + 0.5D0)
+
+        DO ic = 1,repar_num
+            bvt = prob%info%bv
+            prob%info%bv(1,1) = bvt(1,1) +     bvt(1,3)
+            prob%info%bv(1,3) = bvt(1,1) + 2D0*bvt(1,3)
+            prob%info%bv(3,1) = bvt(3,1) +     bvt(3,3)
+            prob%info%bv(3,3) = bvt(3,1) + 2d0*bvt(3,3)
+        ENDDO
+    ENDIF
+
     DO ic = 1,5
-        CALL prob%info%bvAdvance()
+        CALL prob%info%bvAdvance(endtime - ((5-ic)*tmpdt))
     ENDDO
 
-    prob%t = prob%cts*prob%info%dt
+    prob%t = endtime
 END SUBROUTINE ContinueProb
 
 ! -------------------------------------------------------------------------!
@@ -1027,7 +1087,7 @@ SUBROUTINE OutputProb(prob)
 
 !   The output
     DO ic = 1, prob%NCell
-        write(*,'(I5,X,F8.4,X,I5, X, F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
+        write(*,'(I5,X,F8.5,X,I5, X, F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
         prob%cts, prob%t, ic, MAXVAL(ABS(prob%cell(ic)%ff))*prob%cell(ic)%Ca, &
         MAXVAL(ABS(prob%cell(ic)%umn)), prob%cell(ic)%vol(), prob%cell(ic)%SA()
     ENDDO

@@ -54,6 +54,10 @@ TYPE sharedType
     INTEGER :: PCells(2, 2)
     INTEGER, ALLOCATABLE :: CProcs(:,:)
 
+!   Special flow cases (extensional, shear)
+    LOGICAL :: shear  = .false.
+    LOGICAL :: extens = .false.
+
     CONTAINS
     PROCEDURE :: bvAdvance => bvAdvanceInfo
     PROCEDURE :: Gal => GalInfo
@@ -104,6 +108,10 @@ FUNCTION newinfo(filein) RESULT (info)
     FORALL(ic = 1:3) info%eye(ic,ic) = 1D0
     CALL READ_MFS(info%bvl, filein, 'Periodic_box_size')
 
+    CALL READ_MFS(cellchar, filein, 'Flow_type') 
+    IF(TRIM(cellchar) .eq. 'e') info%extens = .true.
+    IF(TRIM(cellchar) .eq. 's') info%shear  = .true.
+    
 END FUNCTION newinfo
 
 ! -------------------------------------------------------------------------!
@@ -284,13 +292,28 @@ END SUBROUTINE initInfo
 
 ! -------------------------------------------------------------------------!
 ! Advances the basis vectors in time, reparameterizes if needed
-SUBROUTINE bvAdvanceInfo(info)
+SUBROUTINE bvAdvanceInfo(info, t)
     CLASS(sharedType), INTENT(INOUT) :: info
+    REAL(KIND = 8), INTENT(IN), OPTIONAL :: t
+    REAL(KIND = 8) :: lamp, bvt(3,3)
 
     info%bv = info%bv + MATMUL(info%dU,info%bv)*info%dt
 
 !   temporary lees-edwards
-    IF(info%bv(1,3).gt.info%bvl) info%bv(1,3) = info%bv(1,3) - info%bvl
+    IF(info%shear) THEN
+        IF(info%bv(1,3).gt.info%bvl) info%bv(1,3) = info%bv(1,3) - info%bvl
+
+!   This is just for periodic strain
+    ELSEIF(info%extens) THEN
+        bvt = info%bv
+        lamp = LOG((3D0 + sqrt(9D0 - 4D0))/2D0)
+        IF(t/lamp + 0.5D0 - floor(t/lamp + 0.5D0) .le. info%dt/lamp) THEN
+            info%bv(1,1) = bvt(1,1) +     bvt(1,3) 
+            info%bv(1,3) = bvt(1,1) + 2D0*bvt(1,3)
+            info%bv(3,1) = bvt(3,1) +     bvt(3,3)
+            info%bv(3,3) = bvt(3,1) + 2d0*bvt(3,3)
+        ENDIF
+    ENDIF
 
 !   Volume (shouldn't really change w/ no dilatation)
     info%tau = DOT(CROSS(info%bv(:,1), info%bv(:,2)), info%bv(:,3))
@@ -390,6 +413,12 @@ SUBROUTINE GalInfo(info, Ai, b, A2, b2)
 
         ENDDO
     ENDDO
+    
+    vcurn => NULL()
+    es => NULL()
+    cPmn => NULL()
+    Y => NULL()
+    nm => NULL()
 END SUBROUTINE GalInfo
     
 END MODULE SHAREDMOD
