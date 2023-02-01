@@ -58,6 +58,10 @@ TYPE sharedType
     LOGICAL :: shear  = .false.
     LOGICAL :: extens = .false.
 
+!   Number GMRES iterations/tolerance before termination
+    INTEGER :: GMRES_it
+    REAL(KIND = 8) :: GMRES_tol
+
     CONTAINS
     PROCEDURE :: bvAdvance => bvAdvanceInfo
     PROCEDURE :: Gal => GalInfo
@@ -111,6 +115,9 @@ FUNCTION newinfo(filein) RESULT (info)
     CALL READ_MFS(cellchar, filein, 'Flow_type') 
     IF(TRIM(cellchar) .eq. 'e') info%extens = .true.
     IF(TRIM(cellchar) .eq. 's') info%shear  = .true.
+
+    info%GMRES_it = 15
+    info%GMRES_tol = 1D-7
     
 END FUNCTION newinfo
 

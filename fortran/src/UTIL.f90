@@ -713,6 +713,49 @@ INTEGER FUNCTION NUMROC( N, NB, IPROC, NPROCS )
 END FUNCTION NUMROC
 
 ! -------------------------------------------------------------------------!
+! Common least squares algorithm
+FUNCTION LstSq(A, b, n, m) RESULT(x)
+    REAL(KIND = 8) A(n,m), b(n), x(m), AtA(m,m), Atb(m)
+    INTEGER :: n, m
+
+    AtA = MATMUL(TRANSPOSE(A), A)
+    Atb = MATMUL(TRANSPOSE(A), b)
+    x = GaussElim(AtA, Atb, m)
+
+    RETURN
+END FUNCTION LstSq
+
+! -------------------------------------------------------------------------!
+! Simple Gaussian elimination algorithm 
+FUNCTION GaussElim(A, b, n) RESULT(x)
+    REAL(KIND = 8) :: A(n,n), Ae(n,n), x(n), b(n), be(n), m, sum
+    INTEGER :: n, i, j
+
+    x = 0D0
+    Ae = A
+    be = b
+
+    DO j = 1, n - 1
+        DO i = n, j + 1, -1
+            m = Ae(i, j)/Ae(j, j)
+            Ae(i,:) = Ae(i,:) - m*Ae(j,:)
+            be(i) = be(i) - m*be(j)
+        ENDDO
+    ENDDO
+
+    x(n) = be(n)/Ae(n,n)
+    DO i = n - 1, 1, -1
+        sum = 0D0
+        DO j = n, i + 1, -1
+            sum = sum + Ae(i,j)*x(j)
+        ENDDO
+        x(i) = (be(i) - sum)/Ae(i,i)
+    ENDDO
+
+    RETURN
+END FUNCTION GaussElim
+
+! -------------------------------------------------------------------------!
 ! Given basis vectors and point, gives partial coordinates
 FUNCTION bvPartial(bv, x) RESULT(px)
     REAL(KIND = 8) bv(3,3), x(3), px(3), bv1(3), bv2(3), bv3(3), d, pd, n(3)

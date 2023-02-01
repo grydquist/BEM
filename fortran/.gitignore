@@ -9,7 +9,9 @@ lib/dummy_mpi/libmpi.a
 lib/dummy_mpi/mpi.o
 src/oldSHPS
 *mod
-*gif
+*.gif
+*.out
 GU_1.bin
 harms
 tmper*
+run
