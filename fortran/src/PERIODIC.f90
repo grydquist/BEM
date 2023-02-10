@@ -1,5 +1,6 @@
 MODULE PERIODICMOD
 USE SHAREDMOD
+USE CMMOD
 IMPLICIT NONE
     
 !==============================================================================!
@@ -455,7 +456,7 @@ END SUBROUTINE EwaldTold
 ! See: Spectrally accurate fast summation for periodic Stokes potentials
 !       D. Lindbo, AK Tornberg
 ! Can be used to interpolate back to grid.
-SUBROUTINE EwaldT(Ht, info, x0, f1, f3, n, full, u3, u1, strt)
+SUBROUTINE EwaldT(Ht, info, x0, f1, f3, n, full, u3, u1, strt, cm)
     COMPLEX(KIND = 8), INTENT(OUT), OPTIONAL :: Ht(:,:,:,:)
     COMPLEX(KIND = 8) :: B(3,3,3)
     COMPLEX(KIND = 8), ALLOCATABLE ::  H(:,:,:,:,:), Hh(:,:,:,:,:), &
@@ -467,10 +468,11 @@ SUBROUTINE EwaldT(Ht, info, x0, f1, f3, n, full, u3, u1, strt)
     REAL(KIND = 8) :: bvi_gr(3,3), bv_gr(3,3), rr(3), r2, k3(3), &
                       kn, xcur(3)
     TYPE(sharedType), INTENT(IN), POINTER :: info
+    TYPE(cmType), INTENT(IN), POINTER :: cm
     LOGICAL, INTENT(IN), OPTIONAL :: full
     INTEGER, INTENT(IN), OPTIONAL :: strt
     INTEGER :: i, j, k, pts, curijk(3), gp, inds(3), &
-               iper, jper, kper, iw, jw, kw, nt, strti
+               iper, jper, kper, iw, jw, kw, nt, strti, i1, i2
     gp = info%gp
 
     IF(PRESENT(f1)) THEN
@@ -496,6 +498,9 @@ SUBROUTINE EwaldT(Ht, info, x0, f1, f3, n, full, u3, u1, strt)
 !   Total number of points
     nt = SIZE(f)/3
 
+    i1 = (info%PCells(1,1) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,1) - 1)*info%Y%np + 1 ! 1 !
+    i2 = (info%PCells(1,2) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,2)    )*info%Y%np ! nt !
+
     ALLOCATE(H(3,3,gp,gp,gp), Hh(3,3,gp,gp,gp), &
            Hht(3,gp,gp,gp), Htmp(gp,gp,gp))
     H = 0D0
@@ -508,7 +513,7 @@ SUBROUTINE EwaldT(Ht, info, x0, f1, f3, n, full, u3, u1, strt)
 !   Now we can start the actual construction of the Ht matrix. Start with the H matrix,
 !   which is just the point forces smeared onto grid points. Go to each force point and
 !   smear to supporting points
-    DO i = 1, nt
+    DO i = i1, i2
 !       At a point, find grid index & loop over supporting grid points
 !       Since we only do this for one surface, start at the points at this surface
         xcur = x0(:,i + (strti-1)*nt)
@@ -554,6 +559,10 @@ SUBROUTINE EwaldT(Ht, info, x0, f1, f3, n, full, u3, u1, strt)
         ENDDO
     ENDDO
 
+    H = cm%reduce(H)
+
+!   This is a constant cost (same size FFT regardless of problem size)
+!   so perhaps no need to parallelize
     DO i = 1,3
         DO j = 1,3
             Htmp = H(i,j,:,:,:)
@@ -567,6 +576,7 @@ SUBROUTINE EwaldT(Ht, info, x0, f1, f3, n, full, u3, u1, strt)
 !   Now perform the convolution with the kernel (which is a truncated sum in spectral space)
 !   (gp needs to be even)
 !   Also assumes the Hh matrix has negative and positive parts
+!   Again, constant cost
     DO iw = -gp/2, gp/2 - 1
         DO jw = -gp/2, gp/2 - 1
             DO kw = -gp/2, gp/2 - 1
@@ -626,10 +636,10 @@ SUBROUTINE EwaldT(Ht, info, x0, f1, f3, n, full, u3, u1, strt)
             RETURN
         ENDIF
         IF(PRESENT(u1)) THEN
-            CALL Ewaldint(Hht, info, x0, u1=u1)
+            CALL Ewaldint(Hht, info, x0, u1=u1, cm=cm)
         ENDIF
         IF(PRESENT(u3)) THEN
-            CALL Ewaldint(Hht, info, x0, u3=u3)
+            CALL Ewaldint(Hht, info, x0, u3=u3, cm=cm)
         ENDIF
     ENDIF
 END SUBROUTINE EwaldT
@@ -714,10 +724,11 @@ END SUBROUTINE EwaldintG
 ! -------------------------------------------------------------------------!
 ! Given an Ht grid as above and a set of points, integrates back to the points
 ! For double layer
-SUBROUTINE EwaldintT(Ht, info, x0, u3, u1)
+SUBROUTINE EwaldintT(Ht, info, x0, u3, u1, cm)
     REAL(KIND = 8), INTENT(IN) :: x0(:,:)
     COMPLEX(KIND = 8), OPTIONAL, INTENT(IN) :: Ht(:,:,:,:)
     TYPE(sharedType), INTENT(IN), POINTER :: info
+    TYPE(cmType), INTENT(IN), OPTIONAL, POINTER :: cm
     REAL(KIND = 8), OPTIONAL, INTENT(OUT) :: u3(:,:,:), u1(:)
     REAL(KIND = 8) :: Jbv, xcur(3), rr(3), r2, &
                       bv_gr(3,3), bvi_gr(3,3), h
@@ -733,8 +744,8 @@ SUBROUTINE EwaldintT(Ht, info, x0, u3, u1)
 
 !   Get indices for looping parallel (was previous way to parallelize)
 !   The master list of points goes cell -> theta -> phi
-    i1 = 1!(info%PCells(1,1) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,1) - 1)*info%Y%np + 1
-    i2 = tpts!(info%PCells(1,2) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,2)    )*info%Y%np
+    i1 = (info%PCells(1,1) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,1) - 1)*info%Y%np + 1 ! 1
+    i2 = (info%PCells(1,2) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,2)    )*info%Y%np ! tpts
 
 !   Often, we want an output matrix of size (3,3,nt,np,ncell) as output.
 !   Exception checking for this option
@@ -798,6 +809,7 @@ SUBROUTINE EwaldintT(Ht, info, x0, u3, u1)
 
         ENDDO
     ENDDO
+    u1 = cm%reduce(u1)
 END SUBROUTINE EwaldintT
 
 ! -------------------------------------------------------------------------!

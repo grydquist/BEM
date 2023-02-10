@@ -1142,9 +1142,9 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
                         xmnR(2,:) = Yfi%rotate(celli%xmn(2,:), indi, indj, -Yfi%phi(indj))
                         xmnR(3,:) = Yfi%rotate(celli%xmn(3,:), indi, indj, -Yfi%phi(indj))
     
-                        xcg(1,:,:) = info%Ys%backward(xmnR(1,:), Y%nt, Y%np, info%p, cell%xrecon(1,:))
-                        xcg(2,:,:) = info%Ys%backward(xmnR(2,:), Y%nt, Y%np, info%p, cell%xrecon(2,:))
-                        xcg(3,:,:) = info%Ys%backward(xmnR(3,:), Y%nt, Y%np, info%p, cell%xrecon(3,:))
+                        xcg(1,:,:) = info%Ys%backward(xmnR(1,:), Y%nt, Y%np, info%p, celli%xrecon(1,:))
+                        xcg(2,:,:) = info%Ys%backward(xmnR(2,:), Y%nt, Y%np, info%p, celli%xrecon(2,:))
+                        xcg(3,:,:) = info%Ys%backward(xmnR(3,:), Y%nt, Y%np, info%p, celli%xrecon(3,:))
                     ENDIF
                     IF(PRESENT(xcgo)) xcgo(:,:,:,iter,1) = xcg !!!! This is the way
 
@@ -1156,9 +1156,9 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
                         nmnR(2,:) = Yfi%rotate(celli%nkt(2,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
                         nmnR(3,:) = Yfi%rotate(celli%nkt(3,1:(celli%info%p+1)*(celli%info%p+1)), indi, indj, -Yfi%phi(indj))
     
-                        nJt(1,:,:) = info%Ys%backward(nmnR(1,:), Y%nt, Y%np, info%p, cell%nJrecon(1,:))
-                        nJt(2,:,:) = info%Ys%backward(nmnR(2,:), Y%nt, Y%np, info%p, cell%nJrecon(2,:))
-                        nJt(3,:,:) = info%Ys%backward(nmnR(3,:), Y%nt, Y%np, info%p, cell%nJrecon(3,:))
+                        nJt(1,:,:) = info%Ys%backward(nmnR(1,:), Y%nt, Y%np, info%p, celli%nJrecon(1,:))
+                        nJt(2,:,:) = info%Ys%backward(nmnR(2,:), Y%nt, Y%np, info%p, celli%nJrecon(2,:))
+                        nJt(3,:,:) = info%Ys%backward(nmnR(3,:), Y%nt, Y%np, info%p, celli%nJrecon(3,:))
                     ENDIF
                     IF(PRESENT(nJto)) nJto(:,:,:,iter,1) = nJt
                     
@@ -1574,9 +1574,9 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                     xmnR(2,:) = Yfi%rotate(celli%xmn(2,:), indi, indj, -Yfi%phi(indj))
                     xmnR(3,:) = Yfi%rotate(celli%xmn(3,:), indi, indj, -Yfi%phi(indj))
 
-                    xcg(1,:,:) = info%Ys%backward(xmnR(1,:), Y%nt, Y%np, info%p, cell%xrecon(1,:))
-                    xcg(2,:,:) = info%Ys%backward(xmnR(2,:), Y%nt, Y%np, info%p, cell%xrecon(2,:))
-                    xcg(3,:,:) = info%Ys%backward(xmnR(3,:), Y%nt, Y%np, info%p, cell%xrecon(3,:))
+                    xcg(1,:,:) = info%Ys%backward(xmnR(1,:), Y%nt, Y%np, info%p, celli%xrecon(1,:))
+                    xcg(2,:,:) = info%Ys%backward(xmnR(2,:), Y%nt, Y%np, info%p, celli%xrecon(2,:))
+                    xcg(3,:,:) = info%Ys%backward(xmnR(3,:), Y%nt, Y%np, info%p, celli%xrecon(3,:))
 
 !                   Forces on rotated grid
                     fmnR(1,:) = Yfi%rotate(v_in_mn(1,1:(info%p+1)*(info%p+1)), indi, indj, -Yfi%phi(indj))

@@ -1,6 +1,5 @@
 MODULE PROBMOD
 USE SHAPEMOD
-USE CMMOD
 USE PERIODICMOD
 IMPLICIT NONE
 
@@ -812,7 +811,7 @@ END FUNCTION LHSGalProb
 FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
     CLASS(probType), TARGET :: prob
     REAL(KIND = 8), ALLOCATABLE :: xv(:,:), nv(:,:), Au(:), vec_t(:), &
-                                   ur(:), urm(:,:,:), urmT(:,:,:,:)
+                                   ur(:), urm(:,:,:), urmT(:,:,:,:), Au_t(:)
     COMPLEX(KIND = 8), ALLOCATABLE :: u3T(:,:,:), u3(:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: umn(:)
     LOGICAL, OPTIONAL :: dbg
@@ -832,7 +831,7 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
              u3 (3, (info%Y%p + 1)*(info%Y%p + 1)), Au(info%NmatT), &
              ur(3*info%Y%nt*info%Y%np*info%NCell), &
              urmT(3, info%Y%nt, info%Y%np, info%NCell), &
-             urm(3, info%Y%nt, info%Y%np))
+             urm(3, info%Y%nt, info%Y%np), Au_t(info%NmatT))
 
     CALL SYSTEM_CLOCK(tic,rate)
 !   One argument takes a matrix as an input
@@ -866,20 +865,9 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
         ENDDO
     ENDDO
     CALL SYSTEM_CLOCK(toc)
-    ! IF(prob%cm%mas()) print *, "Precalcs: ", REAL(toc-tic)/REAL(rate)
+    IF(prob%cm%mas()) print *, "Precalcs: ", REAL(toc-tic)/REAL(rate)
 
-    CALL SYSTEM_CLOCK(tic,rate)
     Au = 0D0
-    vec_t = Au
-!   Calculate Fourier part of double layer at all evaluation points
-    IF(info%periodic) THEN
-        IF(prob%cm%mas()) CALL EwaldT(info=info, x0=xv, f1=ur, n=nv, strt=1, u1=Au, full=.true.)
-        IF(prob%cm%mas()) Au = -Au*(1D0 - lam)/(4D0*pi*(1D0 + lam))! Most general is to loop over cells here
-!       PARALLEL!!!!
-    ENDIF
-    CALL SYSTEM_CLOCK(toc)
-    ! IF(prob%cm%mas()) print *, "Ewald: ", REAL(toc-tic)/REAL(rate)
-
     CALL SYSTEM_CLOCK(tic,rate)
     DO ic = info%PCells(1,1), info%PCells(1,2)
         row = (ic - 1)*info%Nmat + 1
@@ -908,11 +896,27 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
         ENDDO
     ENDDO
     CALL SYSTEM_CLOCK(toc)
-    ! IF(prob%cm%mas()) print *, "Real: ", REAL(toc-tic)/REAL(rate)
-    ! CALL prob%cm%barrier()
-    ! stop
+    IF(prob%cm%mas()) print *, "Real: ", REAL(toc-tic)/REAL(rate)
 
     Au = prob%cm%reduce(Au)
+
+!   Calculate Fourier part of double layer at all evaluation points
+!   Reduction takes place within this loop
+    CALL SYSTEM_CLOCK(tic,rate)
+
+!   For the implementation of 
+
+
+    Au_t = 0D0
+    IF(info%periodic) THEN
+        CALL EwaldT(info=info, x0=xv, f1=ur, n=nv, strt=1, u1=Au_t, full=.true., cm=prob%cm)
+        Au = Au - Au_t*(1D0 - lam)/(4D0*pi*(1D0 + lam))! Most general is to loop over cells here
+    ENDIF
+    CALL SYSTEM_CLOCK(toc)
+    IF(prob%cm%mas()) print *, "Ewald: ", REAL(toc-tic)/REAL(rate)
+
+    CALL prob%cm%barrier()
+    stop
 
 END FUNCTION LHSCmpProb
 
