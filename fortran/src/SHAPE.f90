@@ -1761,11 +1761,12 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
 !                           This needs to be added separately, because it uses the normal Stokeslet, not the periodic.
 !                           Go to each of the surrounding boxes, and check if the image point is within the cutoff distance
 !                           If it is, add it directly to b with non-periodic Green's function
+!                   !!!!    This is incorrect right now: Needs to be multiplied by area
                             IF(info%CellCell) THEN
                                 IF(sing) THEN
-                                    v_tmp = v_tmp + PeriodicCellCell(info, r)*wgi(i2)*dphi/SIN(tht_t(i2))*NORM2(nJt(:,i2,j2))
+                                    v_tmp = v_tmp + PeriodicCellCell(info, r)*wgi(i2)*dphi/SIN(tht_t(i2))!*NORM2(nJt(:,i2,j2))
                                 ELSE
-                                    v_tmp = v_tmp + PeriodicCellCell(info, r)*wgi(i2)*dphi*NORM2(nJt(:,i2,j2))
+                                    v_tmp = v_tmp + PeriodicCellCell(info, r)*wgi(i2)*dphi!*NORM2(nJt(:,i2,j2))
                                 ENDIF
                             ENDIF
 
