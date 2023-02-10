@@ -781,6 +781,7 @@ FUNCTION LHSGalProb(prob, umn, xv, nv, dbg) RESULT(Aumn) !!! OPtional ntjo, ntji
     Aumn1 = 0d0
     ALLOCATE(Aumn(mnmat*info%NCell), &
              Au1(3*info%Y%nt*info%Y%np))
+    Aumn = 0D0
 
 !   Get the vector with the LHS evaluated at all of the intg points
     Au = prob%LHSCmp(umn, xv, nv, dbgflg)
@@ -872,8 +873,9 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
     vec_t = Au
 !   Calculate Fourier part of double layer at all evaluation points
     IF(info%periodic) THEN
-        CALL EwaldT(info=info, x0=xv, f1=ur, n=nv, strt=1, u1=Au, full=.true.)
-        Au = -Au*(1D0 - lam)/(4D0*pi*(1D0 + lam))! Most general is to loop over cells here
+        IF(prob%cm%mas()) CALL EwaldT(info=info, x0=xv, f1=ur, n=nv, strt=1, u1=Au, full=.true.)
+        IF(prob%cm%mas()) Au = -Au*(1D0 - lam)/(4D0*pi*(1D0 + lam))! Most general is to loop over cells here
+!       PARALLEL!!!!
     ENDIF
     CALL SYSTEM_CLOCK(toc)
     ! IF(prob%cm%mas()) print *, "Ewald: ", REAL(toc-tic)/REAL(rate)
@@ -929,6 +931,7 @@ FUNCTION RHSGalProb(prob, xv, fv) RESULT(bmn) !!! OPtional ntjo, ntji
     bmn1 = 0D0
     ALLOCATE(bmn(mnmat*info%NCell), &
              b1(3*info%Y%nt*info%Y%np))
+    bmn = 0D0
 
 !   Get the vector with the RHS evaluated at all of the intg points
     b = prob%RHS(xv, fv)
@@ -973,8 +976,9 @@ FUNCTION RHSProb(prob, xv, fv) RESULT(b) !!! OPtional ntjo, ntji
     vec_t = b
 !   Fill out initial RHS vec, starting with periodic portion if present
     IF(info%periodic) THEN
-        CALL EwaldG(info=info, x0=xv, f=fv, strt=1, u1=b, full=.true.)
-        b = -b/(4D0*pi*(1D0 + lam)) ! Most general is to loop over cells here
+        IF(prob%cm%mas()) CALL EwaldG(info=info, x0=xv, f=fv, strt=1, u1=b, full=.true.)
+        IF(prob%cm%mas()) b = -b/(4D0*pi*(1D0 + lam)) ! Most general is to loop over cells here
+        !!!!!!!!!!! Parallel
     ENDIF
 
 !   Now real-space part
