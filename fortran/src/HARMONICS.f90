@@ -55,6 +55,7 @@ TYPE YType
     PROCEDURE :: backwardfast=> backwardfastY
     PROCEDURE :: rotate   => rotateY
     PROCEDURE :: rotcnst  => rotcnstY
+    PROCEDURE :: reconConsts  => reconConstsY
     GENERIC   :: backward =>  backwardfast, backwardD
 
 END TYPE YType
@@ -408,13 +409,51 @@ FUNCTION forwardYDirect(Y, f, p) RESULT(fmn)
         ENDDO
     ENDDO
 END FUNCTION forwardYDirect
+
+!------------------------------------------------------------------!
+! Takes a collection of points in physical space and gets the spectral domain
+! by directly integrating instead of with FFTs
+FUNCTION forwardcmpY(Y, f, p) RESULT(fmn)
+    COMPLEX(KIND = 8), INTENT(IN) :: f(:,:)
+    CLASS(Ytype), TARGET, INTENT(IN) :: Y
+    COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:)
+    INTEGER, OPTIONAL, INTENT(IN) :: p
+    INTEGER :: i, n, m, im, it, j
+    TYPE(nmType), POINTER :: nm
+
+    ALLOCATE(fmn((Y%p + 1)*(Y%p + 1)))
+    fmn = 0D0
+
+    IF(PRESENT(p)) THEN
+        n = p
+    ELSE
+        n = Y%p
+    ENDIF
+
+    im = 0
+    it = 0
+!   Just loop through and perform the sums
+    DO i = 0,n
+        nm => Y%nm(i + 1)
+        im = 0
+        DO m = -i,i
+            it = it + 1
+            im = im + 1
+            DO j = 1,Y%np
+                fmn(it) = fmn(it) + SUM(CONJG(nm%v(im,:,j))*f(:,j)*Y%wg*Y%dphi)
+            ENDDO
+        ENDDO
+    ENDDO
+END FUNCTION forwardcmpY
 !------------------------------------------------------------------!
 ! Takes a collection of points in spectral space and gets the physical domain
-FUNCTION backwardY(Y, fmn, p) RESULT(f)
+FUNCTION backwardY(Y, fmn, p, recons_in) RESULT(f)
     COMPLEX(KIND = 8), INTENT(IN) :: fmn(:)
     CLASS(Ytype), TARGET, INTENT(IN) :: Y
     REAL(KIND = 8), ALLOCATABLE :: f(:,:)
     INTEGER, OPTIONAL, INTENT(IN) :: p
+    LOGICAL, OPTIONAL, INTENT(IN) :: recons_in(:)
+    LOGICAL, ALLOCATABLE :: recons(:)
 
     INTEGER pp, it, n, m, im
     TYPE(nmType), POINTER :: nm
@@ -424,6 +463,14 @@ FUNCTION backwardY(Y, fmn, p) RESULT(f)
         pp = p
     ELSE
         pp = Y%p
+    ENDIF
+
+!   Which constants are needed for the reconstruction
+    IF(PRESENT(recons_in)) THEN
+        recons = recons_in
+    ELSE
+        ALLOCATE(recons(pp + 1))
+        recons = .true.
     ENDIF
 
 !   Performed at all theta and phi in Y
@@ -436,6 +483,10 @@ FUNCTION backwardY(Y, fmn, p) RESULT(f)
         nm => Y%nm(n+1)
         im = n
         it = it + n
+        IF(.not. recons(n+1)) THEN !.false.)THEN!
+            it = it + n + 1
+            CYCLE
+        ENDIF
 !       Exploit symmetry properties
         DO m = 0,n
             it = it + 1
@@ -452,13 +503,14 @@ FUNCTION backwardY(Y, fmn, p) RESULT(f)
 END FUNCTION backwardY
 
 !------------------------------------------------------------------!
-! Faster backward specifically for bare harmonics
-FUNCTION backwardfastY(Y, fmn, nt, np, p) RESULT(f)
+! Takes a collection of points in spectral space and gets the physical domain
+FUNCTION backwardcmpY(Y, fmn, p, recons_in) RESULT(f)
     COMPLEX(KIND = 8), INTENT(IN) :: fmn(:)
     CLASS(Ytype), TARGET, INTENT(IN) :: Y
-    REAL(KIND = 8), ALLOCATABLE :: f(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: f(:,:)
     INTEGER, OPTIONAL, INTENT(IN) :: p
-    INTEGER, INTENT(IN) :: nt, np
+    LOGICAL, OPTIONAL, INTENT(IN) :: recons_in(:)
+    LOGICAL, ALLOCATABLE :: recons(:)
 
     INTEGER pp, it, n, m, im
     TYPE(nmType), POINTER :: nm
@@ -470,6 +522,67 @@ FUNCTION backwardfastY(Y, fmn, nt, np, p) RESULT(f)
         pp = Y%p
     ENDIF
 
+!   Which constants are needed for the reconstruction
+    IF(PRESENT(recons_in)) THEN
+        recons = recons_in
+    ELSE
+        ALLOCATE(recons(pp + 1))
+        recons = .true.
+    ENDIF
+
+!   Performed at all theta and phi in Y
+    ALLOCATE(f(Y%nt,Y%np))
+    f = 0
+    it = 0
+
+!   Just loop through and perform the sums
+    DO n = 0,pp
+        nm => Y%nm(n+1)
+        im = 0
+        IF(.not. recons(n+1)) THEN !.false.)THEN!
+            it = it + n + 1
+            CYCLE
+        ENDIF
+!       Exploit symmetry properties
+        DO m = -n,n
+            it = it + 1
+            im = im + 1
+!           This assumes f is a real-valued function,
+!           and that the imaginary values will have canceled anyway
+            f = f + fmn(it)*nm%v(im,:,:)
+        ENDDO
+    ENDDO
+END FUNCTION backwardcmpY
+
+!------------------------------------------------------------------!
+! Faster backward specifically for bare harmonics
+FUNCTION backwardfastY(Y, fmn, nt, np, p, recons_in) RESULT(f)
+    COMPLEX(KIND = 8), INTENT(IN) :: fmn(:)
+    CLASS(Ytype), TARGET, INTENT(IN) :: Y
+    REAL(KIND = 8), ALLOCATABLE :: f(:,:)
+    INTEGER, OPTIONAL, INTENT(IN) :: p
+    INTEGER, INTENT(IN) :: nt, np
+    LOGICAL, OPTIONAL, INTENT(IN) :: recons_in(:)
+    LOGICAL, ALLOCATABLE :: recons(:)
+
+    INTEGER pp, it, n, m, im
+    TYPE(nmType), POINTER :: nm
+
+!   You can choose the order, but if you don't it'll just do max order
+    IF(PRESENT(p)) THEN
+        pp = p
+    ELSE
+        pp = Y%p
+    ENDIF
+
+!   Which constants are needed for the reconstruction
+    IF(PRESENT(recons_in)) THEN
+        recons = recons_in
+    ELSE
+        ALLOCATE(recons(pp + 1))
+        recons = .true.
+    ENDIF
+
 !   Performed at all theta and phi in Y
     ALLOCATE(f(Y%nt,Y%np))
     f = 0
@@ -479,6 +592,10 @@ FUNCTION backwardfastY(Y, fmn, nt, np, p) RESULT(f)
         nm => Y%nm(n+1)
         im = n
         it = it + n
+        IF(.not. recons(n+1)) THEN !.false.)THEN!
+            it = it + n + 1
+            CYCLE
+        ENDIF
 !       Exploit symmetry properties
         DO m = 0,n
             it = it + 1
@@ -497,6 +614,59 @@ FUNCTION backwardfastY(Y, fmn, nt, np, p) RESULT(f)
         ENDDO
     ENDDO
 END FUNCTION backwardfastY
+
+!------------------------------------------------------------------!
+! Faster backward specifically for bare harmonics
+FUNCTION backwardfastcmpY(Y, fmn, nt, np, p, recons_in) RESULT(f)
+    COMPLEX(KIND = 8), INTENT(IN) :: fmn(:)
+    CLASS(Ytype), TARGET, INTENT(IN) :: Y
+    COMPLEX(KIND = 8), ALLOCATABLE :: f(:,:)
+    INTEGER, OPTIONAL, INTENT(IN) :: p
+    INTEGER, INTENT(IN) :: nt, np
+    LOGICAL, OPTIONAL, INTENT(IN) :: recons_in(:)
+    LOGICAL, ALLOCATABLE :: recons(:)
+
+    INTEGER pp, it, n, m, im
+    TYPE(nmType), POINTER :: nm
+
+!   You can choose the order, but if you don't it'll just do max order
+    IF(PRESENT(p)) THEN
+        pp = p
+    ELSE
+        pp = Y%p
+    ENDIF
+
+!   Which constants are needed for the reconstruction
+    IF(PRESENT(recons_in)) THEN
+        recons = recons_in
+    ELSE
+        ALLOCATE(recons(pp + 1))
+        recons = .true.
+    ENDIF
+
+!   Performed at all theta and phi in Y
+    ALLOCATE(f(Y%nt,Y%np))
+    f = 0
+    it = 0
+!   Just loop through and perform the sums
+    DO n = 0,pp
+        nm => Y%nm(n+1)
+        im = 0
+        IF(.not. recons(n+1)) THEN !.false.)THEN!
+            it = it + n + 1
+            CYCLE
+        ENDIF
+!       Exploit symmetry properties
+        DO m = -n,n
+            it = it + 1
+            im = im + 1
+!           Imaginary, so can't make above assumption
+            f(1:nt, 1:np)  = f(1:nt, 1:np)  + fmn(it)*nm%v(im,1:nt, 1:np)
+            f(nt+1:,np+1:) = f(nt+1:,np+1:) + fmn(it)*nm%v(im,nt+1:,np+1:)
+
+        ENDDO
+    ENDDO
+END FUNCTION backwardfastcmpY
 
 ! -------------------------------------------------------------------------!
 ! Get constants for given angles and order
@@ -604,6 +774,111 @@ FUNCTION rotateY(Y, fmn, ti, pj, c) RESULT(f)
     ENDDO
     ENDIF
 END FUNCTION rotateY
+
+! -------------------------------------------------------------------------!
+! Rotate spherical harmonic constants by given Euler angles
+FUNCTION rotatecmpY(Y, fmn, ti, pj, c) RESULT(f)
+    REAL(KIND = 8) c, Smm, dmms, ti, pj
+    COMPLEX(KIND = 8) fmn(:)
+    CLASS(YType), TARGET :: Y
+    COMPLEX(KIND = 8) f(SIZE(fmn))
+
+    INTEGER n, mp, it, m,  i, maxi, im, im1, s
+    INTEGER, ALLOCATABLE :: frng(:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: Dmm(:)
+    REAL(KIND = 8), POINTER :: facs(:)
+
+!   Need the rotation constants first
+    IF(.not. Y%hasrot) THEN
+        print *, 'ERROR: Need to calc rotation cnsts before rotation'
+    ENDIF
+
+    facs => Y%facs
+    f = 0
+    it = 0
+    ALLOCATE(frng(1))
+    maxi = SIZE(Y%rot(1,1,:)) - 1
+
+!   Loop over harmonic order
+    DO n = 0, maxi
+        DEALLOCATE(frng)
+        ALLOCATE(frng(2*n + 1))
+!       Indices of fmn at a given n
+        frng = (/(i, i=(it+1),(it+2*n+1), 1)/)
+!       Loop over harmonic degree we're trying to calculate
+        DO mp = -n,n
+            ALLOCATE(Dmm(2*n+1))
+            Dmm = 0D0
+            im1 = 0
+            it = it+1
+
+            DO m = -n,n
+                Smm = 0D0
+                im1 = im1+1
+                DO s = MAX(0, m-mp), MIN(n+m, n-mp)
+                    Smm = Smm + (-1D0)**s*(COS(pj/2D0)**(2D0*(n - s) + m - mp) &
+                        * SIN(pj/2D0)**(2D0*s - m + mp)) & 
+                        / (facs(n+m-s+1)*facs(s+1)*facs(mp-m+s+1)*facs(n-mp-s+1))
+                ENDDO   
+                dmms = (-1D0)**(mp-m)*(facs(n+mp+1)*facs(n-mp+1)*facs(n+m+1)*facs(n-m+1))**0.5D0*Smm
+                Dmm(im1) = EXP(ii*m*ti)*dmms
+            ENDDO
+
+            f(it) = f(it) + SUM(fmn(frng)*Dmm)
+
+            DEALLOCATE(Dmm)
+        ENDDO
+    ENDDO
+
+!   Rotate back in last angle (if nonzero)
+    IF(c .ne. 0) THEN
+    it = 0
+    DO n = 0, maxi
+        DO m = -n,n
+            it = it+1
+            f(it) = f(it)*EXP(ii*m*c)
+        ENDDO
+    ENDDO
+    ENDIF
+END FUNCTION rotatecmpY
+
+! -------------------------------------------------------------------------!
+! Finds modes of a surface function that should be used in inverse SpH transform
+FUNCTION reconConstsY(Y, fmn, tol_in, reltol_in) RESULT(frecon)
+    REAL(KIND = 8), OPTIONAL :: tol_in, reltol_in
+    REAL(KIND = 8) :: tol, reltol
+    COMPLEX(KIND = 8) fmn(:)
+    CLASS(YType), TARGET :: Y
+    LOGICAL frecon(Y%p + 1)
+    REAL(KIND = 8) E, totE
+    INTEGER n, it
+
+    IF(PRESENT(tol_in)) THEN
+        tol = tol_in
+    ELSE
+        tol = 1D-7
+        ! tol = 1D-16
+    ENDIF
+
+    IF(PRESENT(reltol_in)) THEN
+        reltol = reltol_in
+    ELSE
+        ! reltol = 5D-4
+        reltol = 5D-16
+    ENDIF
+
+    it = 1
+    frecon = .true.
+    totE = NORM2(ABS(fmn))
+
+!   Loop over harmonic order
+    DO n = 0, Y%p 
+        E = NORM2(ABS(fmn(it:it + 2*n)))
+        IF(E .lt. tol .or. E/totE .lt. reltol) frecon(n + 1) = .false.
+        it = it + 2*n + 1
+    ENDDO
+    
+END FUNCTION reconConstsY
 
 ! -------------------------------------------------------------------------!
 ! Calculate spherical harmonic coefficients for an RBC (Poz 2003)

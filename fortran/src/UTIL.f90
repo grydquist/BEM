@@ -322,6 +322,21 @@ PURE FUNCTION INNER3_33(U, V) RESULT(W)
     W(2) = U(1)*V(1,2) + U(2)*V(2,2) + U(3)*V(3,2)
     W(3) = U(1)*V(1,3) + U(2)*V(2,3) + U(3)*V(3,3)
 END FUNCTION
+
+! -------------------------------------------------------------------------!
+! Inner product of 3x1 vector with a 3x3 matrix
+PURE FUNCTION NORM2C(U) RESULT(W)
+    COMPLEx(KIND = 8), INTENT(IN) :: U(:)
+    REAL(KIND = 8) :: W
+    INTEGER n, i
+    n = SIZE(U)
+    W = 0D0
+    DO i = 1,n
+        W = W + REAL(U(i)*CONJG(U(i)))
+    ENDDO
+    W = SQRT(W)
+END FUNCTION
+
 ! -------------------------------------------------------------------------!
 ! Inverts 3x3 Matrix
 PURE FUNCTION INVERT33(A) RESULT(B)
@@ -755,6 +770,52 @@ FUNCTION GaussElim(A, b, n) RESULT(x)
     RETURN
 END FUNCTION GaussElim
 
+! -------------------------------------------------------------------------!
+! Simple Gaussian elimination algorithm 
+FUNCTION GaussElimC(A, b, n) RESULT(x)
+    COMPLEX(KIND = 8) :: A(n,n), Ae(n,n), x(n), b(n), be(n), m, sum
+    INTEGER :: n, i, j
+
+    x = 0D0
+    Ae = A
+    be = b
+
+    DO j = 1, n - 1
+        DO i = n, j + 1, -1
+            m = Ae(i, j)/Ae(j, j)
+            Ae(i,:) = Ae(i,:) - m*Ae(j,:)
+            be(i) = be(i) - m*be(j)
+        ENDDO
+    ENDDO
+
+    x(n) = be(n)/Ae(n,n)
+    DO i = n - 1, 1, -1
+        sum = 0D0
+        DO j = n, i + 1, -1
+            sum = sum + Ae(i,j)*x(j)
+        ENDDO
+        x(i) = (be(i) - sum)/Ae(i,i)
+    ENDDO
+
+    RETURN
+END FUNCTION GaussElimC
+
+! -------------------------------------------------------------------------!
+! Calculates velgrad for extensional flow
+FUNCTION ExtensdU() RESULT(dU)
+    REAL(KIND = 8) dU(3,3), num
+    dU = 0D0
+    num = (3D0 + sqrt(9D0 - 4D0))/2D0
+    num = atan2(1D0 - num, 1D0)
+    num = PI/2D0 + num
+    num = -num*2D0
+    dU(1,1) = cos(num)
+    dU(1,3) = sin(num)
+    dU(3,1) = sin(num)
+    dU(3,3) =-cos(num)
+    dU = dU*SQRT(2D0)/2D0
+
+END FUNCTION ExtensdU
 ! -------------------------------------------------------------------------!
 ! Given basis vectors and point, gives partial coordinates
 FUNCTION bvPartial(bv, x) RESULT(px)

@@ -41,6 +41,10 @@ TYPE probType
     PROCEDURE :: Output  => OutputProb
     PROCEDURE :: Continue=> ContinueProb
     PROCEDURE :: StrnRt  => StrnRtProb
+    PROCEDURE :: LHSCmp  => LHSCmpProb
+    PROCEDURE :: LHS => LHSGalProb
+    PROCEDURE :: RHSGalProb
+    PROCEDURE :: RHS => RHSProb
 END TYPE probType
 
 ! -------------------------------------------------------------------------!
@@ -112,16 +116,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
 
 !   Hardcoded periodic extension
     IF(info%extens) THEN
-        info%dU = 0D0
-        zm = (3D0 + sqrt(9D0 - 4D0))/2D0
-        zm = atan2(1D0 - zm, 1D0)
-        zm = PI/2D0 + zm
-        zm = -zm*2D0
-        info%dU(1,1) = cos(zm)
-        info%dU(1,3) = sin(zm)
-        info%dU(3,1) = sin(zm)
-        info%dU(3,3) =-cos(zm)
-        info%dU = info%dU*SQRT(2D0)/2D0
+        info%dU = ExtensdU()
     ENDIF
 
     celltmp = cellType(filein, reduce, info, props)
@@ -506,64 +501,68 @@ END SUBROUTINE WriteProb
 SUBROUTINE UpdateProb(prob, ord, reduce)
     CLASS(probType), INTENT(INOUT) :: prob
     TYPE(cellType), POINTER :: cell, celli
-    INTEGER, INTENT(IN) :: ord
-    LOGICAL, INTENT(IN) :: reduce
     TYPE(YType), POINTER :: Y
     TYPE(sharedType), POINTER :: info
-    REAL(KIND = 8) :: zm, res, temp, b_n
-    COMPLEX(KIND = 8), ALLOCATABLE :: umnt(:,:), xmnt(:,:), ut(:), wrk(:), &
-                                      A2(:,:), b2(:), A(:,:), &
-                                      fmnR(:,:), xmnR(:,:), &
-                                      fv1(:), fv2(:), fv3(:), fv(:,:), &
-                                      b2f(:), b2r(:), YVt(:), um(:,:,:,:,:), &
-                                      A2f(:,:,:,:,:,:,:,:), A2r(:,:,:,:,:,:), &
-                                      A2t(:,:,:,:,:,:), b2t(:), &
-                                      v(:,:,:), Ap(:), bp(:)
-    REAL(KIND = 8), ALLOCATABLE ::  Q(:,:), H(:,:), b(:), Au(:), r(:), &
-                                    Q_k(:,:,:), Q_kp1(:), e1(:), y_v(:), Htmp(:,:), &
-                                    cs(:), sn(:), e(:), beta(:), betat(:), Ht(:,:), &
-                                    nJtF(:,:,:,:,:), xcgF(:,:,:,:,:)
-    INTEGER :: ic, ic2, i, j, row, col, iter, p_info, m, n, im, im2, &
-               it, th_st, th_end, tot_gs, curid, inds_proc(2), k
-    REAL(KIND = 8), ALLOCATABLE :: rwrk(:), utr(:), uti(:), nJt(:,:,:), xv(:,:)
-    COMPLEX, ALLOCATABLE :: swrk(:)
-    INTEGER, ALLOCATABLE :: IPIV(:), inds(:)
-    INTEGER(KIND = 8) tic, toc, rate, tic0, toc0
+    INTEGER, INTENT(IN) :: ord
+    INTEGER :: ic, ic2, i, j, row, it, th_st, th_end, k, &
+        im, m, n, mnmatT
+    INTEGER(KIND = 8) tic, toc, rate
+    LOGICAL, INTENT(IN) :: reduce
+    REAL(KIND = 8) :: zm, res, b_n
+    REAL(KIND = 8), ALLOCATABLE ::  fv1(:), fv2(:), fv3(:), fv(:,:), &
+                                    nv1(:), nv2(:), nv3(:), nv(:,:), &
+                                    nJtF(:,:,:,:,:), xcgF(:,:,:,:,:), &
+                                    nJt(:,:,:), xv(:,:), e(:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: fmnR(:,:), nmnR(:,:), &
+                                      Aumn(:), bmn(:), r(:), y_v(:), &
+                                      cs(:), sn(:), beta(:), betat(:), &
+                                      Ht(:,:), e1(:), Q_k(:),&
+                                      Q_kp1(:), Q(:,:), H(:,:)
+    COMPLEX(KIND = 8) :: temp
 
     Y => prob%info%Y
     info => prob%info
+
+    mnmatT = 3*(Y%p + 1)*(Y%p + 1)*info%NCell
+    ALLOCATE(&
+        r(mnmatT), &
+        Q_k(mnmatT), &
+        Q_kp1(mnmatT), &
+        Q(mnmatT, info%GMRES_it + 1), &
+        H(info%GMRES_it + 2, info%GMRES_it+1), &
+        cs(info%GMRES_it), &
+        sn(info%GMRES_it), &
+        e (info%GMRES_it + 1), &
+        e1(info%GMRES_it + 1), &
+        beta(info%GMRES_it + 1))
 
 !   If periodic, make variables for the Fourier part
     IF(info%periodic) THEN
         ALLOCATE( &
         fv(3,Y%nt*Y%np*prob%NCell), &
+        nv(3,Y%nt*Y%np*prob%NCell), &
         nJt(3, Y%nt, Y%np), &
-        um(3,3,Y%nt,Y%np, prob%NCell), &
         fmnR(3, (info%p+1)*(info%p+1)), &
-        xmnR(3, (info%p+1)*(info%p+1)))
+        nmnR(3, (info%p+1)*(info%p+1)), &
+        nJtF(3, Y%nt + info%Yf%nt, Y%np + info%Yf%np, Y%nt, Y%np), &
+        xcgF(3, Y%nt + info%Yf%nt, Y%np + info%Yf%np, Y%nt, Y%np))
+    ELSE
+!       These variables change size based on the type of problem
+        ALLOCATE(&
+        nJtF(3, Y%nt, Y%np, Y%nt, Y%np), &
+        xcgF(3, Y%nt, Y%np, Y%nt, Y%np))
     ENDIF
 
-
-!   Do interpolation to get current grad tensor, then normalize by kolm time
-    info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
-!   Hardcoded shear
     IF(info%shear) THEN
+!       Hardcoded shear
         info%dU = 0D0
         info%dU(1,3) = 1D0
-    ENDIF
-
-!   Hardcoded periodic extension
-    IF(info%extens) THEN
-        info%dU = 0D0
-        zm = (3D0 + sqrt(9D0 - 4D0))/2D0
-        zm = atan2(1D0 - zm, 1D0)
-        zm = PI/2D0 + zm
-        zm = -zm*2D0
-        info%dU(1,1) = cos(zm)
-        info%dU(1,3) = sin(zm)
-        info%dU(3,1) = sin(zm)
-        info%dU(3,3) =-cos(zm)
-        info%dU = info%dU*SQRT(2D0)/2D0
+    ELSEIF(info%extens) THEN
+!       Hardcoded periodic extension
+        info%dU = ExtensdU()
+    ELSE
+!       Do interpolation to get current grad tensor, then normalize by kolm time
+        info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
     ENDIF
 
     CALL SYSTEM_CLOCK(tic,rate)
@@ -579,458 +578,169 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
         CALL cell%derivs()
         CALL cell%stress()
 
+!       Find which constants should be used in reconstruction
+        cell%xrecon(1,:) = Y%reconConsts(cell%xmn(1,:))
+        cell%xrecon(2,:) = Y%reconConsts(cell%xmn(2,:))
+        cell%xrecon(3,:) = Y%reconConsts(cell%xmn(3,:))
+        
+        cell%frecon(1,:) = Y%reconConsts(cell%fmn(1,:))
+        cell%frecon(2,:) = Y%reconConsts(cell%fmn(2,:))
+        cell%frecon(3,:) = Y%reconConsts(cell%fmn(3,:))
+
+        cell%nJrecon(1,:) = Y%reconConsts(cell%nkt(1,:))
+        cell%nJrecon(2,:) = Y%reconConsts(cell%nkt(2,:))
+        cell%nJrecon(3,:) = Y%reconConsts(cell%nkt(3,:))
+
 !       Construct a large vector containing all the forces/locations in
-!       preparation for the fast Ewald summation
+!       preparation for the fast Ewald summation. I do these outside b/c
+!       I don't want to build them everytime
         IF(info%periodic) THEN
 !           Forces and locations
             fmnR = cell%fmn(:,1:(info%p+1)*(info%p+1))
-            xmnR = cell%xmn(:,1:(info%p+1)*(info%p+1))
+            nmnR = cell%nkt(:,1:(info%p+1)*(info%p+1))
+
 !           Append vectors
-            CALL EwaldPreCalc(fv1, Y, xv, fmn=fmnR(1,:), xmn=xmnR)
+            CALL EwaldPreCalc(fv1, Y, xv, fmn=fmnR(1,:), x0in=cell%x)
             CALL EwaldPreCalc(fv2, Y, fmn=fmnR(2,:))
             CALL EwaldPreCalc(fv3, Y, fmn=fmnR(3,:))
+
+            CALL EwaldPreCalc(nv1, Y, fmn=nmnR(1,:))
+            CALL EwaldPreCalc(nv2, Y, fmn=nmnR(2,:))
+            CALL EwaldPreCalc(nv3, Y, fmn=nmnR(3,:))
         ENDIF
     ENDDO
+
+    IF(info%periodic) THEN; 
+        fv(1,:) = fv1;  fv(2,:) = fv2;  fv(3,:) = fv3;
+        nv(1,:) = nv1;  nv(2,:) = nv2;  nv(3,:) = nv3;
+        DEALLOCATE(fv1, fv2, fv3, nv1, nv2, nv3)
+    ENDIF
+
     ! CALL prob%cm%barrier()
     CALL SYSTEM_CLOCK(toc)
     IF(prob%cm%mas()) print *, "Stress/derivs: ", REAL(toc-tic)/REAL(rate)
 
 !   Now we need to calculate the SpH velocity coefficients of the cells.
-!   For periodic, we calculate LHS matrix and RHS vector in two parts:
+!   For periodic, we calculate LHS and RHS vectors in two parts:
 !   Long range (via FFTs) and short range (directly, truncated at low r).
-!   We calculate these two matrices individually at integration points,
-!   add them, and then perform the Galerkin transfo on these summed matrices.
+!   We calculate these two matrices individually at integration points
+!   and add them in the below routines
 
-    IF(info%periodic) THEN
-        CALL SYSTEM_CLOCK(tic,rate)
+!   Prep for GMRES loop
+!   RHS
+    bmn = prob%RHSGalProb(xv, fv)
+!   LHS with RHS as intial guess
+    Aumn = prob%LHS(bmn, xv, nv)
 
-!       Configure parallel: Each cell has it's own grid to be sent to the grid for each n,m
-!       Split up the total resources among processors, done here
-        tot_gs = prob%NCell*(Y%p*Y%p + Y%p)*0.5D0
+    r = bmn - Aumn
+    res = NORM2C(r)
 
-        ALLOCATE(inds(prob%cm%np()))
-        inds = ParallelSplit(tot_gs, prob%cm%np())
-        inds_proc(1) = inds(prob%cm%id() + 1)
-
-        IF(prob%cm%id() .ne. prob%cm%np() - 1) THEN
-            inds_proc(2) = inds(prob%cm%id() + 2) - 1
-        ELSE
-            inds_proc(2) = tot_gs
-        ENDIF
-        ALLOCATE(b2f(3*Y%nt*Y%np*prob%NCell))
-
-!       Calculate RHS vector
-        fv(1,:) = fv1 
-        fv(2,:) = fv2
-        fv(3,:) = fv3
-        CALL EwaldG(info=info, x0=xv, f=fv, u1=b2f, full=.true.)
-
-        ALLOCATE(A2f(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np, prob%NCell, prob%NCell)) !!! Can really clean up memory here
-        A2f = 0D0
-        it = 0
-
-!       Start with the long range part, as this calculates all points for one integral surface
-!       The "forces" here are the spherical harmonics multiplied by the normal vector
-        DO ic = 1, prob%NCell
-            cell => prob%cell(ic)
-
-!           We need to make a vector for all of the spherical harmonics,
-!           multiplied by normal vector, for this integration surface
-            fmnR(1,:) = cell%nkt(1,1:(info%p+1)*(info%p+1))
-            fmnR(2,:) = cell%nkt(2,1:(info%p+1)*(info%p+1))
-            fmnR(3,:) = cell%nkt(3,1:(info%p+1)*(info%p+1))
-
-            nJt(1,:,:) = Y%backward(fmnR(1,:), info%p)
-            nJt(2,:,:) = Y%backward(fmnR(2,:), info%p)
-            nJt(3,:,:) = Y%backward(fmnR(3,:), info%p)
-
-            DO n = 0, Y%p-1
-                ALLOCATE(v(n+1, 3, Y%nt*Y%np))
-                im = 0
-                DO m = -n,n
-                    im = im + 1
-                    im2 = m + (Y%p)
-
-                    IF(m .gt. 0) THEN ! Symmetry
-                        ! A2f(:,:,im2,n+1,:,:,:, ic) = CONJG(A2f(:,:,im2 - 2*m,n+1,:,:,:, ic))*(-1D0)**m
-                        CYCLE
-                    ENDIF
-
-!                   Helps with indexing, but could be made slightly more efficient
-                    it = it + 1
-
-!                   Cycle if we're not doing this grid in this proc
-                    IF( (it .lt. inds_proc(1)) .or. (it .gt. inds_proc(2)) ) CYCLE
-
-                    CALL EwaldPreCalc(YVt, Y, fin=Y%nm(n+1)%v(im,:,:)*nJt(1,:,:))
-                    v(im,1,:) = YVt
-                    DEALLOCATE(YVt)
-
-                    CALL EwaldPreCalc(YVt, Y, fin=Y%nm(n+1)%v(im,:,:)*nJt(2,:,:))
-                    v(im,2,:) = YVt
-                    DEALLOCATE(YVt)
-
-                    CALL EwaldPreCalc(YVt, Y, fin=Y%nm(n+1)%v(im,:,:)*nJt(3,:,:))
-                    v(im,3,:) = YVt
-                    DEALLOCATE(YVt)
-
-!                   Do only the grid spreading this proc is responsible for
-                    CALL EwaldT(info=info, x0=xv, f=v(im,:,:), strt=ic, um=um, full=.true.)
-                    A2f(:,:, im2, n+1,:,:,:, ic) = um
-                ENDDO
-                DEALLOCATE(v)
-            ENDDO
-        ENDDO
-        DEALLOCATE(um)
-
-        ! CALL prob%cm%barrier()
-        CALL SYSTEM_CLOCK(toc)
-        IF(prob%cm%mas()) print *, "Ewald: ", REAL(toc-tic)/REAL(rate)
-
-        CALL SYSTEM_CLOCK(tic,rate)
-!       Get this info to all procs
-!       Memory issues, so unfortunately just do this piece by piece
-!       Reduce only the first half, then use symmetry to get the back half
-!       For now, this is the main scaling cost
-        DO n = 0, Y%p-1
-            DO m = -n,n
-                im = m + (Y%p)
-                DO ic2 = 1, prob%NCell
-                    IF(m .gt. 0) THEN ! Symmetry
-                        A2f(:,:,im,n+1,:,:,:, ic2) = CONJG(A2f(:,:,im - 2*m,n+1,:,:,:, ic2))*(-1D0)**m
-                        CYCLE
-                    ENDIF
-                    !!! Memory: don't need all of these, can deallocate some parts
-                    A2f(:,:,im,n+1,:,:,:,ic2) = prob%cm%reduce(A2f(:,:,im,n+1,:,:,:,ic2))
-                ENDDO
-            ENDDO
-        ENDDO
-        
-        ! CALL prob%cm%barrier()
-        CALL SYSTEM_CLOCK(toc)
-        IF(prob%cm%mas()) print *, "Reduce: ", REAL(toc-tic)/REAL(rate)
-    ENDIF
-
-! ============ Here's where things actually get going
-    ! ALLOCATE(u_chk(3,Y%nt, Y%np))
-!   First calculate the RHS vector at each point
-    ALLOCATE(&
-        b(3*Y%np*Y%nt), &
-        Au(3*Y%np*Y%nt), &
-        r(3*Y%np*Y%nt), &
-        Q_k(3, Y%np, Y%np), &
-        Q_kp1(3*Y%np*Y%nt), &
-        Q(3*Y%np*Y%nt, info%GMRES_it + 1), &
-        H(info%GMRES_it + 1, info%GMRES_it), &
-        cs(info%GMRES_it), &
-        sn(info%GMRES_it), &
-        e (info%GMRES_it + 1), &
-        nJtF(3,Y%nt,Y%np,Y%nt,Y%np), &
-        xcgF(3,Y%nt,Y%np,Y%nt,Y%np))
-        ALLOCATE(e1(info%GMRES_it + 1), &
-        beta(info%GMRES_it + 1))
+    Q = 0D0
+    Q(:,1) = r/res
     H = 0D0
     e1 = 0D0
     e1(1) = 1D0
+    k = 0
+    cs = 0D0
+    sn = 0D0
+    b_n = NORM2C(bmn)
+    beta = res * e1;
 
-!   Fill out initial RHS vec and LHS vec (to get resid)
-    DO ic = info%PCells(1,1), info%PCells(1,2)
-        row = (ic - 1)*info%Nmat + 1
+    IF(res.gt.info%GMRES_tol) THEN ! To account for rare case where res=0
+!       Now the GMRES loop
+        DO k = 1, info%GMRES_it
+
+!           Finding next Q using previous Q in LHS
+            CALL SYSTEM_CLOCK(tic,rate)
+                Q_k = Q(:,k)
+                Q_kp1 = prob%LHS(Q_k, xv, nv, .true.)
+            CALL SYSTEM_CLOCK(toc)
+
+!           First the Arnoldi iteration
+            DO i = 1, k
+                H(i, k) = DOT_PRODUCT(Q(:,i), Q_kp1)
+                Q_kp1 = Q_kp1 - H(i, k) *Q(:,i)
+            ENDDO
+            H(k + 1, k) = NORM2C(Q_kp1)
+            Q_kp1 = Q_kp1/H(k + 1, k)
+            Q(:,k + 1) = Q_kp1
+
+!           Rest of GMRES is just kinda details
+            DO i = 1,k - 1
+                temp = cs(i)*H(i,k) + sn(i)*H(i+1,k)
+                H(i+1,k) = -sn(i) * H(i,k) + cs(i) * H(i + 1,k)
+                H(i,k)   = temp
+            ENDDO
+
+            temp = SQRT(H(k,k)*H(k,k)+ H(k+1,k)*H(k+1,k))
+            cs(k) = H(k,k) / temp
+            sn(k) = H(k+1,k) / temp
+
+            H(k, k) = cs(k) * H(k, k) + sn(k) * H(k + 1, k)
+            H(k + 1, k) = 0D0
+
+            beta(k + 1) = -sn(k) * beta(k)
+            beta(k)     = cs(k) * beta(k)
+            res       = ABS(beta(k + 1)) / b_n
+            e(k + 1) = res
+
+            IF(prob%cm%mas())print *, k, res, REAL(toc-tic)/REAL(rate)
+
+            IF(res .lt. info%GMRES_tol) exit
+        ENDDO
+
+        IF(res .gt. info%GMRES_tol) k = k - 1
+        Ht = H(1:k,1:k)
+        betat = beta(1:k)
+
+        y_v = GaussElimC(Ht ,betat, k)
+    ELSE
+        k = 1
+        ALLOCATE(y_v(1))
+        y_v = 0
+        Q = 0
+    ENDIF
+
+    row = 1
+    cell%umn = 0D0
+    DO ic = 1, prob%NCell
         cell => prob%cell(ic)
-        CALL cell%RHS_real(v_input_mn = cell%fmn, v = b)
-
         it = 1
-        DO i  = 1,Y%nt
-            DO j = 1,Y%np
-                cell%u(:,i,j) = b(it:it+2)
+        im = 0
+        DO n  = 0, Y%p - 1
+            DO m = -n,n
+                im = im + 1
+                cell%umn(:,im) = bmn(row + it - 1:row + it + 1) &
+                               + MATMUL(Q(row + it - 1:row + it + 1,1:k), y_v)
+                Q_k(row + it - 1:row + it + 1) = cell%umn(:,im)
                 it = it+3
             ENDDO
         ENDDO
 
-        CALL cell%LHS_real(v_input    = cell%u,   v = Au, nJto = nJtF, xcgo = xcgF)
-        r = b - Au
-        Q(:,1) = r/NORM2(r)
+!       Volume correction: small, inward normal velocity based off current volume/SA/time step
+!       Removed for reduce, because that keeps things at constant volume
+        IF(.not. reduce) THEN
+            zm = -(cell%Vol() - cell%V0)/(cell%SA()*info%dt)
+            cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%info%p+1)*(cell%info%p+1)))
+        ENDIF
+
+!       Volume reduction (add small inward normal vel every timestep)
+        IF(reduce) THEN
+            IF(cell%Vol().gt. 4.22  ) cell%umn = cell%umn &
+                                               - 0.10D0*cell%nkmn(:,1:((cell%info%p+1)*(cell%info%p+1)))
+            IF(cell%Vol().lt. 4.185 ) cell%umn = cell%umn &
+                                               + 0.01D0*cell%nkmn(:,1:((cell%info%p+1)*(cell%info%p+1)))
+            IF(cell%Vol().gt. 4.1894) cell%umn = cell%umn &
+                                               - 0.01D0*cell%nkmn(:,1:((cell%info%p+1)*(cell%info%p+1)))
+        ENDIF
+
+        cell%xmn = cell%xmn + cell%umn*info%dt
+
+        cell%x(1,:,:) = Y%backward(cell%xmn(1,:))
+        cell%x(2,:,:) = Y%backward(cell%xmn(2,:))
+        cell%x(3,:,:) = Y%backward(cell%xmn(3,:))
+        row = row + mnmatT/info%NCell
     ENDDO
-
-!   Now the GMRES loop
-    k = 0
-    cs = 0D0
-    sn = 0D0
-    res = norm2(r)
-    b_n = NORM2(b)
-
-    beta = res * e1;
-    DO k = 1, info%GMRES_it
-
-!       First the Arnoldi iteration
-        it = 1
-        DO i = 1,Y%nt
-            DO j = 1,Y%np
-                Q_k(:,i,j) = Q(it:it+2, k)
-                it = it + 3
-            ENDDO
-        ENDDO
-
-        ! print *, Q_kp1!Q(:,i)!H(i,k), i, k !Q_kp1
-        CALL SYSTEM_CLOCK(tic,rate)
-        CALL cell%LHS_real(v_input = Q_k, v = Q_kp1, nJti = nJtF, xcgi = xcgF)
-        CALL SYSTEM_CLOCK(toc)
-
-        DO i = 1, k
-            H(i, k) = DOT_PRODUCT(Q(:,i), Q_kp1)
-            Q_kp1 = Q_kp1 - H(i, k) *Q(:,i)
-        ENDDO
-        H(k + 1, k) = NORM2(Q_kp1)
-        Q_kp1 = Q_kp1/H(k + 1, k)
-        Q(:,k + 1) = Q_kp1
-
-        DO i = 1,k - 1
-            temp = cs(i)*H(i,k) + sn(i)*H(i+1,k)
-            H(i+1,k) = -sn(i) * H(i,k) + cs(i) * H(i + 1,k)
-            H(i,k)   = temp
-        ENDDO
-
-        temp = SQRT(H(k,k)*H(k,k)+ H(k+1,k)*H(k+1,k))
-        cs(k) = H(k,k) / temp
-        sn(k) = H(k+1,k) / temp
-
-        H(k, k) = cs(k) * H(k, k) + sn(k) * H(k + 1, k)
-        H(k + 1, k) = 0D0
-
-        beta(k + 1) = -sn(k) * beta(k)
-        beta(k)     = cs(k) * beta(k)
-        res       = ABS(beta(k + 1)) / b_n
-        e(k + 1) = res
-        print *, res, REAL(toc-tic)/REAL(rate)
-
-        IF(res .lt. info%GMRES_tol) exit
-
-    ENDDO
-    Ht = H(1:k,1:k)
-    betat = beta(1:k)
-
-    y_v = GaussElim(Ht ,betat, k)
-
-    it = 1
-    DO i  = 1,Y%nt
-        DO j = 1,Y%np
-            DO ic = 1,k
-                cell%u(:,i,j) = cell%u(:,i,j) + Q(it:it+2, ic)*y_v(ic)
-            ENDDO
-            it = it+3
-        ENDDO
-    ENDDO
-
-    cell%x = cell%x + info%dt*cell%u
-
-    cell%umn = 0D0
-    cell%umn(1,:) = Y%forward(cell%u(1,:,:))
-    cell%umn(2,:) = Y%forward(cell%u(2,:,:))
-    cell%umn(3,:) = Y%forward(cell%u(3,:,:))
-
-    cell%xmn(1,:) = Y%forward(cell%x(1,:,:))
-    cell%xmn(2,:) = Y%forward(cell%x(2,:,:))
-    cell%xmn(3,:) = Y%forward(cell%x(3,:,:))
-
-
-!     ALLOCATE( &
-!         ut(info%NmatT), &
-!         uti(info%NmatT), &
-!         utr(info%NmatT), &
-!         IPIV(info%NmatT), wrk(info%NmatT), &
-!         swrk(info%NmatT*(info%NmatT+1)), &
-!         rwrk(info%NmatT), &
-!         A(info%NmatT, info%NmatT), &
-!         b(info%NmatT), &
-!         A2r(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
-!         A2t(3,3, 2*(Y%p-1)+1, Y%p, Y%nt, Y%np), &
-!         b2r(3*Y%nt*Y%np), &
-!         b2t(3*Y%nt*Y%np), &
-!         A2(info%Nmat, info%Nmat), &
-!         b2(info%Nmat))
-!     A = 0D0
-!     b = 0D0
-!     b2 = 0D0
-!     A2 = 0D0
-
-!     CALL SYSTEM_CLOCK(tic,rate)
-! !   Now the real space part
-! !   First loop: velocity surface
-!     DO ic = info%PCells(1,1), info%PCells(1,2)
-!         row = (ic - 1)*info%Nmat + 1
-!         cell => prob%cell(ic)
-
-! !       Get starting and ending theta current cell for parallel
-!         th_st  = info%PCells(2,1)
-!         th_end = info%PCells(2,2)
-
-! !       Second loop: integral surface
-!         DO ic2 = 1,prob%NCell
-!             col = (ic2-1)*info%Nmat + 1
-!             celli => prob%cell(ic2)
-            
-! !           Get velocity sub-matrix for cell-cell combo (Same or diff cell)
-!             IF(ic .eq. ic2) THEN
-!                 CALL cell%fluid(Ao = A2r, bo = b2r, itt1 = th_st, itt2 = th_end)
-!             ELSE
-!                 CALL cell%fluid(Ao = A2r, bo = b2r, itt1 = th_st, itt2 = th_end, celli = celli)
-!             ENDIF
-
-! !           Here we need to take back in the velocity/integral cell combo info across all processors
-! !           that had a part in this combo
-! !           All info is sent to the processor that has the theta = 1 point (skip if one proc has all points)
-!             IF((prob%cm%id() .eq. info%CProcs(ic,1)) .and. (info%CProcs(ic,1) .ne. info%CProcs(ic,2))) THEN
-!                 DO i = info%CProcs(ic,1) + 1, info%CProcs(ic,2)
-!                     CALL prob%cm%recv(A2t, i)
-!                     A2r = A2r + A2t
-
-!                     CALL prob%cm%recv(b2t, i)
-!                     b2r = b2r + b2t
-!                 ENDDO
-!             ELSEIF(info%CProcs(ic,1) .ne. info%CProcs(ic,2)) THEN
-!                 A2t = A2r
-!                 CALL prob%cm%send(A2t, info%CProcs(ic,1)) 
-
-!                 b2t = b2r
-!                 CALL prob%cm%send(b2t, info%CProcs(ic,1))
-!             ENDIF
-
-! !           Add long range interactions if periodic
-! !           We also do after send/receive so it doesn't double add
-!             IF(info%periodic) THEN
-!                 A2r = A2r + A2f(:,:,:,:,:,:,ic,ic2)*(1D0-cell%lam)/(1D0+cell%lam)
-
-! !               b2f is the vector at the velocity points integrated across all surfaces,
-! !               so we only add in once
-!                 IF(ic .eq. ic2) b2r = b2r + b2f( (ic-1)*(3*Y%nt*Y%np)+1 : (ic)*(3*Y%nt*Y%np))/(1D0 + cell%lam)
-!             ENDIF
-
-! !           Perform the Galerkin
-!             A2 = 0D0
-!             b2 = 0D0
-!             IF(prob%cm%id() .eq. info%CProcs(ic,1)) THEN ! Only if in the processor with the info though
-                
-!                 CALL info%Gal(A2r, b2r, A2, b2) 
-! !               Put sub matrix into big matrix
-!                 A(row:row + info%Nmat - 1, col:col + info%Nmat - 1) = A2
-! !               Sum over all the integrals
-!                 b(row:row + info%Nmat - 1) = b(row:row + info%Nmat - 1) + b2
-!             ENDIF
-!         ENDDO
-!     ENDDO
-!     ! CALL prob%cm%barrier()
-!     CALL SYSTEM_CLOCK(toc)
-!     IF(prob%cm%mas()) print *, 'Fluid: ',REAL(toc-tic)/REAL(rate)
-
-!     DO i = 1,info%NmatT
-!         A(:,i) = prob%cm%reduce(REAL(A(:,i))) + prob%cm%reduce(AIMAG(A(:,i)))*ii
-!     ENDDO
-!     b = prob%cm%reduce(REAL(b)) + prob%cm%reduce(AIMAG(b))*ii
-
-! !   Invert big matrix to get a list of all the vel constants of all cells
-!     ut = 0D0
-!     CALL SYSTEM_CLOCK(tic)
-!     IF(prob%cm%np() .gt. 1) THEN
-
-! !       Submatrix proc is responsible for
-!         ALLOCATE(Ap(size(prob%map_A)/2))
-
-! !       Fill this matrix
-!         DO i = 1,size(Ap)
-!             Ap(i) = A(prob%map_A(1,i), prob%map_A(2,i))
-!         ENDDO
-
-! !       Fill b if there's something to fill
-!         IF(ALLOCATED(prob%map_b)) THEN
-!             ALLOCATE(bp(size(prob%map_b)))
-!             bp = b(prob%map_b)
-!         ELSE
-!             ALLOCATE(bp(0))
-!             bp=0
-!         ENDIF
-
-!         CALL pzgesv( info%NmatT, 1, Ap(1), 1, 1, prob%desca, ipiv(1), &
-!                      bp(1), 1, 1, prob%descb, p_info )
-
-!         b = 0D0
-!         IF(ALLOCATED(prob%map_b)) b(prob%map_b) = bp
-!         ut = prob%cm%reduce(REAL(b)) + prob%cm%reduce(AIMAG(b))*ii
-        
-!         IF(ALLOCATED(bp)) DEALLOCATE(bp)
-!         DEALLOCATE(Ap)
-
-!     ELSE
-!         CALL zcgesv(info%NmatT, 1, A, info%NmatT, IPIV, b, info%NmatT, &
-!                     ut, info%NmatT, wrk, swrk, rwrk, iter, p_info)
-!     ENDIF
-!     CALL SYSTEM_CLOCK(toc)
-!     IF(prob%cm%mas()) print *, 'Invert: ',REAL(toc-tic)/REAL(rate)
-
-! !   Advance in time now
-!     DO ic = 1, prob%NCell
-!         cell => prob%cell(ic)
-
-! !       Reconstruct individual vels
-!         row = (ic-1)*info%Nmat + 1
-!         cell%umn = 0D0
-!         cell%umn(1,1:info%Nmat/3) = ut((/(i, i=row    , row + info%Nmat-2, 3)/))
-!         cell%umn(2,1:info%Nmat/3) = ut((/(i, i=row + 1, row + info%Nmat-1, 3)/))
-!         cell%umn(3,1:info%Nmat/3) = ut((/(i, i=row + 2, row + info%Nmat  , 3)/))
-
-! !       Volume correction: small, inward normal velocity based off current volume/SA/time step
-! !       Removed for reduce, because that keeps things at constant volume
-!         if(.not. reduce) THEN
-!             zm = -(cell%Vol() - cell%V0)/(cell%SA()*info%dt)
-!             cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%info%p+1)*(cell%info%p+1)))
-!         ENDIF
-
-!         umnt = cell%umn
-!         xmnt = cell%xmn
-
-! !       Volume reduction (add small inward normal vel every timestep)
-!         IF(reduce) THEN
-!             IF(cell%Vol().gt. 4.22  ) umnt = umnt - 0.10D0*cell%nkmn(:,1:((cell%info%p+1)*(cell%info%p+1)))
-!             IF(cell%Vol().lt. 4.185 ) umnt = umnt + 0.01D0*cell%nkmn(:,1:((cell%info%p+1)*(cell%info%p+1)))
-!             IF(cell%Vol().gt. 4.1894) umnt = umnt - 0.01D0*cell%nkmn(:,1:((cell%info%p+1)*(cell%info%p+1)))
-!         ENDIF
-    
-! !       Second part for midpoint
-!         IF(ord .eq. 1) THEN
-!             ! CALL cell%derivs()
-!             ! CALL cell%stress()
-!             ! CALL cell%fluid(prob, A2, b2)
-!             ! zm = -(cell%Vol() - cell%V0)/(3D0*cell%SA()*info%dt)
-!             ! cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%p+1)*(cell%p+1)))
-!             ! umnt = 0.5D0*(umnt + cell%umn)
-!             ! cell%xmn = xmnt + umnt*info%dt
-!             ! cell%x(1,:,:) = Y%backward(cell%xmn(1,:))
-!             ! cell%x(2,:,:) = Y%backward(cell%xmn(2,:))
-!             ! cell%x(3,:,:) = Y%backward(cell%xmn(3,:))
-!         ELSEIF(ord .ne. 1) THEN
-!             print*, "ERROR: time advancement of order >1 not supported"
-!             stop
-!         ENDIF
-    
-! !       Update position and current time step
-!         cell%xmn = xmnt + umnt*info%dt
-
-!         cell%x(1,:,:) = Y%backward(cell%xmn(1,:))
-!         cell%x(2,:,:) = Y%backward(cell%xmn(2,:))
-!         cell%x(3,:,:) = Y%backward(cell%xmn(3,:))
-!     ENDDO
-
-!     ! cell%u(1,:,:) = Y%backward(cell%umn(1,:))
-!     ! cell%u(2,:,:) = Y%backward(cell%umn(2,:))
-!     ! cell%u(3,:,:) = Y%backward(cell%umn(3,:))
-!     ! print *, cell%umn(:,1:4)
-!     ! print *, ' '
-
-!     CALL cell%LHS_real(v_input_mn = cell%umn, v=u_chk)
-!     print *, u_chk(:,1:5,1:5)
-!     ! print *, real(b2r(1:3))/4/pi
-!     CALL cell%RHS_real(v_input_mn = cell%fmn, v=u_chk)
-!     print *,' '
-!     print *, u_chk(:,1:5,1:5)
 
 !   Advance periodic basis vectors
     IF(info%periodic) THEN
@@ -1052,6 +762,248 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     CALL prob%write()
     CALL prob%output()
 END SUBROUTINE UpdateProb
+
+! -------------------------------------------------------------------------!
+! Works with the LHSCmpProb to do Galerkin
+FUNCTION LHSGalProb(prob, umn, xv, nv, dbg) RESULT(Aumn) !!! OPtional ntjo, ntji
+    CLASS(probType), TARGET :: prob
+    TYPE(sharedType), POINTER :: info
+    REAL(KIND = 8), ALLOCATABLE :: Au(:), xv(:,:), nv(:,:), Au1(:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: Aumn(:), umn(:), Aumn1(:)
+    LOGICAL, OPTIONAL :: dbg
+    LOGICAL :: dbgflg = .false.
+    INTEGER :: row, row2, ic, mnmat, th_st, th_end
+
+    info => prob%info
+
+    mnmat = 3*(info%Y%p + 1)*(info%Y%p + 1)
+    IF(PRESENT(dbg)) dbgflg = dbg
+    Aumn1 = 0d0
+    ALLOCATE(Aumn(mnmat*info%NCell), &
+             Au1(3*info%Y%nt*info%Y%np))
+
+!   Get the vector with the LHS evaluated at all of the intg points
+    Au = prob%LHSCmp(umn, xv, nv, dbgflg)
+
+!   Then do the Galerkin over all cells
+    row = 1 + (info%PCells(1,1) - 1)*info%Nmat
+    row2= 1 + (info%PCells(1,1) - 1)*mnmat
+
+    DO ic = info%PCells(1,1), info%PCells(1,2)
+
+        th_st  = info%PCells(2,1)
+        th_end = info%PCells(2,2)
+
+        Au1 = Au(row:row + info%Nmat - 1)
+        CALL info%Gal(Au1, Aumn1, th_st, th_end)
+        Aumn(row2:row2 + mnmat - 1) = Aumn1
+
+        row = row + info%Nmat
+        row2= row2+ mnmat
+    ENDDO
+
+    Aumn = prob%cm%reduce(Aumn)
+
+END FUNCTION LHSGalProb
+
+! -------------------------------------------------------------------------!
+! For a complex LHS
+FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
+    CLASS(probType), TARGET :: prob
+    REAL(KIND = 8), ALLOCATABLE :: xv(:,:), nv(:,:), Au(:), vec_t(:), &
+                                   ur(:), urm(:,:,:), urmT(:,:,:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: u3T(:,:,:), u3(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: umn(:)
+    LOGICAL, OPTIONAL :: dbg
+    LOGICAL :: dbgflg=.false.
+    TYPE(sharedType), POINTER :: info
+    TYPE(cellType), POINTER :: cell, celli
+    REAL(KIND = 8) :: lam
+    INTEGER :: row, col, ic, ic2, th_st, th_end, i, j, it, n, m, im, dim, it2, mnmat, tic, toc, rate
+
+    IF(PRESENT(dbg)) dbgflg = dbg
+    info => prob%info
+
+    mnmat = 3*(info%Y%p + 1)*(info%Y%p + 1)
+
+    lam = prob%cell(1)%lam
+    ALLOCATE(u3T(3, (info%Y%p + 1)*(info%Y%p + 1), prob%NCell), &
+             u3 (3, (info%Y%p + 1)*(info%Y%p + 1)), Au(info%NmatT), &
+             ur(3*info%Y%nt*info%Y%np*info%NCell), &
+             urmT(3, info%Y%nt, info%Y%np, info%NCell), &
+             urm(3, info%Y%nt, info%Y%np))
+
+    CALL SYSTEM_CLOCK(tic,rate)
+!   One argument takes a matrix as an input
+    it2 = 1
+    u3T = 0D0
+    row = 1
+    DO ic = 1,prob%NCell
+        it = 1
+        im = 1
+        DO n  = 0, info%Y%p
+            DO m = -n,n
+                u3T(:,im,ic) = umn(row + it - 1:row + it + 1)
+                it = it+3
+                im = im + 1
+            ENDDO
+        ENDDO
+        row = row + mnmat
+
+!       We need these for periodic, but are also done in RHS_real, 
+!       So may as well just do
+        urmT(1,:,:,ic) = info%Y%backward(u3T(1,:,ic))
+        urmT(2,:,:,ic) = info%Y%backward(u3T(2,:,ic))
+        urmT(3,:,:,ic) = info%Y%backward(u3T(3,:,ic))
+        DO i = 1, info%Y%nt
+            DO j = 1, info%Y%np
+                DO dim = 1,3
+                    ur(it2) = urmT(dim, i, j, ic)
+                    it2 = it2 + 1
+                ENDDO
+            ENDDO
+        ENDDO
+    ENDDO
+    CALL SYSTEM_CLOCK(toc)
+    ! IF(prob%cm%mas()) print *, "Precalcs: ", REAL(toc-tic)/REAL(rate)
+
+    CALL SYSTEM_CLOCK(tic,rate)
+    Au = 0D0
+    vec_t = Au
+!   Calculate Fourier part of double layer at all evaluation points
+    IF(info%periodic) THEN
+        CALL EwaldT(info=info, x0=xv, f1=ur, n=nv, strt=1, u1=Au, full=.true.)
+        Au = -Au*(1D0 - lam)/(4D0*pi*(1D0 + lam))! Most general is to loop over cells here
+    ENDIF
+    CALL SYSTEM_CLOCK(toc)
+    ! IF(prob%cm%mas()) print *, "Ewald: ", REAL(toc-tic)/REAL(rate)
+
+    CALL SYSTEM_CLOCK(tic,rate)
+    DO ic = info%PCells(1,1), info%PCells(1,2)
+        row = (ic - 1)*info%Nmat + 1
+        cell => prob%cell(ic)
+!       Get starting and ending theta current cell for parallel
+        th_st  = info%PCells(2,1)
+        th_end = info%PCells(2,2)
+
+!       Second loop: integral surface
+        DO ic2 = 1,prob%NCell
+            col = (ic2-1)*info%Nmat + 1
+            celli => prob%cell(ic2)
+
+            u3 = u3T(:,:,ic2)
+            urm = urmT(:,:,:,ic2)
+            vec_t = 0D0
+            IF(ic .eq. ic2) THEN
+                CALL cell%LHS_real(v_input_mn = u3, v_input = urm, &
+                v = vec_t, itt1 = th_st, itt2 = th_end, dbg=dbgflg)!, nJto = nJtF, xcgo = xcgF) !!!!!!!!!!!! Parallel!!! I only need to save some the needed thetas for these!!!
+            ELSE
+                CALL cell%LHS_real(v_input_mn = u3, v_input = urm, &
+                v = vec_t, itt1 = th_st, itt2 = th_end, celli = celli, dbg=dbgflg)! Need different storage here!, nJto = nJtcross, xcgo = xcgcross)
+                 !! Will need to be careful about what goes in n out. We only want to save if there's a near singular so we don't need to rotate
+            ENDIF
+            Au(row:row + info%Nmat - 1) = Au(row:row + info%Nmat - 1) + vec_t
+        ENDDO
+    ENDDO
+    CALL SYSTEM_CLOCK(toc)
+    ! IF(prob%cm%mas()) print *, "Real: ", REAL(toc-tic)/REAL(rate)
+    ! CALL prob%cm%barrier()
+    ! stop
+
+    Au = prob%cm%reduce(Au)
+
+END FUNCTION LHSCmpProb
+
+! -------------------------------------------------------------------------!
+! Finds equivalent strain rate
+FUNCTION RHSGalProb(prob, xv, fv) RESULT(bmn) !!! OPtional ntjo, ntji
+    CLASS(probType), TARGET :: prob
+    TYPE(sharedType), POINTER :: info
+    REAL(KIND = 8), ALLOCATABLE :: xv(:,:), fv(:,:), b(:), b1(:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: bmn1(:), bmn(:)
+    INTEGER :: ic, row, row2, mnmat, th_st, th_end
+
+    info => prob%info
+
+    mnmat = 3*(info%Y%p + 1)*(info%Y%p + 1)
+    bmn1 = 0D0
+    ALLOCATE(bmn(mnmat*info%NCell), &
+             b1(3*info%Y%nt*info%Y%np))
+
+!   Get the vector with the RHS evaluated at all of the intg points
+    b = prob%RHS(xv, fv)
+
+!   Then do the Galerkin over all cells
+    row = 1 + (info%PCells(1,1) - 1)*info%Nmat
+    row2= 1 + (info%PCells(1,1) - 1)*mnmat
+    
+    DO ic = info%PCells(1,1), info%PCells(1,2)
+
+        th_st  = info%PCells(2,1)
+        th_end = info%PCells(2,2)
+
+        b1 = b(row:row + info%Nmat - 1)
+        CALL info%Gal(b1, bmn1, th_st, th_end)
+        bmn(row2:row2 + mnmat - 1) = bmn1
+
+        row = row + info%Nmat
+        row2= row2+ mnmat
+    ENDDO
+
+    bmn = prob%cm%reduce(bmn)
+
+END FUNCTION RHSGalProb
+
+! -------------------------------------------------------------------------!
+! EHS calcultor at all int points
+FUNCTION RHSProb(prob, xv, fv) RESULT(b) !!! OPtional ntjo, ntji
+    CLASS(probType), TARGET :: prob
+    REAL(KIND = 8), ALLOCATABLE :: xv(:,:), fv(:,:), b(:), vec_t(:)
+    TYPE(sharedType), POINTER :: info
+    TYPE(cellType), POINTER :: cell, celli
+    REAL(KIND = 8) :: lam
+    INTEGER :: row, col, ic, ic2, th_st, th_end, i, j, it
+
+    info => prob%info
+
+    lam = prob%cell(1)%lam
+    ALLOCATE(b(info%NmatT))
+
+    b = 0D0
+    vec_t = b
+!   Fill out initial RHS vec, starting with periodic portion if present
+    IF(info%periodic) THEN
+        CALL EwaldG(info=info, x0=xv, f=fv, strt=1, u1=b, full=.true.)
+        b = -b/(4D0*pi*(1D0 + lam)) ! Most general is to loop over cells here
+    ENDIF
+
+!   Now real-space part
+    DO ic = info%PCells(1,1), info%PCells(1,2)
+        row = (ic - 1)*info%Nmat + 1
+        cell => prob%cell(ic)
+!       Get starting and ending theta current cell for parallel
+        th_st  = info%PCells(2,1)
+        th_end = info%PCells(2,2)
+
+!       Second loop: integral surface
+        DO ic2 = 1,prob%NCell
+            celli => prob%cell(ic2)
+            
+            vec_t = 0D0
+            IF(ic .eq. ic2) THEN
+                CALL cell%RHS_real(v_input_mn = cell%fmn, v = vec_t, &
+                itt1 = th_st, itt2 = th_end)
+            ELSE
+                CALL cell%RHS_real(v_input_mn = celli%fmn, v = vec_t, &
+                itt1 = th_st, itt2 = th_end, celli = celli)
+            ENDIF
+            b(row:row + info%Nmat - 1) = b(row:row + info%Nmat - 1) + vec_t
+        ENDDO
+    ENDDO
+
+    b = prob%cm%reduce(b)
+
+END FUNCTION RHSProb
 
 ! -------------------------------------------------------------------------!
 ! Finds equivalent strain rate

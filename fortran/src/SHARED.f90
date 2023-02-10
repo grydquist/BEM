@@ -64,7 +64,9 @@ TYPE sharedType
 
     CONTAINS
     PROCEDURE :: bvAdvance => bvAdvanceInfo
-    PROCEDURE :: Gal => GalInfo
+    PROCEDURE :: GalInfo
+    PROCEDURE :: GalOneInfo
+    GENERIC :: Gal => GalInfo, GalOneInfo
     PROCEDURE :: init => initInfo
 END TYPE sharedType
 
@@ -116,8 +118,8 @@ FUNCTION newinfo(filein) RESULT (info)
     IF(TRIM(cellchar) .eq. 'e') info%extens = .true.
     IF(TRIM(cellchar) .eq. 's') info%shear  = .true.
 
-    info%GMRES_it = 15
-    info%GMRES_tol = 1D-7
+    info%GMRES_it = 25
+    info%GMRES_tol = 5D-7
     
 END FUNCTION newinfo
 
@@ -218,7 +220,7 @@ SUBROUTINE initInfo(info)
     ALLOCATE(info%esf(2*(p-1)+1, npf + np), info%cPmnf(p, 2*(p-1)+1, ntf + nt))
 
 !   Matrix size
-    info%Nmat = 3*(info%Y%p)*(info%Y%p)
+    info%Nmat = 3*info%Y%nt*info%Y%np
     info%NmatT= info%Nmat*info%NCell
 
 !   Exponential calculation part (coarse and fine)
@@ -427,5 +429,71 @@ SUBROUTINE GalInfo(info, Ai, b, A2, b2)
     Y => NULL()
     nm => NULL()
 END SUBROUTINE GalInfo
+    
+! -------------------------------------------------------------------------!
+! Takes a (real) vector (3*nt*np) and performs a Galerkin
+! projection with spherical hamronic functions to get a (3*m*n) matrix/vec
+SUBROUTINE GalOneInfo(info, b, b2, itt1, itt2)
+    CLASS(sharedType), TARGET, INTENT(IN) :: info
+    REAL(KIND = 8), ALLOCATABLE, INTENT(IN) :: b(:)
+    COMPLEX(KIND = 8), ALLOCATABLE, INTENT(OUT) ::b2(:)
+    COMPLEX(KIND = 8), POINTER :: vcurn(:,:)
+    COMPLEX(KIND = 8) :: bt(3)
+    TYPE(YType), POINTER :: Y
+    TYPE(nmType), POINTER :: nm
+    INTEGER, INTENT(IN), OPTIONAL :: itt1, itt2
+    INTEGER :: it, n, m, im, col, ic, i, j, it1, it2
+
+    Y => info%Y
+
+    IF(PRESENT(itt1)) THEN
+        it1 = itt1
+    ELSE
+        it1 = 1
+    ENDIF
+
+    IF(PRESENT(itt2)) THEN
+        it2 = itt2
+    ELSE
+        it2 = Y%nt
+    ENDIF
+
+    ALLOCATE(&
+             b2(3*(Y%p + 1)*(Y%p + 1)))
+    b2 = 0D0
+
+!   Second integral: The outer loops go over the order and degree of the previous integrals
+    it = 0
+    DO n = 0,Y%p - 1
+        nm => Y%nm(n+1)
+        ! it = it + n
+        DO m = -n,n !!!!!!!!! Symmetry
+            im = m + Y%p
+            it = it + 1
+            col = 3*it - 2
+
+            ic = (it1 - 1)*Y%np
+!           Loop over integration points to calc integral
+            bt = 0D0
+            vcurn => nm%v(m + n + 1,:,:)
+!           Still parallel along
+            DO i = it1, it2
+                DO j = 1,Y%np
+                ic = ic+1
+
+!               Intg. b (essentially forward transform of RHS!)
+                bt = bt + b(3*ic-2:3*ic)*CONJG(vcurn(i,j)) &
+                    *Y%wg(i)*Y%dphi
+                ENDDO
+            ENDDO
+            b2(col:col+2) = bt
+
+        ENDDO
+    ENDDO
+    
+    vcurn => NULL()
+    Y => NULL()
+    nm => NULL()
+END SUBROUTINE GalOneInfo
     
 END MODULE SHAREDMOD
