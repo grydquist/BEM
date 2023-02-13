@@ -1182,7 +1182,7 @@ FUNCTION PTij(r, bxs, bv, n, eye, xi, x, fourier) RESULT(A)
         ENDDO
     ENDDO
 !   Non-periodic portion comgin from pressure to balance net force
-    A = A - 8D0*PI/tau*OUTER(xr,n) ! Doesn't actually matter r or surface, as constant disappears in integral
+    ! A = A - 8D0*PI/tau*OUTER(xr,n) ! Doesn't actually matter r or surface, as constant disappears in integral
     
     CONTAINS
 !   Hasimotos

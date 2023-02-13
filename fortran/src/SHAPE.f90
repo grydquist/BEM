@@ -87,8 +87,8 @@ FUNCTION newcell(filein, reduce, info, props) RESULT(cell)
     TYPE(sharedType), INTENT(INOUT), TARGET :: info
     TYPE(cellType) :: cell
     CHARACTER(:), ALLOCATABLE :: restart, restfile
-    REAL(KIND = 8) lam, Ca, C, Eb, c0, int_pres, xcr(3), Utmp(3,3)
-    INTEGER :: nt, np, ntf, npf, i, j
+    REAL(KIND = 8) lam, Ca, C, Eb, c0, int_pres
+    INTEGER :: nt, np, ntf, npf
     TYPE(cellprops), INTENT(IN) :: props
 
     cell%info => info
@@ -961,7 +961,7 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
                                                           v_input(:,:,:)
     REAL(KIND = 8), ALLOCATABLE :: xcg(:,:,:), nJt(:,:,:), urot(:,:,:), &
                                    ft(:), ft2(:,:), wgi(:), v_in(:,:,:)
-    REAL(KIND = 8) :: xcr(3), r(3), dphi, rn, rcur(3), u_pt(3), v_tmp(3), minr, rt(3)
+    REAL(KIND = 8) :: xcr(3), r(3), dphi, rcur(3), u_pt(3), v_tmp(3), minr, rt(3)
     COMPLEX(KIND = 8), ALLOCATABLE, INTENT(IN), OPTIONAL :: v_input_mn(:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: xmnR(:,:), nmnR(:,:), umnR(:,:), v_in_mn(:,:)
     LOGICAL, INTENT(IN), OPTIONAL :: periodic_in, dbg
@@ -1351,12 +1351,13 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
                             IF(NORM2(r)*info%xi.gt.3.5) THEN
                                 ft2 = -8D0*PI/info%tau*OUTER(r, nJt(:,i2,j2))
                             ELSE
-                                ft2 = PTij(r, 1, info%bv, nJt(:,i2,j2), info%eye, info%xi)
+                                ft2 = PTij(r, 0, info%bv, nJt(:,i2,j2), info%eye, info%xi) &
+                                    - 8D0*PI/info%tau*OUTER(r, nJt(:,i2,j2))
                                 ! ft2 = PTij(r, 4, info%bv, nJt(:,i2,j2), info%eye, .3545d0, fourier = .true.)
                             ENDIF
                         ELSE
 !                           Check over surrounding boxes to see if there's a nearby point
-                !!!!        Quite janky, could use some work
+                            rt = r
                             minr = NORM2(r)
                             DO iper = -1,1
                                 DO jper = -1,1
@@ -1375,11 +1376,12 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
 
 !                           Add in linear component (only thing that survives when cells are far)
                             IF(NORM2(rt)*info%xi.gt.3.5) THEN
+                            ! IF(NORM2(rt)*info%xi.gt.350) THEN
                                 ft2 = -8D0*PI/info%tau*OUTER(r, nJt(:,i2,j2))
                             ELSE
-                                !!! There should be a wayt to make this better/faster (need 1 box for non-periodic/linear part)
-                                ! Perhaps do 0 boxes and use rt?
-                                ft2 = PTij(r, 1, info%bv, nJt(:,i2,j2), info%eye, info%xi)
+                                ft2 = PTij(rt, 0, info%bv, nJt(:,i2,j2), info%eye, info%xi) &
+                                    - 8D0*PI/info%tau*OUTER(r, nJt(:,i2,j2)) ! Linear part here
+                                ! ft2 = PTij(r, 4, info%bv, nJt(:,i2,j2), info%eye, .3545d0, fourier = .true.) - 8D0*PI/info%tau*OUTER(r, nJt(:,i2,j2))
                             ENDIF
 
                         ENDIF
@@ -1731,7 +1733,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                             ENDIF
                         ELSE
 !                           Check over surrounding boxes to see if there's a nearby point
-                !!!!        Quite janky, could use some work
+                            rt = r
                             minr = rn
                             DO iper = -1,1
                                 DO jper = -1,1
@@ -1749,11 +1751,12 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                             ENDDO
 
                             IF(NORM2(rt)*info%xi.gt.3.5) THEN
+                            ! IF(NORM2(rt)*info%xi.gt.350) THEN
                                 ft2= 0D0
                                 ft = 0D0
                             ELSE
-                                ! Perhaps do 0 boxes and use rt?
-                                ft2 = PGij(r, 1, info%bv, info%eye, info%xi)
+                                ft2 = PGij(rt, 0, info%bv, info%eye, info%xi)
+                                ! ft2 = PGij(r, 4, info%bv, info%eye, .3454d0, fourier=.true.)
                                 ft  = frot(:,i2,j2)
                             ENDIF
 
@@ -1762,6 +1765,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
 !                           Go to each of the surrounding boxes, and check if the image point is within the cutoff distance
 !                           If it is, add it directly to b with non-periodic Green's function
 !                   !!!!    This is incorrect right now: Needs to be multiplied by area
+                            !!!!!
                             IF(info%CellCell) THEN
                                 IF(sing) THEN
                                     v_tmp = v_tmp + PeriodicCellCell(info, r)*wgi(i2)*dphi/SIN(tht_t(i2))!*NORM2(nJt(:,i2,j2))
