@@ -783,7 +783,7 @@ FUNCTION rotatecmpY(Y, fmn, ti, pj, c) RESULT(f)
     CLASS(YType), TARGET :: Y
     COMPLEX(KIND = 8) f(SIZE(fmn))
 
-    INTEGER n, mp, it, m,  i, maxi, im, im1, s
+    INTEGER n, mp, it, m,  i, maxi, im1, s
     INTEGER, ALLOCATABLE :: frng(:)
     COMPLEX(KIND = 8), ALLOCATABLE :: Dmm(:)
     REAL(KIND = 8), POINTER :: facs(:)

@@ -1,5 +1,6 @@
 MODULE SHAREDMOD
 USE HARMMOD
+USE CMMOD
 IMPLICIT NONE
 
 !==============================================================================!
@@ -476,7 +477,7 @@ SUBROUTINE GalOneInfo(info, b, b2, itt1, itt2)
 !           Loop over integration points to calc integral
             bt = 0D0
             vcurn => nm%v(m + n + 1,:,:)
-!           Still parallel along
+!           Still parallel along theta
             DO i = it1, it2
                 DO j = 1,Y%np
                 ic = ic+1

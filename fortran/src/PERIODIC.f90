@@ -1,6 +1,5 @@
 MODULE PERIODICMOD
 USE SHAREDMOD
-USE CMMOD
 IMPLICIT NONE
     
 !==============================================================================!

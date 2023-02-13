@@ -652,7 +652,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !           Finding next Q using previous Q in LHS
             CALL SYSTEM_CLOCK(tic,rate)
                 Q_k = Q(:,k)
-                Q_kp1 = prob%LHS(Q_k, xv, nv, .true.)
+                Q_kp1 = prob%LHS(Q_k, xv, nv)
             CALL SYSTEM_CLOCK(toc)
 
 !           First the Arnoldi iteration
@@ -903,9 +903,6 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
 !   Calculate Fourier part of double layer at all evaluation points
 !   Reduction takes place within this loop
     CALL SYSTEM_CLOCK(tic,rate)
-
-!   For the implementation of 
-
 
     Au_t = 0D0
     IF(info%periodic) THEN
