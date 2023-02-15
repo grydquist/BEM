@@ -510,8 +510,7 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     REAL(KIND = 8) :: zm, res, b_n
     REAL(KIND = 8), ALLOCATABLE ::  fv1(:), fv2(:), fv3(:), fv(:,:), &
                                     nv1(:), nv2(:), nv3(:), nv(:,:), &
-                                    nJtF(:,:,:,:,:), xcgF(:,:,:,:,:), &
-                                    nJt(:,:,:), xv(:,:), e(:)
+                                    xv(:,:), e(:)
     COMPLEX(KIND = 8), ALLOCATABLE :: fmnR(:,:), nmnR(:,:), &
                                       Aumn(:), bmn(:), r(:), y_v(:), &
                                       cs(:), sn(:), beta(:), betat(:), &
@@ -540,16 +539,8 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
         ALLOCATE( &
         fv(3,Y%nt*Y%np*prob%NCell), &
         nv(3,Y%nt*Y%np*prob%NCell), &
-        nJt(3, Y%nt, Y%np), &
         fmnR(3, (info%p+1)*(info%p+1)), &
-        nmnR(3, (info%p+1)*(info%p+1)), &
-        nJtF(3, Y%nt + info%Yf%nt, Y%np + info%Yf%np, Y%nt, Y%np), &
-        xcgF(3, Y%nt + info%Yf%nt, Y%np + info%Yf%np, Y%nt, Y%np))
-    ELSE
-!       These variables change size based on the type of problem
-        ALLOCATE(&
-        nJtF(3, Y%nt, Y%np, Y%nt, Y%np), &
-        xcgF(3, Y%nt, Y%np, Y%nt, Y%np))
+        nmnR(3, (info%p+1)*(info%p+1)))
     ENDIF
 
     IF(info%shear) THEN
@@ -886,11 +877,10 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
             vec_t = 0D0
             IF(ic .eq. ic2) THEN
                 CALL cell%LHS_real(v_input_mn = u3, v_input = urm, &
-                v = vec_t, itt1 = th_st, itt2 = th_end, dbg=dbgflg)!, nJto = nJtF, xcgo = xcgF) !!!!!!!!!!!! Parallel!!! I only need to save some the needed thetas for these!!!
+                v = vec_t, itt1 = th_st, itt2 = th_end, dbg=dbgflg)
             ELSE
                 CALL cell%LHS_real(v_input_mn = u3, v_input = urm, &
-                v = vec_t, itt1 = th_st, itt2 = th_end, celli = celli, dbg=dbgflg)! Need different storage here!, nJto = nJtcross, xcgo = xcgcross)
-                 !! Will need to be careful about what goes in n out. We only want to save if there's a near singular so we don't need to rotate
+                v = vec_t, itt1 = th_st, itt2 = th_end, celli = celli, dbg=dbgflg)
             ENDIF
             Au(row:row + info%Nmat - 1) = Au(row:row + info%Nmat - 1) + vec_t
         ENDDO
@@ -912,8 +902,8 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
     CALL SYSTEM_CLOCK(toc)
     IF(prob%cm%mas()) print *, "Ewald: ", REAL(toc-tic)/REAL(rate)
 
-    CALL prob%cm%barrier()
-    stop
+    ! CALL prob%cm%barrier()
+    ! stop
 
 END FUNCTION LHSCmpProb
 

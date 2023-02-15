@@ -53,6 +53,7 @@ TYPE YType
     PROCEDURE :: forward  => forwardYDirect! forwardY! 
     PROCEDURE :: backwardD=> backwardY
     PROCEDURE :: backwardfast=> backwardfastY
+    PROCEDURE :: backwardOne=> backwardOneY
     PROCEDURE :: rotate   => rotateY
     PROCEDURE :: rotcnst  => rotcnstY
     PROCEDURE :: reconConsts  => reconConstsY
@@ -614,6 +615,62 @@ FUNCTION backwardfastY(Y, fmn, nt, np, p, recons_in) RESULT(f)
         ENDDO
     ENDDO
 END FUNCTION backwardfastY
+
+!------------------------------------------------------------------!
+! Interpolates a single theta/phi combo, given indices
+FUNCTION backwardOneY(Y, fmn, tht_i, phi_j, p, recons_in) RESULT(f)
+    COMPLEX(KIND = 8), INTENT(IN) :: fmn(:)
+    CLASS(Ytype), TARGET, INTENT(IN) :: Y
+    REAL(KIND = 8) :: f
+    INTEGER, OPTIONAL, INTENT(IN) :: p
+    INTEGER, INTENT(IN) :: tht_i, phi_j
+    LOGICAL, OPTIONAL, INTENT(IN) :: recons_in(:)
+    LOGICAL, ALLOCATABLE :: recons(:)
+
+    INTEGER pp, it, n, m, im
+    TYPE(nmType), POINTER :: nm
+
+!   You can choose the order, but if you don't it'll just do max order
+    IF(PRESENT(p)) THEN
+        pp = p
+    ELSE
+        pp = Y%p
+    ENDIF
+
+!   Which constants are needed for the reconstruction
+    IF(PRESENT(recons_in)) THEN
+        recons = recons_in
+    ELSE
+        ALLOCATE(recons(pp + 1))
+        recons = .true.
+    ENDIF
+
+!   Performed at all theta and phi in Y
+    f = 0
+    it = 0
+!   Just loop through and perform the sums
+    DO n = 0,pp
+        nm => Y%nm(n+1)
+        im = n
+        it = it + n
+        IF(.not. recons(n+1)) THEN !.false.)THEN!
+            it = it + n + 1
+            CYCLE
+        ENDIF
+!       Exploit symmetry properties
+        DO m = 0,n
+            it = it + 1
+            im = im + 1
+!           This assumes f is a real-valued function,
+!           and that the imaginary values will have canceled anyway
+            IF(m .ne. 0) THEN
+                f = f + REAL(2D0*fmn(it)*nm%v(im,tht_i,phi_j))
+            ELSE
+                f = f + REAL(fmn(it)*nm%v(im,tht_i,phi_j))
+            ENDIF
+        ENDDO
+    ENDDO
+END FUNCTION backwardOneY
 
 !------------------------------------------------------------------!
 ! Faster backward specifically for bare harmonics

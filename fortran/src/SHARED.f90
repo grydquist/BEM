@@ -42,6 +42,9 @@ TYPE sharedType
     INTEGER :: gp, suppPoints
     INTEGER, ALLOCATABLE :: suppMat(:,:)
 
+!   Periodic (near-) singular integration grids
+    REAL(KIND = 8), ALLOCATABLE :: n(:)
+
 !   3D FFT Parameters
     REAL(KIND = 8), ALLOCATABLE :: WSAVE(:)
     INTEGER :: LENSAVE
@@ -128,9 +131,9 @@ END FUNCTION newinfo
 ! Initialization
 SUBROUTINE initInfo(info)
     CLASS(sharedType), INTENT(INOUT) :: info
-    INTEGER p, q, nt, np, ntf, npf, ic, m, ind, it, n, im, im2
+    INTEGER p, q, nt, np, ntf, npf, ic, m, ind, it, n, im, im2, i
     REAL(KIND = 8), ALLOCATABLE :: cPt(:,:), ths(:,:), phs(:,:), thts(:), phis(:), xs(:), wg(:)
-    REAL(KIND = 8) :: dphi
+    REAL(KIND = 8) :: dphi, t
 
     p = info%p
     q = info%q
@@ -165,29 +168,23 @@ SUBROUTINE initInfo(info)
     info%Yf = YType(q, 4, .true., p)
     
 !   Stuff needed for calcs
-    nt  = info%Y%nt
-    np  = info%Y%np
-    ntf = info%Yf%nt
-    npf = info%Yf%np
+    nt  = MIN(FLOOR(SQRT(REAL(info%Y%p))) + 6, info%Y%nt)
+    np  = 2*nt
 
 !   Harmonics for the singular integration, slightly tricky
 !   Construct the singular integration grid, with patch. Essentially 2 grids at once,
 !   a fine patch with a sinh transform and a coarse one.
     IF(info%NCell .gt. 1 .or. info%periodic) THEN
-        ALLOCATE(thts(nt + ntf), phis(np + npf), &
-                 ths (nt + ntf, np + npf), phs(nt + ntf, np + npf))
-!       Cutoff theta, can affect accuracy. Depends on spacing, but want consistent. Just hardcode for now
-        info%thtc = pi/6D0 !!!
 
-!       Coarser part away from near-singularity
+!       Try doing partition of unity
+        ALLOCATE(thts(nt), phis(np), &
+                 ths (nt, np), phs(nt, np), &
+                 info%n(nt))
+!       Cutoff theta, can affect accuracy.
+        info%thtc = pi/SQRT(REAL(info%Y%p))
+
         ALLOCATE(xs(nt), wg(nt))
         CALL lgwt(nt, xs, wg)
-        thts(1:nt) = xs*(pi - info%thtc)/2D0 + (pi + info%thtc)/2D0
-        DEALLOCATE(xs, wg)
-
-!       Finer part near near-singularity
-        ALLOCATE(xs(ntf), wg(ntf))
-        CALL lgwt(ntf, xs, wg)
 !       The integration rule is based on the separation distance. However, this changes and
 !       we don't want to recalculate the grid every time. Instead, just choose a distance
 !       where it's accurate (approx spacing/10 here)
@@ -195,101 +192,35 @@ SUBROUTINE initInfo(info)
 !       Sinh normalizing constant (to get -1, 1 range)
         info%k = -0.5D0*LOG(info%thtc/info%h &
                     + sqrt((info%thtc/info%h)**2D0 + 1D0));
-        thts(nt + 1:nt + ntf) = info%h*SINH(info%k*(xs - 1D0))
+        thts = info%h*SINH(info%k*(xs - 1D0))
         info%xsf = xs
-        DEALLOCATE(xs, wg)
 
 !       Calculate phis and construct mesh grid
         phis(1) = 0D0
-        dphi = info%Y%dphi
-        DO ic = 1,(np + npf)
+        dphi = 2*pi/np
+        DO ic = 1,np
             IF(ic .gt. 1) phis(ic) = phis(ic - 1) + dphi
-
-            IF(ic .eq. np + 1) THEN
-                dphi = info%Yf%dphi
-                phis(ic) = 0D0
-            ENDIF
             phs(:,ic) = phis(ic)
             ths(:,ic) = thts
         ENDDO
 
 !       Create a bare harmonics object evaluated at this grid
         info%Ys = YType(ths, phs, p)
-    ENDIF
+        info%Ys%nt = nt
+        info%Ys%np = np
+        info%Ys%dphi = dphi
+        info%Ys%wg = wg
+        DEALLOCATE(xs, wg)
 
-    ALLOCATE(info%es(2*(p-1)+1, np), info%cPmn(p, 2*(p-1)+1, nt), cPt(nt, p*(p+1)/2))
-    ALLOCATE(info%esf(2*(p-1)+1, npf + np), info%cPmnf(p, 2*(p-1)+1, ntf + nt))
+        DO i = 1,nt
+            t = thts(i)/info%thtc
+            info%n(i) = EXP(2D0*EXP(-1D0/t)/(t - 1D0))
+        ENDDO
+    ENDIF
 
 !   Matrix size
     info%Nmat = 3*info%Y%nt*info%Y%np
     info%NmatT= info%Nmat*info%NCell
-
-!   Exponential calculation part (coarse and fine)
-    DO m = -(p-1),(p-1)
-        ind = m + p
-        info%es(ind,:) = EXP(ii*DBLE(m)*info%Y%phi)*info%Y%dphi
-    ENDDO
-
-!   Legendre polynomial calculation part (coarse and fine)
-    cPt = Alegendre(p-1,COS(info%Y%tht))
-    it = 0
-    DO n = 0, p-1
-        ind = n+1
-        im = 0
-        DO m = -(p-1),p-1
-            im = im + 1
-            IF(ABS(m) .gt. n) THEN
-                info%cPmn(ind,im,:) = 0D0
-            ELSEIF(m .le. 0) THEN
-                it = it + 1
-                IF(m.eq.-n) im2 = it
-                info%cPmn(ind,im,:) = (-1D0)**m*cPt(:, im2 + abs(m))
-            ELSE
-                info%cPmn(ind,im,:) = (-1D0)**m*info%cPmn(ind, im - 2*m, :)
-            ENDIF
-        ENDDO
-    ENDDO
-
-    IF(info%NCell .gt. 1 .or. info%periodic) THEN
-!       Fine part, essentially done on 2 grids
-!       Technically the grid goes up to order q, but we only calculate up to p
-        DO m = -(p-1),(p-1)
-            ind = m + p
-            info%esf(ind,:) = EXP(ii*DBLE(m)*info%Ys%ph(1,:))
-        ENDDO
-
-!       Manage the dphi
-        DO ic = 1,np + npf
-            IF(ic .le. np) THEN
-                info%esf(:,ic) = info%esf(:,ic)*info%Y%dphi
-            ELSE
-                info%esf(:,ic) = info%esf(:,ic)*info%Yf%dphi
-            ENDIF
-        ENDDO
-        DEALLOCATE(cPt)
-!       Technically the grid goes up to order q, but we only calculate up to p
-        ALLOCATE(cPt(nt + ntf, p*(p+1)/2))
-        cPt = Alegendre(p-1,COS(info%Ys%th(:,1)))
-        it = 0
-        DO n = 0, p-1
-            ind = n+1
-            im = 0
-            DO m = -(p-1),p-1
-                im = im + 1
-                IF(ABS(m) .gt. n) THEN
-                    info%cPmnf(ind,im,:) = 0D0
-                ELSEIF(m .le. 0) THEN
-                    it = it + 1
-                    IF(m.eq.-n) im2 = it
-                    info%cPmnf(ind,im,:) = &
-                        (-1D0)**m*cPt(:, im2 + abs(m))
-                ELSE
-                    info%cPmnf(ind,im,:) = &
-                        (-1D0)**m*info%cPmnf(ind, im - 2*m, :)
-                ENDIF
-            ENDDO
-        ENDDO
-    ENDIF
     
 !   Cell-cell interaction paramters (i.e. Morse and Lennard-Jones)
 !   The below parameters seem ok, but perhaps could use a bit of tweaking.
