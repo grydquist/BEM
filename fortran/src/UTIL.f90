@@ -1102,7 +1102,7 @@ FUNCTION PGij(r, bxs, bv, eye, xi, fourier) RESULT(A)
                 rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
 
 !               Check cutoff in here as well
-                IF(.not. flag .and. norm2(rcur)*xi.gt.3.5) CYCLE
+                IF(.not. flag .and. NORM2(rcur)*xi.gt.3.5) CYCLE
 
 !               Cycle if the contribution will be small enough
                 A    = A + REAL_G_HAS(rcur, xi, eye)
@@ -1167,7 +1167,7 @@ FUNCTION PTij(r, bxs, bv, n, eye, xi, x, fourier) RESULT(A)
                 rcur = r + i*bv(:,1) + j*bv(:,2) + k*bv(:,3)
 
 !               Check cutoff in here as well
-                IF(.not. flag .and. norm2(rcur)*xi.gt.3.5) CYCLE
+                IF(.not. flag .and. NORM2(rcur)*xi.gt.3.5) CYCLE
 
                 ! A   = A + REAL_T_HAS(rcur, xi, n, eye)
                 A   = A + REAL_T_MAR(rcur, xi, n, eye)

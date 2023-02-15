@@ -123,7 +123,7 @@ FUNCTION newinfo(filein) RESULT (info)
     IF(TRIM(cellchar) .eq. 's') info%shear  = .true.
 
     info%GMRES_it = 25
-    info%GMRES_tol = 5D-7
+    info%GMRES_tol = 1D-6
     
 END FUNCTION newinfo
 

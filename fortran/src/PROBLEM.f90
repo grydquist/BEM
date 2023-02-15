@@ -125,7 +125,9 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
         prob%cell(ic) = celltmp
         prob%cell(ic)%id = ic
         write(icC, "(I0.1)") ic
-        prob%cell(ic)%fileout = TRIM('cell_'//icC)
+        prob%cell(ic)%fileout = TRIM('cell_'//icC)     
+!       Singular integration stuff
+        ALLOCATE(prob%cell(ic)%sing_inds(2, info%Y%nt, info%Y%np, prob%NCell))
     ENDDO
     prob%fileout=TRIM(fileout)
     
@@ -598,6 +600,9 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             CALL EwaldPreCalc(nv2, Y, fmn=nmnR(2,:))
             CALL EwaldPreCalc(nv3, Y, fmn=nmnR(3,:))
         ENDIF
+        
+!       Reset singular inds location
+        cell%sing_inds = -1
     ENDDO
 
     IF(info%periodic) THEN; 
