@@ -68,7 +68,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     CHARACTER(len = 30) :: icC
     INTEGER :: m, n, ic, pthline, it, sqre, nprow, npcol, nb, p_inf, &
                myrow, mycol, np, nq, nqrhs, ictxt, tot_blocks, &
-               xblx, yblx, itb, i, ib, j, jb, strti, strtj, nbx, nby
+               xblx, yblx, itb, i, ib, j, jb, strti, strtj, nbx, nby, ntm, npm
     REAL(KIND = 8) :: Gfac, zm
     REAL(KIND = 8), ALLOCATABLE :: Gtmp(:,:,:,:)
     LOGICAL :: fl = .false.
@@ -127,7 +127,10 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
         write(icC, "(I0.1)") ic
         prob%cell(ic)%fileout = TRIM('cell_'//icC)     
 !       Singular integration stuff
-        ALLOCATE(prob%cell(ic)%sing_inds(2, info%Y%nt, info%Y%np, prob%NCell))
+        ntm = MAX(info%Y%nt, info%Ys%nt)
+        npm = MAX(info%Y%np, info%Ys%np)
+        ALLOCATE(prob%cell(ic)%sing_inds(2, info%Y%nt, info%Y%np, prob%NCell), &
+                 prob%cell(ic)%cut_box  (3, info%Y%nt, info%Y%np, ntm, npm, prob%NCell))
     ENDDO
     prob%fileout=TRIM(fileout)
     
@@ -395,8 +398,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     ENDDO
 !    ============================
     
-!   Should we continue from a spot where we left off? !! Not working right now,
-    !! doesn't return the same values for some reason
+!   Should we continue from a spot where we left off?
     IF(cont .eq. "Yes") CALL prob%Continue()
     
 !   Write initial configuration
@@ -600,9 +602,6 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             CALL EwaldPreCalc(nv2, Y, fmn=nmnR(2,:))
             CALL EwaldPreCalc(nv3, Y, fmn=nmnR(3,:))
         ENDIF
-        
-!       Reset singular inds location
-        cell%sing_inds = -1
     ENDDO
 
     IF(info%periodic) THEN; 
@@ -914,10 +913,10 @@ END FUNCTION LHSCmpProb
 
 ! -------------------------------------------------------------------------!
 ! Finds equivalent strain rate
-FUNCTION RHSGalProb(prob, xv, fv) RESULT(bmn) !!! OPtional ntjo, ntji
+FUNCTION RHSGalProb(prob, xv, fv) RESULT(bmn)
     CLASS(probType), TARGET :: prob
     TYPE(sharedType), POINTER :: info
-    REAL(KIND = 8), ALLOCATABLE :: xv(:,:), fv(:,:), b(:), b1(:)
+    REAL(KIND = 8), ALLOCATABLE :: xv(:,:), fv(:,:), b(:), b1(:), b_t(:)
     COMPLEX(KIND = 8), ALLOCATABLE :: bmn1(:), bmn(:)
     INTEGER :: ic, row, row2, mnmat, th_st, th_end
 
@@ -926,7 +925,7 @@ FUNCTION RHSGalProb(prob, xv, fv) RESULT(bmn) !!! OPtional ntjo, ntji
     mnmat = 3*(info%Y%p + 1)*(info%Y%p + 1)
     bmn1 = 0D0
     ALLOCATE(bmn(mnmat*info%NCell), &
-             b1(3*info%Y%nt*info%Y%np))
+             b1(info%Nmat))
     bmn = 0D0
 
 !   Get the vector with the RHS evaluated at all of the intg points
@@ -957,7 +956,7 @@ END FUNCTION RHSGalProb
 ! EHS calcultor at all int points
 FUNCTION RHSProb(prob, xv, fv) RESULT(b) !!! OPtional ntjo, ntji
     CLASS(probType), TARGET :: prob
-    REAL(KIND = 8), ALLOCATABLE :: xv(:,:), fv(:,:), b(:), vec_t(:)
+    REAL(KIND = 8), ALLOCATABLE :: xv(:,:), fv(:,:), b(:), vec_t(:), b_t(:)
     TYPE(sharedType), POINTER :: info
     TYPE(cellType), POINTER :: cell, celli
     REAL(KIND = 8) :: lam
@@ -966,16 +965,10 @@ FUNCTION RHSProb(prob, xv, fv) RESULT(b) !!! OPtional ntjo, ntji
     info => prob%info
 
     lam = prob%cell(1)%lam
-    ALLOCATE(b(info%NmatT))
+    ALLOCATE(b(info%NmatT), &
+           b_t(info%NmatT))
 
     b = 0D0
-    vec_t = b
-!   Fill out initial RHS vec, starting with periodic portion if present
-    IF(info%periodic) THEN
-        IF(prob%cm%mas()) CALL EwaldG(info=info, x0=xv, f=fv, strt=1, u1=b, full=.true.)
-        IF(prob%cm%mas()) b = -b/(4D0*pi*(1D0 + lam)) ! Most general is to loop over cells here
-        !!!!!!!!!!! Parallel
-    ENDIF
 
 !   Now real-space part
     DO ic = info%PCells(1,1), info%PCells(1,2)
@@ -1002,6 +995,13 @@ FUNCTION RHSProb(prob, xv, fv) RESULT(b) !!! OPtional ntjo, ntji
     ENDDO
 
     b = prob%cm%reduce(b)
+
+!   Fill out initial RHS vec, starting with periodic portion if present
+    b_t = 0D0
+    IF(info%periodic) THEN
+        CALL EwaldG(info=info, x0=xv, f=fv, strt=1, u1=b_t, full=.true., cm=prob%cm)
+        b = b - b_t/(4D0*pi*(1D0 + lam)) ! Most general is to loop over cells here
+    ENDIF
 
 END FUNCTION RHSProb
 

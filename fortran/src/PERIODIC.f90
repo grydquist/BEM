@@ -126,19 +126,20 @@ END SUBROUTINE EwaldPreCalc
 ! See: Spectrally accurate fast summation for periodic Stokes potentials
 !       D. Lindbo, AK Tornberg
 ! Can be used to interpolate back to grid.
-SUBROUTINE EwaldG(Ht, info, x0, f, strt, full, u3, u1)
+SUBROUTINE EwaldG(Ht, info, x0, f, strt, full, u3, u1, cm)
     REAL(KIND = 8), INTENT(OUT), OPTIONAL :: Ht(:,:,:,:), u3(:,:), u1(:)
     REAL(KIND = 8), INTENT(IN) :: x0(:,:)
     REAL(KIND = 8) :: bvi_gr(3,3), bv_gr(3,3), rr(3), r2, k3(3), &
                       kn, B(3,3), xcur(3)
     REAL(KIND = 8), ALLOCATABLE :: wrk(:), Htout(:,:,:,:)
     TYPE(sharedType), INTENT(IN), POINTER :: info
+    TYPE(cmType), INTENT(IN), POINTER :: cm
     REAL(KIND = 8), INTENT(IN) :: f(:,:)
     LOGICAL, INTENT(IN), OPTIONAL :: full
     INTEGER, INTENT(IN), OPTIONAL :: strt
     COMPLEX(KIND = 8), ALLOCATABLE ::  H(:,:,:,:), Hh(:,:,:,:), Hht(:,:,:,:), Htmp(:,:,:)
     INTEGER :: i, j, k, pts, curijk(3), gp, inds(3), &
-               iper, jper, kper, iw, jw, kw, nt, lwrk
+               iper, jper, kper, iw, jw, kw, nt, lwrk, i1, i2
 
     gp = info%gp
 
@@ -147,6 +148,9 @@ SUBROUTINE EwaldG(Ht, info, x0, f, strt, full, u3, u1)
 
 !   Total number of points
     nt = size(x0)/3
+
+    i1 = (info%PCells(1,1) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,1) - 1)*info%Y%np + 1
+    i2 = (info%PCells(1,2) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,2)    )*info%Y%np
 
     ALLOCATE(H(3,gp,gp,gp), Hh(3,gp,gp,gp), &
            Hht(3,gp,gp,gp), Htmp(gp,gp,gp), Htout(3,gp,gp,gp))
@@ -159,7 +163,7 @@ SUBROUTINE EwaldG(Ht, info, x0, f, strt, full, u3, u1)
 !   Now we can start the actual construction of the Ht matrix. Start with the H matrix,
 !   which is just the point forces smeared onto grid points. Go to each force point and
 !   smear to supporting points
-    DO i = 1, nt
+    DO i = i1, i2
 !       At a point, find grid index & loop over supporting grid points
         xcur = x0(:,i)
         curijk(1) = FLOOR(bvi_gr(1,1)*xcur(1) + bvi_gr(1,2)*xcur(2) + bvi_gr(1,3)*xcur(3))
@@ -201,6 +205,8 @@ SUBROUTINE EwaldG(Ht, info, x0, f, strt, full, u3, u1)
             H(:,iper,jper,kper) = H(:,iper,jper,kper) + f(:,i)*info%par*EXP(info%parexp*r2)
         ENDDO
     ENDDO
+
+    H = cm%reduce(H)
 
 !   FFT
     Htmp = H(1,:,:,:)
@@ -280,174 +286,13 @@ SUBROUTINE EwaldG(Ht, info, x0, f, strt, full, u3, u1)
             RETURN
         ENDIF
         IF(PRESENT(u1)) THEN
-            CALL Ewaldint(Htout, info, x0, u1=u1)
+            CALL Ewaldint(Htout, info, x0, u1=u1, cm=cm)
         ENDIF
         IF(PRESENT(u3)) THEN
-            CALL Ewaldint(Htout, info, x0, u3=u3)
+            CALL Ewaldint(Htout, info, x0, u3=u3, cm=cm)
         ENDIF
     ENDIF
 END SUBROUTINE EwaldG
-
-! -------------------------------------------------------------------------!
-! For a given set of cells with point forces, construct the H_tilde grid
-! for the single layer
-! See: Spectrally accurate fast summation for periodic Stokes potentials
-!       D. Lindbo, AK Tornberg
-! Can be used to interpolate back to grid.
-! Note that in most cases, f will be the normal vector x a sphHarm
-SUBROUTINE EwaldTold(Ht, info, x0, f, full, um, u3, strt)
-    COMPLEX(KIND = 8), INTENT(OUT), OPTIONAL :: Ht(:,:,:,:,:)
-    REAL(KIND = 8), INTENT(IN) :: x0(:,:)
-    TYPE(sharedType), INTENT(IN), POINTER :: info
-    COMPLEX(KIND = 8), INTENT(IN) :: f(:,:)
-    LOGICAL, INTENT(IN), OPTIONAL :: full
-    INTEGER, INTENT(IN), OPTIONAL :: strt
-    COMPLEX(KIND = 8), INTENT(OUT), OPTIONAL :: um(:,:,:,:,:), u3(:,:,:)
-    COMPLEX(KIND = 8), ALLOCATABLE ::  H(:,:,:,:), Hh(:,:,:,:), &
-        Hht(:,:,:,:,:), Htmp(:,:,:)
-    COMPLEX(KIND = 8) :: B(3,3,3)
-    REAL(KIND = 8) :: bvi_gr(3,3), bv_gr(3,3), rr(3), r2, k3(3), &
-                      kn, xcur(3)
-    REAL(KIND = 8), ALLOCATABLE :: wrk(:)
-    INTEGER :: i, j, k, pts, curijk(3), gp, inds(3), &
-               iper, jper, kper, iw, jw, kw, nt, lwrk, strti
-    gp = info%gp
-
-    lwrk = gp*2*3
-    ALLOCATE(wrk(lwrk))
-
-!   Total number of points
-    nt = size(f)/3
-
-    ALLOCATE(H(3,gp,gp,gp), Hh(3,gp,gp,gp), &
-           Hht(3,3,gp,gp,gp), Htmp(gp,gp,gp))
-    H = 0D0
-    IF(PRESENT(strt)) strti=strt
-
-!   Subgrid basis vectors and inverse
-    bv_gr = info%bv/REAL(gp)
-    bvi_gr = INVERT33(bv_gr)
-
-!   Now we can start the actual construction of the Ht matrix. Start with the H matrix,
-!   which is just the point forces smeared onto grid points. Go to each force point and
-!   smear to supporting points
-    DO i = 1, nt
-!       At a point, find grid index & loop over supporting grid points
-!       Since we only do this for one surface, start at the points at this surface
-        xcur = x0(:,i + (strti-1)*nt)
-        curijk(1) = FLOOR(bvi_gr(1,1)*xcur(1) + bvi_gr(1,2)*xcur(2) + bvi_gr(1,3)*xcur(3))
-        curijk(2) = FLOOR(bvi_gr(2,1)*xcur(1) + bvi_gr(2,2)*xcur(2) + bvi_gr(2,3)*xcur(3))
-        curijk(3) = FLOOR(bvi_gr(3,1)*xcur(1) + bvi_gr(3,2)*xcur(2) + bvi_gr(3,3)*xcur(3))
-        DO pts = 1,info%suppPoints
-            inds = curijk + info%suppmat(:, pts)
-
-!           Manage periodicity
-            IF(inds(1) .lt. 1) THEN
-                iper = inds(1) + gp
-            ELSEIF(inds(1) .gt. gp) THEN
-                iper = inds(1) - gp
-            ELSE
-                iper = inds(1)
-            ENDIF
-            IF(inds(2) .lt. 1) THEN
-                jper = inds(2) + gp
-            ELSEIF(inds(2) .gt. gp) THEN
-                jper = inds(2) - gp
-            ELSE
-                jper = inds(2)
-            ENDIF
-            IF(inds(3) .lt. 1) THEN
-                kper = inds(3) + gp
-            ELSEIF(inds(3) .gt. gp) THEN
-                kper = inds(3) - gp
-            ELSE
-                kper = inds(3)
-            ENDIF
-
-!           Add smeared point forces to grid point
-            rr(1) = xcur(1) - (bv_gr(1,1)*inds(1) + bv_gr(1,2)*inds(2) + bv_gr(1,3)*inds(3)) 
-            rr(2) = xcur(2) - (bv_gr(2,1)*inds(1) + bv_gr(2,2)*inds(2) + bv_gr(2,3)*inds(3)) 
-            rr(3) = xcur(3) - (bv_gr(3,1)*inds(1) + bv_gr(3,2)*inds(2) + bv_gr(3,3)*inds(3)) 
-
-            r2 = rr(1)*rr(1) + rr(2)*rr(2) + rr(3)*rr(3)
-
-            H(:,iper,jper,kper) = H(:,iper,jper,kper) + f(:,i)*info%par*EXP(info%parexp*r2)
-        ENDDO
-    ENDDO
-
-!   FFT
-    Htmp = H(1,:,:,:)
-    Htmp = FFT3(Htmp, info%WSAVE)
-    CALL FFTSHIFT(Htmp)
-    Hh(1,:,:,:) = Htmp
-
-    Htmp = H(2,:,:,:)
-    Htmp = FFT3(Htmp, info%WSAVE)
-    CALL FFTSHIFT(Htmp)
-    Hh(2,:,:,:) = Htmp
-
-    Htmp = H(3,:,:,:)
-    Htmp = FFT3(Htmp, info%WSAVE)
-    CALL FFTSHIFT(Htmp)
-    Hh(3,:,:,:) = Htmp
-
-    Hht = 0D0
-!   Now perform the convolution with the kernel (which is a truncated sum in spectral space)
-!   (gp needs to be even)
-!   Also assumes the Hh matrix has negative and positive parts
-    DO iw = -gp/2, gp/2 - 1
-        DO jw = -gp/2, gp/2 - 1
-            DO kw = -gp/2, gp/2 - 1
-                i = iw + gp/2 + 1
-                j = jw + gp/2 + 1
-                k = kw + gp/2 + 1
-
-                k3 = info%kv(:,1)*iw + info%kv(:,2)*jw + info%kv(:,3)*kw
-                kn = NORM2(k3)
-
-!               Truncate
-                IF(kn .eq. 0) CYCLE
-
-!               Amplification factor, gets multiplied onto spectral point forces
-                B = -BT(k3, info%xi, kn, info%eta)*ii
-                Hht(:,:, i, j, k) = B(:,:,1)*Hh(1,i,j,k) &
-                                  + B(:,:,2)*Hh(2,i,j,k) &
-                                  + B(:,:,3)*Hh(3,i,j,k)
-
-            ENDDO
-        ENDDO
-    ENDDO
-
-!!!! Note: FFTshift only for even number grid. Need to make iFFTshift for odds
-    DO i = 1,3
-        DO j = 1,3
-            Htmp = Hht(i,j,:,:,:)
-            CALL FFTSHIFT(Htmp)
-            Htmp = iFFT3(Htmp, info%WSAVE)
-            Hht(i,j,:,:,:) = Htmp
-        ENDDO
-    ENDDO
-
-    IF(PRESENT(Ht)) Ht = Hht
-
-!   If we want, we can just do the next step and integrate
-    IF(PRESENT(full) .and. full) THEN
-        IF(.not. PRESENT(u3) .and. .not.PRESENT(um)) THEN
-            print *, "Warning: no output matrix for full Ewald G, exiting routine"
-            RETURN
-        ENDIF
-        IF(PRESENT(u3) .and. PRESENT(um)) THEN
-            print *, "Warning: too many output matrices for full Ewald G, exiting routine"
-            RETURN
-        ENDIF
-        IF(PRESENT(um)) THEN
-            ! CALL Ewaldint(Hht, info, x0, um=um)
-        ENDIF
-        IF(PRESENT(u3)) THEN
-            ! CALL Ewaldint(Hht, info, x0, u3=u3)
-        ENDIF
-    ENDIF
-END SUBROUTINE EwaldTold
 
 ! -------------------------------------------------------------------------!
 ! For a given set of cells with point forces, construct the H_tilde grid
@@ -646,14 +491,15 @@ END SUBROUTINE EwaldT
 ! -------------------------------------------------------------------------!
 ! Given an Ht grid as above and a set of points, integrates back to the points
 ! For single layer
-SUBROUTINE EwaldintG(Ht, info, x0, u3, u1)
+SUBROUTINE EwaldintG(Ht, info, x0, u3, u1, cm)
     REAL(KIND = 8), INTENT(IN) :: Ht(:,:,:,:), x0(:,:)
     TYPE(sharedType), INTENT(IN), POINTER :: info
+    TYPE(cmType), INTENT(IN), OPTIONAL, POINTER :: cm
     REAL(KIND = 8), INTENT(OUT), OPTIONAL :: u3(:,:), u1(:)
     REAL(KIND = 8) :: Jbv, xcur(3), rr(3), r2, &
                       bv_gr(3,3), bvi_gr(3,3), h
     INTEGER :: nt, i, curijk(3), inds(3), &
-               iper, jper, kper, pts, gp
+               iper, jper, kper, pts, gp, i1, i2
 
     nt = size(x0)/3
     gp = info%gp
@@ -662,8 +508,16 @@ SUBROUTINE EwaldintG(Ht, info, x0, u3, u1)
     bvi_gr = INVERT33(bv_gr)
     h = 1D0/REAL(gp)
 
+!   Get indices for looping parallel (was previous way to parallelize)
+!   The master list of points goes cell -> theta -> phi
+    i1 = (info%PCells(1,1) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,1) - 1)*info%Y%np + 1 ! 1
+    i2 = (info%PCells(1,2) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,2)    )*info%Y%np ! tpts
+
 !   Sometimes we want the output in different ranks
-    IF(PRESENT(u3)) u3 = 0D0
+    IF(PRESENT(u3)) THEN
+        print *, 'ERROR:3D vector not currently supported for Ewald back-integration'
+        stop
+    ENDIF
     IF(PRESENT(u1)) u1 = 0D0
     IF(PRESENT(u3) .and. PRESENT(u1)) THEN
         print *, 'ERROR: For integration on periodic Fourier matrix,',  &
@@ -672,7 +526,7 @@ SUBROUTINE EwaldintG(Ht, info, x0, u3, u1)
     ENDIF
 
 !   This is the "interpolate back" step, where we have and send it back to discrete points
-    DO i = 1, nt
+    DO i = i1, i2
 !       At a point, find grid index & loop over supporting grid points
         xcur = x0(:,i)
         curijk(1) = FLOOR(bvi_gr(1,1)*xcur(1) + bvi_gr(1,2)*xcur(2) + bvi_gr(1,3)*xcur(3))
@@ -718,6 +572,7 @@ SUBROUTINE EwaldintG(Ht, info, x0, u3, u1)
                            + Ht(:, iper, jper, kper)*info%par*EXP(r2*info%parexp)*h*h*h*Jbv
         ENDDO
     ENDDO
+    u1 = cm%reduce(u1)
 END SUBROUTINE EwaldintG
 
 ! -------------------------------------------------------------------------!
@@ -810,114 +665,6 @@ SUBROUTINE EwaldintT(Ht, info, x0, u3, u1, cm)
     ENDDO
     u1 = cm%reduce(u1)
 END SUBROUTINE EwaldintT
-
-! -------------------------------------------------------------------------!
-! Given an Ht grid as above and a set of points, integrates back to the points
-! For double layer
-SUBROUTINE EwaldintTold(Ht, info, x0, u3, um)
-    REAL(KIND = 8), INTENT(IN) :: x0(:,:)
-    COMPLEX(KIND = 8), OPTIONAL, INTENT(IN) :: Ht(:,:,:,:,:)
-    TYPE(sharedType), INTENT(IN), POINTER :: info
-    COMPLEX(KIND = 8), OPTIONAL, INTENT(OUT) :: u3(:,:,:), um(:,:,:,:,:)
-    REAL(KIND = 8) :: Jbv, xcur(3), rr(3), r2, &
-                      bv_gr(3,3), bvi_gr(3,3), h
-    INTEGER :: nt, np, nc, tpts, i, curijk(3), inds(3), &
-               iper, jper, kper, pts, gp, sz(5), it, ip, ic, i1, i2
-
-    tpts = size(x0)/3
-    gp = info%gp
-    Jbv = DET3(info%bv)
-    bv_gr = info%bv/REAL(gp)
-    bvi_gr = INVERT33(bv_gr)
-    h = 1D0/REAL(gp)
-
-!   Get indices for looping parallel (was previous way to parallelize)
-!   The master list of points goes cell -> theta -> phi
-    i1 = 1!(info%PCells(1,1) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,1) - 1)*info%Y%np + 1
-    i2 = tpts!(info%PCells(1,2) - 1)*info%Y%nt*info%Y%np + (info%PCells(2,2)    )*info%Y%np
-
-!   Often, we want an output matrix of size (3,3,nt,np,ncell) as output.
-!   Exception checking for this option
-    IF(PRESENT(u3)) u3 = 0D0
-    IF(PRESENT(um)) THEN
-        um = 0D0
-        sz = SHAPE(um)
-        nt = sz(3)
-        np = sz(4)
-        nc = sz(5)
-        ic = 1!info%PCells(1,1) ! Again, previous, less efficient way to parallelize
-        it = 1!info%PCells(2,1)
-        ip = 0
-    ENDIF
-    IF(PRESENT(u3) .and. PRESENT(um)) THEN
-        print *, 'ERROR: For integration on periodic fourier matrix,',  &
-                 'choose rank 3 or rank 5 matrices, not both'
-        stop
-    ENDIF
-
-!   This is the "interpolate back" step, where we have and send it back to discrete points
-    DO i = i1, i2
-!       Lots of managing of indices if we want matrix-type output
-        IF(PRESENT(um)) THEN
-            ip = ip + 1
-            IF(ip .gt. np) THEN
-                ip = 1
-                it = it + 1
-            ENDIF
-            IF(it .gt. nt) THEN
-                it = 1
-                ic = ic + 1
-            ENDIF
-        ENDIF
-        
-!       At a point, find grid index & loop over supporting grid points
-        xcur = x0(:,i)
-        curijk(1) = FLOOR(bvi_gr(1,1)*xcur(1) + bvi_gr(1,2)*xcur(2) + bvi_gr(1,3)*xcur(3))
-        curijk(2) = FLOOR(bvi_gr(2,1)*xcur(1) + bvi_gr(2,2)*xcur(2) + bvi_gr(2,3)*xcur(3))
-        curijk(3) = FLOOR(bvi_gr(3,1)*xcur(1) + bvi_gr(3,2)*xcur(2) + bvi_gr(3,3)*xcur(3))
-        DO pts = 1,info%suppPoints
-            inds = curijk + info%suppmat(:, pts)
-
-!           Manage periodicity
-            IF(inds(1) .lt. 1) THEN
-                iper = inds(1) + gp
-            ELSEIF(inds(1) .gt. gp) THEN
-                iper = inds(1) - gp
-            ELSE
-                iper = inds(1)
-            ENDIF
-            IF(inds(2) .lt. 1) THEN
-                jper = inds(2) + gp
-            ELSEIF(inds(2) .gt. gp) THEN
-                jper = inds(2) - gp
-            ELSE
-                jper = inds(2)
-            ENDIF
-            IF(inds(3) .lt. 1) THEN
-                kper = inds(3) + gp
-            ELSEIF(inds(3) .gt. gp) THEN
-                kper = inds(3) - gp
-            ELSE
-                kper = inds(3)
-            ENDIF
-
-!           Add smeared point forces to grid point
-            rr(1) = xcur(1) - (bv_gr(1,1)*inds(1) + bv_gr(1,2)*inds(2) + bv_gr(1,3)*inds(3)) 
-            rr(2) = xcur(2) - (bv_gr(2,1)*inds(1) + bv_gr(2,2)*inds(2) + bv_gr(2,3)*inds(3)) 
-            rr(3) = xcur(3) - (bv_gr(3,1)*inds(1) + bv_gr(3,2)*inds(2) + bv_gr(3,3)*inds(3)) 
-
-            r2 = rr(1)*rr(1) + rr(2)*rr(2) + rr(3)*rr(3)
-
-            IF(PRESENT(u3)) &
-            u3(:,:,i) = u3(:,:,i) + Ht(:, :, iper, jper, kper)*info%par*EXP(r2*info%parexp)*h*h*h*Jbv
-
-            IF(PRESENT(um)) &
-            um(:,:,it,ip,ic) = um(:,:,it,ip,ic) &
-                             + Ht(:, :, iper, jper, kper)*info%par*EXP(r2*info%parexp)*h*h*h*Jbv
-
-        ENDDO
-    ENDDO
-END SUBROUTINE EwaldintTold
 
 ! ! -------------------------------------------------------------------------!
 ! Double Layer amplification factor (all unrolled)

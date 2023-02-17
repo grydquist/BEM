@@ -55,7 +55,7 @@ TYPE cellType
 
 !   Tabulates which indices to rotate about for singular intg.
 !   so I don't have to find it every GMRES iteratio
-    INTEGER, ALLOCATABLE :: sing_inds(:,:,:,:)
+    INTEGER, ALLOCATABLE :: sing_inds(:,:,:,:), cut_box(:,:,:,:,:,:)
 
 !   Name of output file
     CHARACTER(:), ALLOCATABLE :: fileout
@@ -971,7 +971,7 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
     LOGICAL ::  sing, periodic, dbgflg=.false.
     INTEGER, INTENT(IN), OPTIONAL :: itt1, itt2
     INTEGER :: i, j, nt, np, i2, j2, ic, row, iter, &
-               iper, jper, kper, indi, indj, it1, it2
+               iper, jper, kper, indi, indj, it1, it2, cid
     INTEGER(KIND = 8) :: tic, toc, rate
 
     info => cell%info
@@ -1043,9 +1043,11 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
         nJrecon =celli%nJrecon
         xrecon = celli%xrecon
         Yf => info%Yf
+        cid = celli%id
     ELSE
         nJrecon =cell%nJrecon
         xrecon = cell%xrecon
+        cid = cell%id
     ENDIF
 
 !   Want normals on unrotated grid if I might do integration on unrotated grid
@@ -1273,32 +1275,23 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
             DO j2 = 1,np
                 INNER:DO i2 = 1,nt
 
-                    r = xcg(:,i2,j2) - xcr
-
 !                   Use periodic Greens (or not)
                     IF(periodic) THEN
 !                       Three cases need consideration here: singular (integ on same cell), near-singular, non-singular
 !                       Each has unique ways that these integrals need to be calc'd
 
-                        rt = r
-                        IF(PRESENT(celli)) THEN
-!                           Check over surrounding boxes to see if there's a nearby point
-                            minr = NORM2(r)
-                            DO iper = -1,1
-                                DO jper = -1,1
-                                    DO kper = -1,1
-                                        rcur = r &
-                                             - iper*info%bv(:,1) &
-                                             - jper*info%bv(:,2) &
-                                             - kper*info%bv(:,3)
-                                        IF(NORM2(rcur) .le. minr) THEN
-                                            rt = rcur
-                                            minr = NORM2(rcur)
-                                        ENDIF
-                                    ENDDO
-                                ENDDO
-                            ENDDO
-                        ENDIF
+!                       We checked if this point is in the cutoff range in RHS,
+!                       cycle if not
+                        IF(cell%cut_box(1, i ,j ,i2 ,j2 , cid) .eq. 2) CYCLE INNER
+
+!                       Bring to nearest distance
+                        rt = xcg(:,i2,j2) - xcr
+
+                        IF(PRESENT(celli))&
+                        rt = rt &
+                           - cell%cut_box(1, i, j, i2, j2, cid)*info%bv(:,1) &
+                           - cell%cut_box(2, i, j, i2, j2, cid)*info%bv(:,2) &
+                           - cell%cut_box(3, i, j, i2, j2, cid)*info%bv(:,3)
 
                         ! IF(NORM2(rt)*info%xi.gt.350) THEN
                         IF(NORM2(rt)*info%xi.gt.3.5) THEN
@@ -1309,6 +1302,7 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
                             ! ft2 = PTij(rt, 4, info%bv, nJt(:,i2,j2), info%eye, .3545d0, fourier = .true.)
                         ENDIF
                     ELSE
+                        r = xcg(:,i2,j2) - xcr
                         ft2 = Tij(r, nJt(:,i2,j2))
                     ENDIF
                     IF(sing) ft2 = ft2*info%n(i2)
@@ -1406,7 +1400,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
     LOGICAL, ALLOCATABLE :: vrecon(:, :), xrecon(:,:)
     INTEGER, INTENT(IN), OPTIONAL :: itt1, itt2
     INTEGER :: i, j, nt, np, i2, j2, ic, row, &
-               iper, jper, kper, indi, indj, it1, it2
+               iper, jper, kper, indi, indj, it1, it2, cid
     INTEGER(KIND = 8) :: tic, toc, rate
 
     info => cell%info
@@ -1474,8 +1468,10 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
     IF(PRESENT(celli)) THEN
         xrecon = celli%xrecon
         Yf => info%Yf
+        cid = celli%id
     ELSE
         xrecon = cell%xrecon
+        cid = cell%id
     ENDIF
 
     Utmp = TRANSPOSE(info%dU)
@@ -1581,6 +1577,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
 !               Well-separated, normal grid/integration
                 ELSE
                     sing = .false.
+                    cell%sing_inds(1, i, j, celli%id) = -1
 
 !                   We can use the coarse grid
                     nt = Y%nt
@@ -1702,7 +1699,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                         rt = r
                         IF(PRESENT(celli)) THEN
 !                           Check over surrounding boxes to see if there's a nearby point
-                            minr = rn
+                            minr = rn + 1D0
                             DO iper = -1,1
                                 DO jper = -1,1
                                     DO kper = -1,1
@@ -1713,6 +1710,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                                         IF(NORM2(rcur) .le. minr) THEN
                                             rt = rcur
                                             minr = NORM2(rcur)
+                                            cell%cut_box(:, i ,j ,i2 ,j2 , cid) = (/iper,jper,kper/)
                                         ENDIF
                                     ENDDO
                                 ENDDO
@@ -1721,6 +1719,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                             
                         IF(NORM2(rt)*info%xi.gt.3.5) THEN
                         ! IF(NORM2(rt)*info%xi.gt.350) THEN
+                            cell%cut_box(:, i ,j ,i2 ,j2 , cid) = 2
                             CYCLE INNER
                         ELSE
                             ft2 = PGij(rt, 0, info%bv, info%eye, info%xi)
