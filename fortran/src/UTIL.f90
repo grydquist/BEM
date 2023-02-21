@@ -692,6 +692,10 @@ FUNCTION ParallelSplit(tot_pts, tot_procs) RESULT(inds)
             inds(i) = ptsproc*(rem) + (ptsproc - 1)*(i - rem - 1) + 1
             ! inds(2) = ptsproc*(rem) + (ptsproc - 1)*(i - rem    )
         ENDIF
+!       Exception if more procs than pts (count down so procs skip in loop)
+        IF(i .gt. tot_pts) THEN 
+            inds(i) = inds(i - 1) - 1
+        ENDIF
     ENDDO
 
 END FUNCTION ParallelSplit

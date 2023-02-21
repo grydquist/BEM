@@ -100,12 +100,13 @@
          PROCEDURE :: REDUCERS
          PROCEDURE :: REDUCERV
          PROCEDURE :: REDUCERM
+         PROCEDURE :: REDUCER3
          PROCEDURE :: REDUCECS
          PROCEDURE :: REDUCECV
          PROCEDURE :: REDUCEC4
          PROCEDURE :: REDUCEC5
          GENERIC :: reduce => REDUCEIS, REDUCEIV, REDUCERS, REDUCERV, &
-           REDUCERM, REDUCECS, REDUCECV, REDUCEC4, REDUCEC5
+           REDUCERM, REDUCECS, REDUCECV, REDUCEC4, REDUCEC5, REDUCER3
 !        Doing MPI_GATHER on different data types
          PROCEDURE :: GATHERIS
          PROCEDURE :: GATHERIV
@@ -770,6 +771,25 @@
 
       RETURN
       END FUNCTION REDUCERM
+!--------------------------------------------------------------------
+      FUNCTION REDUCER3(cm, u, iOp) RESULT(gU)
+      CLASS(cmType), INTENT(IN) :: cm
+      REAL(KIND=8), INTENT(IN) :: u(:,:,:)
+      INTEGER, INTENT(IN), OPTIONAL :: iOp
+      REAL(KIND=8) :: gU(SIZE(u,1),SIZE(u,2),SIZE(u,3))
+
+      INTEGER ierr, op
+
+      op = MPI_SUM
+      IF (PRESENT(iOp)) op = iOp
+      IF (cm%seq()) THEN
+         gU = u
+         RETURN
+      END IF
+      CALL MPI_ALLREDUCE(u, gU, SIZE(u), mpreal, op, cm%com(), ierr)
+
+      RETURN
+      END FUNCTION REDUCER3
 !--------------------------------------------------------------------
       FUNCTION REDUCECS(cm, u, iOp) RESULT(gU)
       CLASS(cmType), INTENT(IN) :: cm

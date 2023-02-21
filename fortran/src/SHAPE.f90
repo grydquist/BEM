@@ -220,11 +220,13 @@ END FUNCTION newcell
 
 ! -------------------------------------------------------------------------!
 ! Updates the values of the derivatives on the surface of the cell on fine grid.
-SUBROUTINE Derivscell(cell)
+SUBROUTINE Derivscell(cell, m_in, n_in, cm)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
+    TYPE(cmType), INTENT(IN), POINTER, OPTIONAL :: cm
     TYPE(nmType), POINTER :: nm
     TYPE(YType), POINTER :: Y
-    INTEGER :: ih, it, im, n, m, p
+    INTEGER, INTENT(IN), OPTIONAL :: m_in(2), n_in(2)
+    INTEGER :: ih, it, im, n, m, p, n_low, n_up, m_low, m_up, ml_cur, mu_cur
     COMPLEX(KIND = 8) :: f1, f2, f3
     COMPLEX(KIND = 8), ALLOCATABLE :: vcur(:,:), td1(:,:), td2(:,:), td3(:,:), td4(:,:)
 
@@ -232,6 +234,28 @@ SUBROUTINE Derivscell(cell)
     p = cell%info%Y%p
     ALLOCATE(vcur(Y%nt, Y%np), td1(Y%nt, Y%np), td2(Y%nt, Y%np), &
     td3(Y%nt, Y%np), td4(Y%nt, Y%np))
+
+    IF(PRESENT(m_in)) THEN
+        IF(.not. PRESENT(cm)) THEN
+            PRINT *, 'ERROR: must pass communicator into derivs cell' 
+            PRINT *, 'if passing parallel indices'
+            stop
+        ENDIF
+        IF(.not. PRESENT(n_in)) THEN
+            PRINT *, 'ERROR: must pass both m and n into derivs cell' 
+            PRINT *, 'if passing parallel indices'
+            stop
+        ENDIF
+        n_low = n_in(1)
+        n_up  = n_in(2)
+        m_low = m_in(1)
+        m_up  = m_in(2)
+    ELSE
+        n_low = 0
+        n_up  = p
+        m_low = 0
+        m_up  = p
+    ENDIF
 
 !   Initialize variables
     cell%xf     = 0D0
@@ -253,16 +277,30 @@ SUBROUTINE Derivscell(cell)
 !   Characteristic grid spacing
     cell%h = SQRT(cell%SA()/cell%info%Y%nt**2D0)
     
-    ih = 0
-    it = 0
+    it = n_low*n_low + m_low + n_low
 !   Loop over harmonics, but only up to coarse grid order, since the rest are 0
-    DO n = 0, p
-        im = 0
-        ih = ih + 1
+    DO n = n_low, n_up
+        ih = n + 1
 
 !       Values at current order        
         nm =>Y%nm(ih)
-        DO m = -n,n ! Could exploit symmetry here... but it isn't a big deal since it takes so little time
+
+        IF(n .eq. n_low) THEN
+            ml_cur = m_low
+            im = ml_cur + n
+        ELSE
+            ml_cur = -n
+            im = 0
+        ENDIF
+
+        IF(n .eq. n_up)  THEN
+            mu_cur = m_up
+        ELSE
+            mu_cur =  n
+        ENDIF
+
+        DO m = ml_cur, mu_cur ! Could exploit symmetry here... but it isn't a big deal since it takes so little time
+            
             it = it + 1
             im = im + 1
 
@@ -356,16 +394,37 @@ SUBROUTINE Derivscell(cell)
         ENDDO
     ENDDO
 
+!   Reduce above
+    IF(PRESENT(cm)) THEN
+        cell%xf     = cm%reduce(cell%xf)
+        cell%dxt    = cm%reduce(cell%dxt)
+        cell%dxp    = cm%reduce(cell%dxp)
+        cell%dxt2   = cm%reduce(cell%dxt2)
+        cell%dxp2   = cm%reduce(cell%dxp2)
+        cell%dxtp   = cm%reduce(cell%dxtp)
+        cell%dxt3   = cm%reduce(cell%dxt3)
+        cell%dxt2p  = cm%reduce(cell%dxt2p)
+        cell%dxtp2  = cm%reduce(cell%dxtp2)
+        cell%dxp3   = cm%reduce(cell%dxp3)
+        cell%dxt4   = cm%reduce(cell%dxt4)
+        cell%dxt3p  = cm%reduce(cell%dxt3p)
+        cell%dxt2p2 = cm%reduce(cell%dxt2p2)
+        cell%dxtp3  = cm%reduce(cell%dxtp3)
+        cell%dxp4   = cm%reduce(cell%dxp4)
+    ENDIF
+
     nm => NULL()
     Y => NULL()
 END SUBROUTINE Derivscell
 
 ! -------------------------------------------------------------------------!
 ! Gets the force jump at the locations on the cell, de-aliased!
-SUBROUTINE Stresscell(cell)
+SUBROUTINE Stresscell(cell, thti, cm)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
     TYPE(YType), POINTER :: Y
-    INTEGER :: i, j, q, rc
+    TYPE(cmType), INTENT(IN), POINTER, OPTIONAL :: cm
+    INTEGER :: i, j, q, rc, it1, it2
+    INTEGER, INTENT(IN), OPTIONAL :: thti(2)
     REAL(KIND = 8), ALLOCATABLE :: nks(:,:,:)
     REAL(KIND = 8) :: nk(3), E, F, G, L, M, N, D, k, dnt(3), dnp(3), &
                       dnt2(3), dnp2(3), dntp(3), gv(2,2), gn(2,2), &
@@ -400,8 +459,23 @@ SUBROUTINE Stresscell(cell)
     Y => cell%info%Yf
     ALLOCATE(nks(3, Y%nt, Y%np))
     
+    IF(PRESENT(thti)) THEN
+        IF(.not. PRESENT(cm)) THEN
+            PRINT *, 'ERROR: must pass communicator into stress cell' 
+            PRINT *, 'if passing parallel indices'
+            stop
+        ENDIF
+        it1 = thti(1)
+        it2 = thti(2)
+    ELSE
+        it1 = 1
+        it2 = Y%nt
+    ENDIF
+
+    nks = 0D0
+    cell%ff = 0D0
 !   Big loop over all points in grid
-    DO i = 1, Y%nt
+    DO i = it1, it2
         inner:DO j = 1, Y%np
 !           Normal vector (inward)
             nk = cross(cell%dxt(:,i,j), cell%dxp(:,i,j))
@@ -769,6 +843,11 @@ SUBROUTINE Stresscell(cell)
             
         ENDDO inner
     ENDDO
+
+    IF(PRESENT(thti)) THEN ! No clue why the generic isn't working here
+        nks = cm%REDUCER3(nks)
+        cell%ff = cm%REDUCER3(cell%ff)
+    ENDIF
 
 !   Now we need to filter for anti-aliasing. Do the transform of the force into spectral
 !   space, cut the highest modes, and transform back into physical space

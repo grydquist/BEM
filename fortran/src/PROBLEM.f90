@@ -31,7 +31,7 @@ TYPE probType
 
 !   MPI stuff
     TYPE(cmType), POINTER :: cm
-    INTEGER :: ictxt, desca(9), descb(9)
+    INTEGER :: ictxt, desca(9), descb(9), thti_f(2), der_n(2), der_m(2)
     INTEGER, ALLOCATABLE :: map_A(:,:), map_b(:)
 
     CONTAINS
@@ -69,6 +69,7 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     INTEGER :: m, n, ic, pthline, it, sqre, nprow, npcol, nb, p_inf, &
                myrow, mycol, np, nq, nqrhs, ictxt, tot_blocks, &
                xblx, yblx, itb, i, ib, j, jb, strti, strtj, nbx, nby, ntm, npm
+    INTEGER, ALLOCATABLE :: all_thti_f(:)
     REAL(KIND = 8) :: Gfac, zm
     REAL(KIND = 8), ALLOCATABLE :: Gtmp(:,:,:,:)
     LOGICAL :: fl = .false.
@@ -214,7 +215,15 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     ALLOCATE(Gtmp(prob%nts,3,3,ic))
     READ(1) Gtmp
     CLOSE(1)
-
+!   Exception for sequential below
+    IF(prob%cm%np().eq.1) THEN
+        prob%thti_f(1) = 1
+        prob%thti_f(2) = info%Yf%nt
+        prob%der_n(1)  = 0
+        prob%der_n(2)  = info%Y%p
+        prob%der_m(1)  = 0
+        prob%der_m(2)  = info%Y%p
+    ENDIF
 !   Some pre-processing for the parallel linear solver
     IF(prob%cm%np().gt.1) THEN
         
@@ -308,16 +317,57 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
                 ENDDO
             ENDDO
         ENDDO
-    ENDIF
 
+!       For the parallel part of the stress. This is different b/c we
+!       need to divvy this up so that all procs work on a single cell
+        ALLOCATE(all_thti_f(prob%cm%np()))
+        all_thti_f = ParallelSplit(info%Yf%nt, prob%cm%np())
+!       Lower bound of thetas this cell should handle
+        prob%thti_f(1) = all_thti_f(prob%cm%id() + 1)
+
+!       Upper bound (with exception for if this is the top proc)
+        IF(prob%cm%id() + 1 .ne. prob%cm%np()) THEN
+            prob%thti_f(2) = all_thti_f(prob%cm%id() + 2) - 1
+        ELSE
+            prob%thti_f(2) = info%Yf%nt
+        ENDIF
+!       Exception for if there's more procs than points
+        IF(prob%cm%id() + 1 .gt. info%Yf%nt) prob%thti_f(2) = prob%thti_f(1) - 1
+
+!       Same process for the derivatives, but we need to but the results
+!       in terms of a starting/ending p/m
+        all_thti_f = ParallelSplit((info%Y%p + 1)*(info%Y%p + 1), prob%cm%np())
+
+!       Lower n/m: cycle til I find the right one
+        DO ic = info%Y%p, 0, -1
+            IF(all_thti_f(prob%cm%id() + 1) .gt. ic*ic) THEN
+                prob%der_n(1) = ic
+                prob%der_m(1) = all_thti_f(prob%cm%id() + 1) - ic*ic - ic - 1
+                EXIT
+            ENDIF
+        ENDDO
+
+        IF(prob%cm%id() + 1 .ne. prob%cm%np()) THEN
+            DO ic = info%Y%p, 0, -1
+                IF(all_thti_f(prob%cm%id() + 2) .gt. ic*ic) THEN
+                    prob%der_n(2) = ic
+                    prob%der_m(2) = all_thti_f(prob%cm%id() + 2) - ic*ic - ic - 2
+                    EXIT
+                ENDIF
+            ENDDO
+        ELSE
+            prob%der_n(2) = info%Y%p
+            prob%der_m(2) = info%Y%p
+        ENDIF
+    ENDIF
 !   How many timesteps from G do we actually need?
     Gfac = prob%nts*prob%kfr/(prob%NT*prob%info%dt) ! Gfac: Ratio of total time in velgrad to total time requested
 !   If we have fewer velocity gradient time steps than requested, set down to gradient
     IF(Gfac .le. 1) THEN
         prob%NT = FLOOR(prob%NT*Gfac)
-        print *, "Warning: Fewer gradient time steps than requested total time steps"
-        print *, "Setting total timesteps to "
-        print *, prob%NT
+        IF(prob%cm%mas()) print *, "Warning: Fewer gradient time steps than requested total time steps"
+        IF(prob%cm%mas()) print *, "Setting total timesteps to "
+        IF(prob%cm%mas()) print *, prob%NT
         fl = .true.
     ELSE
         prob%nts = CEILING(prob%nts/Gfac)
@@ -384,13 +434,21 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
                 prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
                 prob%cell(ic)%xmn(3,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
             CASE(8)
-                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
-            CASE(4)
-                prob%cell(ic)%xmn(1,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = 4.4D0/(ispi*0.5D0)!   5.5D0/(ispi*0.5D0)!(5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)!   1.4D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = .45D0/(ispi*0.5D0)!   .45D0/(ispi*0.5D0)!(5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+            CASE(9)
+                prob%cell(ic)%xmn(1,1) = 4.4D0/(ispi*0.5D0)!   5.5D0/(ispi*0.5D0)!(5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 3.9D0/(ispi*0.5D0)!   3.45D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = 1.45D0/(ispi*0.5D0)!   1.45D0/(ispi*0.5D0)!(5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+            CASE(10)
+                prob%cell(ic)%xmn(1,1) = 4.4D0/(ispi*0.5D0)!   5.5D0/(ispi*0.5D0)!(5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)!   1.4D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = 2.45D0/(ispi*0.5D0)!   2.45D0/(ispi*0.5D0)!(5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+            CASE(11)
+                prob%cell(ic)%xmn(1,1) = 4.4D0/(ispi*0.5D0)!   5.5D0/(ispi*0.5D0)!(5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 3.9D0/(ispi*0.5D0)!   3.45D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = 3.45D0/(ispi*0.5D0)!   3.45D0/(ispi*0.5D0)!(5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
             END SELECT
             prob%cell(ic)%x(1,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(1,:))
             prob%cell(ic)%x(2,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(2,:))
@@ -569,8 +627,10 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
             CALL cell%inPrim()
         ENDIF
 
-        CALL cell%derivs()
-        CALL cell%stress()
+!       These algorithms have been parallelized, but I am not implementing
+!       derivs here because the overhead makes it more expensive
+        CALL cell%derivs()!prob%der_m, prob%der_n, prob%cm)
+        CALL cell%stress()!prob%thti_f, prob%cm)
 
 !       Find which constants should be used in reconstruction
         cell%xrecon(1,:) = Y%reconConsts(cell%xmn(1,:))
@@ -860,7 +920,7 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
         ENDDO
     ENDDO
     CALL SYSTEM_CLOCK(toc)
-    IF(prob%cm%mas()) print *, "Precalcs: ", REAL(toc-tic)/REAL(rate)
+    ! IF(prob%cm%mas()) print *, "Precalcs: ", REAL(toc-tic)/REAL(rate)
 
     Au = 0D0
     CALL SYSTEM_CLOCK(tic,rate)
@@ -890,7 +950,7 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
         ENDDO
     ENDDO
     CALL SYSTEM_CLOCK(toc)
-    IF(prob%cm%mas()) print *, "Real: ", REAL(toc-tic)/REAL(rate)
+    ! IF(prob%cm%mas()) print *, "Real: ", REAL(toc-tic)/REAL(rate)
 
     Au = prob%cm%reduce(Au)
 
@@ -904,7 +964,7 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
         Au = Au - Au_t*(1D0 - lam)/(4D0*pi*(1D0 + lam))! Most general is to loop over cells here
     ENDIF
     CALL SYSTEM_CLOCK(toc)
-    IF(prob%cm%mas()) print *, "Ewald: ", REAL(toc-tic)/REAL(rate)
+    ! IF(prob%cm%mas()) print *, "Ewald: ", REAL(toc-tic)/REAL(rate)
 
     ! CALL prob%cm%barrier()
     ! stop
