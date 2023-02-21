@@ -167,14 +167,13 @@ SUBROUTINE initInfo(info)
     info%Y = YType(p, 1, .true.)
     info%Yf = YType(q, 4, .true., p)
     
-!   Stuff needed for calcs
-    nt  = MIN(FLOOR(SQRT(REAL(info%Y%p))) + 6, info%Y%nt)
-    np  = 2*nt
-
 !   Harmonics for the singular integration, slightly tricky
 !   Construct the singular integration grid, with patch. Essentially 2 grids at once,
 !   a fine patch with a sinh transform and a coarse one.
     IF(info%NCell .gt. 1 .or. info%periodic) THEN
+!       Size of patch
+        nt  = MIN(FLOOR(SQRT(REAL(info%Y%p))) + 6, info%Y%nt)
+        np  = 2*nt
 
 !       Try doing partition of unity
         ALLOCATE(thts(nt), phis(np), &

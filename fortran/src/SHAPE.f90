@@ -1282,7 +1282,7 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
 
 !                       We checked if this point is in the cutoff range in RHS,
 !                       cycle if not
-                        IF(cell%cut_box(1, i ,j ,i2 ,j2 , cid) .eq. 2) CYCLE INNER
+                        IF(cell%cut_box(1, i, j, i2, j2, cid) .eq. 2) CYCLE INNER
 
 !                       Bring to nearest distance
                         rt = xcg(:,i2,j2) - xcr
@@ -1623,8 +1623,8 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                     wgi = Ys%wg*info%h*(-info%k)*COSH(info%k*info%xsf - info%k)
 
 !                   We don't do cosine transformation to cluster points near near-singularity, mult sine back in
-                    wgi = wgi*SIN(info%Ys%th(:,1))
-                    tht_t = info%Ys%th(:,1)
+                    wgi = wgi*SIN(Ys%th(:,1))
+                    tht_t = Ys%th(:,1)
 
 !                   Rotate about nearest point to projected singularity
                     xmnR(1,:) = Y%rotate(cell%xmn(1,:), i, j, -Y%phi(j))
@@ -1767,8 +1767,8 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                 IF(     PRESENT(celli)) xcg = celli%x
                 IF(.not.PRESENT(celli)) xcg = cell%x
                 frot = v_in
-                dphi = cell%info%Y%dphi
-                wgi  = cell%info%Y%wg
+                dphi = Y%dphi
+                wgi  = Y%wg
 
                 DO i2 = 1, Y%nt
                     DO j2 = 1, Y%np
