@@ -1428,10 +1428,16 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
 
                             IF(t .gt. 1) nn = 0D0
                             IF(periodic) THEN
-!                               Deal with limiting value
-!                               1 box to cover if celli present and near point in diff box
+!                               Get box with nearest image
+!                               A bit hacky, as I'm using the first grid point
+!                               but i think it may actually be nearly guaranteed to work
+                                IF(PRESENT(celli)) r = r &
+                                    - cell%cut_box(1, i, j, 1, 1, cid)*info%bv(:,1) &
+                                    - cell%cut_box(2, i, j, 1, 1, cid)*info%bv(:,2) &
+                                    - cell%cut_box(3, i, j, 1, 1, cid)*info%bv(:,3) 
+
                                 IF(NORM2(r) .gt. EPSILON(r)*1D1) &
-                                ft2 = ft2 + PTij(r, 1, info%bv, nJt(:,i2,j2), info%eye, info%xi)*(1D0 - nn)
+                                ft2 = ft2 + PTij(r, 0, info%bv, nJt(:,i2,j2), info%eye, info%xi)*(1D0 - nn)
                             ELSE
                                 IF(NORM2(r) .gt. EPSILON(r)*1D1) &
                                 ft2 = Tij(r, nJt(:,i2,j2))*(1D0 - nn)
@@ -1469,11 +1475,12 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
     REAL(KIND = 8), ALLOCATABLE, INTENT(IN), OPTIONAL :: v_input(:,:,:)
     REAL(KIND = 8), ALLOCATABLE :: xcg(:,:,:), frot(:,:,:), &
                                    ft(:), ft2(:,:), wgi(:), &
-                                   v_in(:,:,:), tht_t(:)
+                                   v_in(:,:,:), tht_t(:), &
+                                   Jur(:,:), Jrot(:,:)
     REAL(KIND = 8) :: xcr(3), r(3), dphi, rn, rcur(3), Uc(3), v_tmp(3), &
                       Utmp(3,3), minr, rt(3), t, rho, nn, tht_rot, phi_rot
     COMPLEX(KIND = 8), ALLOCATABLE, INTENT(IN), OPTIONAL :: v_input_mn(:,:)
-    COMPLEX(KIND = 8), ALLOCATABLE :: fmnR(:,:), xmnR(:,:), v_in_mn(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: fmnR(:,:), xmnR(:,:), v_in_mn(:,:), Jmn(:)
     LOGICAL, INTENT(IN), OPTIONAL :: periodic_in
     LOGICAL sing, periodic
     LOGICAL, ALLOCATABLE :: vrecon(:, :), xrecon(:,:)
@@ -1547,7 +1554,13 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
     IF(PRESENT(celli)) THEN
         xrecon = celli%xrecon
         Yf => info%Yf
+        Ys => info%Ys
         cid = celli%id
+!       May need unrotated J grid
+        IF(info%CellCell) THEN
+            ALLOCATE(Jur(Y%nt, Y%np), Jrot(Ys%nt, Ys%np), Jmn((info%p+1)*(info%p+1)))
+            Jur = Y%backward(celli%Jtmn, info%p)
+        ENDIF
     ELSE
         xrecon = cell%xrecon
         cid = cell%id
@@ -1609,7 +1622,6 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
 
                 IF(minr .lt. celli%h) THEN
                     sing = .true.
-                    Ys => info%Ys
                     tht_rot = Yf%tht(indi)
                     phi_rot = Yf%phi(indj)
 
@@ -1631,8 +1643,8 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                     wgi = Ys%wg*info%h*(-info%k)*COSH(info%k*info%xsf - info%k)
 
 !                   We don't do cosine transformation to cluster points near near-singularity, mult sine back in
-                    wgi = wgi*SIN(info%Ys%th(:,1))
-                    tht_t = info%Ys%th(:,1)
+                    wgi = wgi*SIN(Ys%th(:,1))
+                    tht_t = Ys%th(:,1)
 
 !                   Rotate about nearest point to projected singularity
                     xmnR(1,:) = Yf%rotate(celli%xmn(1,:), indi, indj, -Yf%phi(indj))
@@ -1652,6 +1664,12 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                     frot(1,:,:) = Ys%backward(fmnR(1,:), info%p)
                     frot(2,:,:) = Ys%backward(fmnR(2,:), info%p)
                     frot(3,:,:) = Ys%backward(fmnR(3,:), info%p)
+!                   If we have cell-cell interactions, we need area element
+!                   Only have these interactions if below sing distance
+                    IF(info%CellCell) THEN
+                        Jmn  = Yf%rotate(celli%Jtmn, indi, indj, -Yf%phi(indj))
+                        Jrot = Ys%backward(Jmn, info%p)
+                    ENDIF
 
 !               Well-separated, normal grid/integration
                 ELSE
@@ -1769,6 +1787,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
 !                   Need an exception for near-singular int for if we're in mis-matched grids
                     r = xcg(:,i2,j2) - xcr
                     rn = NORM2(r)
+                    ft  = frot(:,i2,j2)
 
 !                   Use periodic Greens (or not)
                     IF(periodic) THEN
@@ -1794,9 +1813,11 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                                     ENDDO
                                 ENDDO
                             ENDDO
+                            r  = rt
+                            rn = NORM2(rt)
                         ENDIF
                             
-                        IF(NORM2(rt)*info%xi.gt.3.5) THEN
+                        IF(rn*info%xi.gt.3.5) THEN
                         ! IF(NORM2(rt)*info%xi.gt.350) THEN
                             cell%cut_box(:, i ,j ,i2 ,j2 , cid) = 2
                             CYCLE INNER
@@ -1805,29 +1826,17 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                             ! ft2 = PGij(rt, 4, info%bv, info%eye, .3454d0, fourier=.true.)
                         ENDIF
 
-!                       We need to check if the periodic images give short range cell-cell interactions.
-!                       This needs to be added separately, because it uses the normal Stokeslet, not the periodic.
-!                       Go to each of the surrounding boxes, and check if the image point is within the cutoff distance
-!                       If it is, add it directly to b with non-periodic Green's function
-!                   !!!!This is incorrect right now: Needs to be multiplied by area
-                        !!!!!
-                        IF(info%CellCell .and. PRESENT(celli)) THEN
-                            IF(sing) THEN
-                                v_tmp = v_tmp + PeriodicCellCell(info, r)*wgi(i2)*dphi/SIN(tht_t(i2))!*NORM2(nJt(:,i2,j2))
-                            ELSE
-                                v_tmp = v_tmp + PeriodicCellCell(info, r)*wgi(i2)*dphi!*NORM2(nJt(:,i2,j2))
-                            ENDIF
-                        ENDIF
                     ELSE
                         ft2 = Gij(r, info%eye)
-!                       Add in Morse potential if cells are close enough
-                        IF(PRESENT(celli) .and. (rn .lt. 3D0*info%r0) .and. info%CellCell) THEN 
-                            ft = ft + Morse(r, rn, info%D, info%r0, info%Beta)
-                            ft = ft +    LJ(r, rn, info%epsi, info%r0)
-                            IF(.not.sing) ft = ft/SIN(tht_t(i2))
-                        ENDIF
                     ENDIF
-                    ft  = frot(:,i2,j2)
+
+!                   Assume must be at least within singular distance to add
+!                    (not necc true, just want repulsion for now)
+                    IF(PRESENT(celli) .and. (rn .lt. 3D0*info%r0) .and. info%CellCell .and. sing) THEN 
+                        ft = ft + Morse(r, rn, info%D, info%r0, info%Beta)*Jrot(i2,j2)
+                        ft = ft +    LJ(r, rn, info%epsi, info%r0)*Jrot(i2,j2)
+                        ! IF(.not.sing) ft = ft/SIN(tht_t(i2)) !!! Why is this needed??? sin taken car of wgi
+                    ENDIF
                     IF(sing) ft2 = ft2*info%n(i2)
 
                     v_tmp = v_tmp + INNER3_33(ft,ft2)*dphi*wgi(i2)
@@ -1853,6 +1862,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                     DO j2 = 1, Y%np
                         ft2 = 0D0
                         r = xcg(:,i2,j2) - xcr
+                        ft  = frot(:,i2,j2)
 
                         rho = ACOS(COS(Y%tht(i2))*COS(tht_rot) &
                             +      SIN(Y%tht(i2))*SIN(tht_rot) &
@@ -1864,14 +1874,24 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
 !                       Happens a lot that r = 0, causing Gij to be 1/0
 !                       but with nn this tends to 0.
                         IF(periodic) THEN
-!                           1 box to cover if celli present and near point in diff box
+!                           Get box with nearest image
+                            IF(PRESENT(celli)) r = r &
+                                - cell%cut_box(1, i, j, 1, 1, cid)*info%bv(:,1) &
+                                - cell%cut_box(2, i, j, 1, 1, cid)*info%bv(:,2) &
+                                - cell%cut_box(3, i, j, 1, 1, cid)*info%bv(:,3)
+                                ! again, not most robust (see LHS)
                             IF(NORM2(r) .gt. EPSILON(r)*1D1) &
-                            ft2 = PGij(r, 1, info%bv, info%eye, info%xi)*(1D0 - nn)
+                            ft2 = PGij(r, 0, info%bv, info%eye, info%xi)*(1D0 - nn)
                         ELSE
                             IF(NORM2(r) .gt. EPSILON(r)*1D1) &
                             ft2 = Gij(r, info%eye)*(1D0 - nn)
                         ENDIF
-                        ft  = frot(:,i2,j2)
+
+                        rn = NORM2(r)
+                        IF(PRESENT(celli) .and. (rn .lt. 3D0*info%r0) .and. info%CellCell) THEN
+                            ft = ft + Morse(r, rn, info%D, info%r0, info%Beta)*Jur(i2,j2)
+                            ft = ft +    LJ(r, rn, info%epsi, info%r0)*Jur(i2,j2)
+                        ENDIF
 
                         v_tmp = v_tmp + INNER3_33(ft,ft2)*dphi*wgi(i2)
                     ENDDO
