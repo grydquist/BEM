@@ -885,7 +885,7 @@ SUBROUTINE RelaxCell(cell, tol)
     COMPLEX, ALLOCATABLE :: swrk(:)
     INTEGER, ALLOCATABLE :: IPIV(:)
 
-    print *, 'WARNING: Relax cell not supported right now for GMRES'
+    IF(cell%id .eq. 1) print *, 'WARNING: Relax cell not supported right now for GMRES'
     RETURN
 
     info => cell%info
