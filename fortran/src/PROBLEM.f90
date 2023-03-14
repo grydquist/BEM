@@ -406,53 +406,69 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
             !! Test                                        !!!!!
             SELECT CASE(ic-1)!MOD(ic, 4))!9) )
             CASE(0)
-                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)!(Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)!(1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = .45D0/(ispi*0.5D0)!(Gfac)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = .45D0/(ispi*0.5D0)
             CASE(1)
-                prob%cell(ic)%xmn(1,1) = 3.45D0/(ispi*0.5D0)!3.15D0/(ispi*0.5D0)!  (3D0*Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 3.45D0/(ispi*0.5D0)!4.1D0/(ispi*0.5D0)!    (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = .45D0/(ispi*0.5D0)! (3D0*Gfac)/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = .45D0/(ispi*0.5D0)
             CASE(2)
-                prob%cell(ic)%xmn(1,1) = 3.45D0/(ispi*0.5D0)!3.15D0/(ispi*0.5D0)! (Gfac)/(ispi*0.5D0) !
-                prob%cell(ic)%xmn(2,1) = 1.4/(ispi*0.5D0)!   (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = 1.45/(ispi*0.5D0)!  (3D0*Gfac)/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/4D0)/(ispi*0.5D0)
             CASE(3)
-                prob%cell(ic)%xmn(1,1) = 1.4/(ispi*0.5D0)!     (3D0*Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 3.45D0/(ispi*0.5D0)!4.1D0/(ispi*0.5D0)!   (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = 1.45/(ispi*0.5D0)!   (Gfac)/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = 1.4/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/4D0)/(ispi*0.5D0)
             CASE(4)
-                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) =  2.45/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/2D0)/(ispi*0.5D0)
             CASE(5)
-                prob%cell(ic)%xmn(1,1) = 3.45D0/(ispi*0.5D0)!3.15D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 3.45D0/(ispi*0.5D0)!4.1D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = 2.45/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/2D0)/(ispi*0.5D0)
             CASE(6)
-                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 3.45D0/(ispi*0.5D0)!4.1D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = 3.45D0/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3*info%bvl/4D0)/(ispi*0.5D0)
             CASE(7)
-                prob%cell(ic)%xmn(1,1) = 3.45D0/(ispi*0.5D0)!3.15D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = 3.45D0/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3*info%bvl/4D0)/(ispi*0.5D0)
             CASE(8)
-                prob%cell(ic)%xmn(1,1) = 4.4D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = .45D0/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/2D0)/(ispi*0.5D0)
             CASE(9)
-                prob%cell(ic)%xmn(1,1) = 4.4D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 4.1D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = 1.45D0/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = 1.4/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             CASE(10)
-                prob%cell(ic)%xmn(1,1) = 4.4D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = 2.45D0/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             CASE(11)
-                prob%cell(ic)%xmn(1,1) = 4.4D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = 4.1D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = 3.45D0/(ispi*0.5D0)!
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(12)
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(13)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(14)
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(15)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             END SELECT
             prob%cell(ic)%x(1,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(1,:))
             prob%cell(ic)%x(2,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(2,:))
@@ -823,7 +839,7 @@ END SUBROUTINE UpdateProb
 
 ! -------------------------------------------------------------------------!
 ! Works with the LHSCmpProb to do Galerkin
-FUNCTION LHSGalProb(prob, umn, xv, nv, dbg) RESULT(Aumn) !!! OPtional ntjo, ntji
+FUNCTION LHSGalProb(prob, umn, xv, nv, dbg) RESULT(Aumn)
     CLASS(probType), TARGET :: prob
     TYPE(sharedType), POINTER :: info
     REAL(KIND = 8), ALLOCATABLE :: Au(:), xv(:,:), nv(:,:), Au1(:)
@@ -870,7 +886,8 @@ END FUNCTION LHSGalProb
 FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
     CLASS(probType), TARGET :: prob
     REAL(KIND = 8), ALLOCATABLE :: xv(:,:), nv(:,:), Au(:), vec_t(:), &
-                                   ur(:), urm(:,:,:), urmT(:,:,:,:), Au_t(:)
+                                   ur(:), urm(:,:,:), urmT(:,:,:,:), Au_t(:), &
+                                   urbm(:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: u3T(:,:,:), u3(:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: umn(:)
     LOGICAL, OPTIONAL :: dbg
@@ -890,7 +907,8 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
              u3 (3, (info%Y%p + 1)*(info%Y%p + 1)), Au(info%NmatT), &
              ur(3*info%Y%nt*info%Y%np*info%NCell), &
              urmT(3, info%Y%nt, info%Y%np, info%NCell), &
-             urm(3, info%Y%nt, info%Y%np), Au_t(info%NmatT))
+             urm(3, info%Y%nt, info%Y%np), Au_t(info%NmatT), &
+             urbm(3, info%NCell))
 
     CALL SYSTEM_CLOCK(tic,rate)
 !   One argument takes a matrix as an input
@@ -903,6 +921,12 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
         DO n  = 0, info%Y%p
             DO m = -n,n
                 u3T(:,im,ic) = umn(row + it - 1:row + it + 1)
+
+!               The rigid body calculation can be done exactly, so I remove it and
+!               add it in later
+                IF(n.eq.0) urbm(:, ic) = REAL(u3T(1:3, im, ic))*(0.5D0*ispi)
+                IF(n.eq.0) u3T(:,im,ic) = 0D0
+
                 it = it+3
                 im = im + 1
             ENDDO
@@ -958,6 +982,17 @@ FUNCTION LHSCmpProb(prob, umn, xv, nv, dbg) RESULT(Au)
 
     Au = prob%cm%reduce(Au)
 
+!   And here is where we add the RBM back in
+    it=1
+    DO ic2 = 1,prob%NCell
+        DO i = 1, info%Y%nt
+            DO j = 1, info%Y%np
+                Au(it:it + 2) = Au(it:it + 2) + urbm(:,ic2)*2D0/(1D0 + lam)
+                it = it + 3
+            ENDDO
+        ENDDO
+    ENDDO
+
 !   Calculate Fourier part of double layer at all evaluation points
 !   Reduction takes place within this loop
     CALL SYSTEM_CLOCK(tic,rate)
@@ -980,7 +1015,7 @@ END FUNCTION LHSCmpProb
 FUNCTION RHSGalProb(prob, xv, fv) RESULT(bmn)
     CLASS(probType), TARGET :: prob
     TYPE(sharedType), POINTER :: info
-    REAL(KIND = 8), ALLOCATABLE :: xv(:,:), fv(:,:), b(:), b1(:), b_t(:)
+    REAL(KIND = 8), ALLOCATABLE :: xv(:,:), fv(:,:), b(:), b1(:)
     COMPLEX(KIND = 8), ALLOCATABLE :: bmn1(:), bmn(:)
     INTEGER :: ic, row, row2, mnmat, th_st, th_end
 
@@ -1018,7 +1053,7 @@ END FUNCTION RHSGalProb
 
 ! -------------------------------------------------------------------------!
 ! EHS calcultor at all int points
-FUNCTION RHSProb(prob, xv, fv) RESULT(b) !!! OPtional ntjo, ntji
+FUNCTION RHSProb(prob, xv, fv) RESULT(b)
     CLASS(probType), TARGET :: prob
     REAL(KIND = 8), ALLOCATABLE :: xv(:,:), fv(:,:), b(:), vec_t(:), b_t(:)
     TYPE(sharedType), POINTER :: info
@@ -1261,6 +1296,7 @@ SUBROUTINE OutputProb(prob)
 
 !   The output
     DO ic = 1, prob%NCell
+        ! prob%cell(ic)%umn(:,1) = 0D0
         write(*,'(I5,X,F8.5,X,I5, X, F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
         prob%cts, prob%t, ic, MAXVAL(ABS(prob%cell(ic)%ff))*prob%cell(ic)%Ca, &
         MAXVAL(ABS(prob%cell(ic)%umn)), prob%cell(ic)%vol(), prob%cell(ic)%SA()

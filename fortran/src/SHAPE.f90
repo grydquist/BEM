@@ -832,6 +832,8 @@ SUBROUTINE Stresscell(cell, thti, cm)
                                     - tauab(2,1)*bv(2,1) - tauab(2,2)*bv(2,2) &
                                     + fb - cell%int_pres
                                     !  - cq
+            ! cell%fab(:,i,j) = 0D0
+            ! cell%fab(3,i,j) = (cell%kR(i,j) - k)*B
 
 !           Forces in Cartesian, on fine grid
             cell%ff(:, i, j) = cell%fab(1, i, j)*cell%dxt(:,i,j) &
@@ -1042,7 +1044,7 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
     REAL(KIND = 8), ALLOCATABLE :: xcg(:,:,:), nJt(:,:,:), urot(:,:,:), &
                                    ft(:), ft2(:,:), wgi(:), v_in(:,:,:), nJuR(:,:,:)
     REAL(KIND = 8) :: xcr(3), r(3), dphi, rcur(3), u_pt(3), v_tmp(3), minr, &
-                      rt(3), rho, t, nn, tht_rot, phi_rot
+                      rt(3), rho, t, nn, tht_rot, phi_rot, xm1(3)
     COMPLEX(KIND = 8), ALLOCATABLE, INTENT(IN), OPTIONAL :: v_input_mn(:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: xmnR(:,:), nmnR(:,:), umnR(:,:), v_in_mn(:,:)
     LOGICAL, INTENT(IN), OPTIONAL :: periodic_in, dbg
@@ -1065,7 +1067,7 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
         periodic = info%periodic
     ENDIF
 
-    IF(PRESENT(v_input)) THEN
+    IF(PRESENT(v_input) .and. .not.PRESENT(v_input_mn)) THEN
         v_in = v_input
         ALLOCATE(v_in_mn(3, (info%p+1)*(info%p+1)))
 !       First, calculate the spherical harmonic coefficients of the input vector
@@ -1073,7 +1075,7 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
         v_in_mn(1,:) = Y%forward(v_in(1,:,:))
         v_in_mn(2,:) = Y%forward(v_in(2,:,:))
         v_in_mn(3,:) = Y%forward(v_in(3,:,:))
-    ELSEIF(PRESENT(v_input_mn)) THEN
+    ELSEIF(PRESENT(v_input_mn) .and. .not.PRESENT(v_input)) THEN
         v_in_mn = v_input_mn
         ALLOCATE(v_in(3, Y%nt, Y%np))
 !       Instead calculate points on the grid
@@ -1406,6 +1408,8 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
 
                 IF(     PRESENT(celli)) xcg = celli%x
                 IF(.not.PRESENT(celli)) xcg = cell%x
+                IF(     PRESENT(celli)) xm1 = REAL(celli%xmn(:,1))*0.5D0*ispi
+                IF(.not.PRESENT(celli)) xm1 = REAL(cell %xmn(:,1))*0.5D0*ispi
                 nJt = nJur
                 urot = v_in
                 dphi = Y%dphi
@@ -1414,8 +1418,9 @@ SUBROUTINE LHS_realCell(cell, v_input, v_input_mn, v, celli, &
                 DO i2 = 1, Y%nt
                     DO j2 = 1, Y%np
                         ft2 = 0D0
-                        r = xcg(:,i2,j2) - xcr
+                        r = xcg(:,i2,j2) - xm1
                         IF(periodic) ft2 = -8D0*PI/info%tau*OUTER(nJt(:,i2,j2), r)
+                        r = xcg(:,i2,j2) - xcr
 
 !                       Partition fn calculation
                         IF(sing)THEN
