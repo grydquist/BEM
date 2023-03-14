@@ -241,7 +241,7 @@ SUBROUTINE bvAdvanceInfo(info, t)
 
 !   temporary lees-edwards
     IF(info%shear) THEN
-        IF(info%bv(1,3).gt.info%bvl) info%bv(1,3) = info%bv(1,3) - info%bvl
+        IF(info%bv(1,3).gt.info%bvl/2) info%bv(1,3) = info%bv(1,3) - info%bvl
 
 !   This is just for periodic strain
     ELSEIF(info%extens) THEN
