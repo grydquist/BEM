@@ -1,6 +1,6 @@
 All properties nondimensional (even time step, based on shear time)
 Max_time_steps 10000
-Number_cells 1
+Number_cells 2
 Time_step 0.005
 Time_inc 25
 Gradient_file VG.bin
@@ -22,3 +22,4 @@ Path_line 1
 Periodic_box_size 5  # 5     # 0 is non-periodic
 CellCell Yes
 Flow_type s
+Output_strain Yes

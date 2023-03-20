@@ -57,6 +57,9 @@ TYPE sharedType
 !   Special flow cases (extensional, shear)
     LOGICAL :: shear  = .false.
     LOGICAL :: extens = .false.
+    
+!   Ouput flags
+    LOGICAL :: OutputStrain = .false.
 
     CONTAINS
     PROCEDURE :: bvAdvance => bvAdvanceInfo
@@ -101,6 +104,14 @@ FUNCTION newinfo(filein) RESULT (info)
         info%CellCell = .true.
     ELSE
         info%CellCell = .false.
+    ENDIF
+
+!   Should we output info on the strains
+    CALL READ_MFS(cellchar, filein, 'Output_strain')
+    IF(TRIM(cellchar) .eq. "Yes") THEN
+        info%OutputStrain = .true.
+    ELSE
+        info%OutputStrain = .false.
     ENDIF
 
 !   Periodic box length

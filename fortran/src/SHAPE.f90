@@ -38,6 +38,7 @@ TYPE cellType
     REAL(KIND = 8), ALLOCATABLE :: fab(:,:,:), ff(:,:,:), fc(:,:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:), nkmn(:,:), fmn2(:,:), &
                                       nkt(:,:), Jtmn(:)
+    REAL(KIND = 8) :: maxJ, maxSh, avgJ, avgSh
 
 !   Cell velocity constants
     COMPLEX(KIND = 8), ALLOCATABLE :: umn(:,:), xmn(:,:)
@@ -379,6 +380,11 @@ SUBROUTINE Stresscell(cell)
     C = cell%C
     Eb = cell%Eb
     c0 = cell%c0
+
+    cell%maxJ  = 0
+    cell%maxSh = 0
+    cell%avgJ  = 0
+    cell%avgSh = 0
 
     Y => cell%info%Yf
     ALLOCATE(nks(3, Y%nt, Y%np))
@@ -749,6 +755,12 @@ SUBROUTINE Stresscell(cell)
                               + 0D0 !fbt
             
             nks(:,i,j) = -nk
+            
+!           Max strains for output
+            cell%maxJ  = MAX(cell%maxJ,  es(1)*es(2))
+            cell%maxSh = MAX(cell%maxSh, es(1)/es(2))
+            cell%avgJ  = cell%avgJ  + es(1)*es(2)/(Y%nt*Y%np)
+            cell%avgSh = cell%avgSh + es(1)/(es(2)*Y%nt*Y%np)
             
         ENDDO inner
     ENDDO
@@ -1801,18 +1813,49 @@ END FUNCTION PeriodicCellCell
 !   Combo of Sorgentone and Rahimian
 SUBROUTINE ReparamCell(cell)
     CLASS(cellType), INTENT(INOUT), TARGET :: cell
+    TYPE(cellType)  :: cellt
     TYPE(YType), POINTER :: Y, Yc
     TYPE(nmType), POINTER :: nm
-    REAL(KIND = 8) :: dtau, N1, N2, nkc(3), g(3,3), delE(3)
-    COMPLEX(KIND = 8), ALLOCATABLE :: xmntmp(:)
+    REAL(KIND = 8) :: dtau, N1, N2, nkc(3), g(3,3), delE(3), &
+                      E, F, Gm, Ai(2,2), b(2), dtp(2)
+    REAL(KIND = 8), ALLOCATABLE :: th(:,:), ph(:,:)
+    COMPLEX(KIND = 8), ALLOCATABLE :: xmntmp(:,:), xmn_o(:,:)
     INTEGER :: ncut, no, n, m, it, i, j, t, ih, im
+    TYPE(YType) :: Yt
 
     Y => cell%info%Yf
     Yc=> cell%info%Y
-    ALLOCATE(xmntmp((Y%p+1)*(Y%p+1)))
+    cellt = cell
+
+    
+    OPEN (UNIT = 88, FILE = 'tmp_o.txt')
+    Do i =1,Y%nt
+        Do j =1,Y%np
+            WRITE(88,*) cell%xf(:,i,j)
+        ENDDO
+    ENDDO
+    CLOSE(88)
+
+
+
+    ALLOCATE(xmntmp(3,(Y%p+1)*(Y%p+1)), th(Y%nt, Y%np), ph(Y%nt, Y%np), &
+             xmn_o(3,(Yc%p+1)*(Yc%p+1)))
+    xmntmp = 0D0
+    xmntmp(1, 1:(Yc%p+1)*(Yc%p+1)) = cell%xmn(1,:)
+    xmntmp(2, 1:(Yc%p+1)*(Yc%p+1)) = cell%xmn(2,:)
+    xmntmp(3, 1:(Yc%p+1)*(Yc%p+1)) = cell%xmn(3,:)
+
+    xmn_o = cell%xmn
+
+!   Original th/ph grids before time-stepping
+    th = Y%th
+    ph = Y%ph
     
 !   Pseudo-time step (chosen somewhat arbitrarily)
-    dtau = 0.25D0
+    dtau = 1.25D0
+
+!   Psuedo time-step loop
+    DO t = 1, 40
 
 !   Get the cutoff mode (see Sorgentone).
     DO no = 1, Yc%p
@@ -1831,16 +1874,11 @@ SUBROUTINE ReparamCell(cell)
         ENDIF
     ENDDO
 
-!   Psuedo time-step loop
-    DO t = 1, 15
     DO i = 1,Y%nt
         DO j = 1,Y%np
 !           Normal vector at this point
             nkc = CROSS(cell%dxt(:,i,j), cell%dxp(:,i,j))
             nkc = -nkc/NORM2(nkc)
-            ! print *, cell%xf(:,i,j)
-            ! print *, NKc
-            ! stop
 
             delE = 0D0
             DO n = ncut, Yc%p
@@ -1853,35 +1891,104 @@ SUBROUTINE ReparamCell(cell)
                 DO m = -n, n
                     im = im + 1
                     it = it + 1
-                    delE = delE + REAL(cell%xmn(:,it)*nm%v(im,i,j))
+                    delE = delE + REAL(xmntmp(:,it)*nm%v(im,i,j))!cell%xmn(:,it)*nm%v(im,i,j))
                 ENDDO
             ENDDO
             g = (cell%info%eye - OUTER(nkc,nkc))
-            nkc = INNER3_33(delE, g)
+            nkc = -INNER3_33(delE, g)
 
 !           Step this x-point forward
-            cell%xf(:,i,j) = cell%xf(:,i,j) - dtau*nkc
+            cell%xf(:,i,j) = cell%xf(:,i,j) + dtau*nkc
+
+!           Parameters needed for theta/phi stepping
+            E = dot(cell%dxt(:,i,j),cell%dxt(:,i,j))
+            F = dot(cell%dxt(:,i,j),cell%dxp(:,i,j))
+            Gm= dot(cell%dxp(:,i,j),cell%dxp(:,i,j))
+            Ai= RESHAPE(((/Gm,-F,-F,E/)), (/2,2/))/(E*Gm - F*F)
+            b(1) = dot(cell%dxt(:,i,j), nkc)
+            b(2) = dot(cell%dxp(:,i,j), nkc)
+
+!           Theta/phi velocity
+            dtp = MATMUL(Ai, b)
+
+!           Save the thetas/phis in a grid (for each) after stepping
+            th(i,j) = th(i,j) + dtau*dtp(1)
+            ph(i,j) = ph(i,j) + dtau*dtp(2)
+
+            IF(i.eq.1 .and. j.eq.1) print *, dtp(1), dtp(1)*dtau+Y%tht(1), th(i,j), nkc(1)
 
         ENDDO
     ENDDO
+
+!   Here, we need to construct a new bare spherical harmonic at
+!   the new grid obtained after pseudo time stepping
+    Yt = YType(th, ph, Y%p, 1)
+
+!   Now we need to calculate the derivatives dxp/dxt at these new locations
+!   Also calculates xf's
+    print *, cell%xf(1,1,1) 
+    ! CALL cell%derivs(Yt)
+    
+    ! CALL cellt%derivs(Yt)
+
+    ! cell%xf = cellt%xf
+
+    print *, cell%xf(1,1,1)
+
 !   Need to get new shape quantities associated with the new grid to step again,
 !   starting with shape coefficients
 !       A bit overkill, but, again, not worth optimizing
-    xmntmp = Y%forward(cell%xf(1,:,:))
-    cell%xmn(1,:) = xmntmp(1:(Yc%p+1)*(Yc%p+1))
-    xmntmp = Y%forward(cell%xf(2,:,:))
-    cell%xmn(2,:) = xmntmp(1:(Yc%p+1)*(Yc%p+1))
-    xmntmp = Y%forward(cell%xf(3,:,:))
-    cell%xmn(3,:) = xmntmp(1:(Yc%p+1)*(Yc%p+1))
+    xmntmp(1,:) = Y%forward(cell%xf(1,:,:))
+    xmntmp(2,:) = Y%forward(cell%xf(2,:,:))
+    xmntmp(3,:) = Y%forward(cell%xf(3,:,:))
+
+    ! print *, xmntmp(1,2:9)
+
+    cell%xmn(1,:) = xmntmp(1, 1:(Yc%p+1)*(Yc%p+1))
+    cell%xmn(2,:) = xmntmp(2, 1:(Yc%p+1)*(Yc%p+1))
+    cell%xmn(3,:) = xmntmp(3, 1:(Yc%p+1)*(Yc%p+1))
     CALL cell%derivs()
 
+    th = Y%th
+    ph = Y%ph
+    print *, cell%xf(1,1,1) !!!!!!!! Why is this so different from above???? Just take it forward and back???????
+    print *, ' '
+    ! stop
+
     ENDDO
+
+
+!   Now the process would be to find the theta and phi that correspond to a given x/y/z location. 
+
+    
+    OPEN (UNIT = 88, FILE = 'tmp.txt')
+    Do i =1,Y%nt
+        Do j =1,Y%np
+            WRITE(88,*) cell%xf(:,i,j)
+        ENDDO
+    ENDDO
+    CLOSE(88)
+    stop
+
+    ! print *, cell%xf(:,1,1), cellt%xf(:,1,1)
+    ! Do i =1,Y%nt
+    !     print *, cellt%xf(1,i,1),  cellt%xf(3,i,1)
+    ! ENDDO
+
+    ! print *, ' '
+    ! print *, xmntmp(1,1:9)
 
 !   Make sure to get the coarse grid too!
     cell%x(1,:,:) = cell%info%Y%backward(cell%xmn(1,:))
     cell%x(2,:,:) = cell%info%Y%backward(cell%xmn(2,:))
     cell%x(3,:,:) = cell%info%Y%backward(cell%xmn(3,:))
 
+!   And we also need to adjust the reference configuration to these new thetas/phis,
+!   as well as reset everything
+
+    Y => NULL()
+    Yc => NULL()
+    nm => NULL()
     RETURN
 END SUBROUTINE ReparamCell
 

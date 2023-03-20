@@ -334,44 +334,73 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
             CALL prob%cell(ic)%stress()
             prob%cell(ic)%V0 = prob%cell(ic)%Vol()
             !! Test                                        !!!!!
-            SELECT CASE(MOD(ic, 4))!9) )
-            CASE(1)
-                prob%cell(ic)%xmn(1,1) = (Gfac)/(ispi*0.5D0)!0.50D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!0.50D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = (Gfac)/(ispi*0.5D0)!0.50D0/(ispi*0.5D0)!
-            CASE(3)
-                prob%cell(ic)%xmn(1,1) = (Gfac)/(ispi*0.5D0) !+ info%bvl/(ispi*0.5D0)!3D0/(ispi*0.5D0)! 
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)!
-            CASE(2)
-                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!1.5D0/(ispi*0.5D0)!
+            SELECT CASE(ic-1)!MOD(ic, 4))!9) )
             CASE(0)
-                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!0.5D0/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(2,1) = (-1+2*(ic/4))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)!(1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!
-                prob%cell(ic)%xmn(3,1) = (Gfac)/(ispi*0.5D0)!1.5D0/(ispi*0.5D0)!
-            CASE(5)
-                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!3.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!2.75D0/(ispi*0.5D0)
-            CASE(6)
-                prob%cell(ic)%xmn(1,1) = (5D0*Gfac)/(ispi*0.5D0)!4.5D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!3D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (3D0*Gfac)/(ispi*0.5D0)!4.25D0/(ispi*0.5D0)
-            CASE(7)
-                prob%cell(ic)%xmn(1,1) = (Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
-            CASE(8)
-                prob%cell(ic)%xmn(1,1) = (3D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = .45D0/(ispi*0.5D0)
+            CASE(1)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = .45D0/(ispi*0.5D0)
+            CASE(2)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/4D0)/(ispi*0.5D0)
+            CASE(3)
+                prob%cell(ic)%xmn(1,1) = 1.4/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/4D0)/(ispi*0.5D0)
             CASE(4)
-                prob%cell(ic)%xmn(1,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1+2*(ic/9))*(Gfac)/(ispi*0.5D0)!0.1D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (5D0*Gfac)/(ispi*0.5D0)!1D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/2D0)/(ispi*0.5D0)
+            CASE(5)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/2D0)/(ispi*0.5D0)
+            CASE(6)
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(7)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(8)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/2D0)/(ispi*0.5D0)
+            CASE(9)
+                prob%cell(ic)%xmn(1,1) = 1.4/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(10)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(11)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(12)
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(13)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(14)
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(15)
+                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             END SELECT
+            IF(prob%Ncell.eq.1) prob%cell(ic)%xmn(:,1) = 0D0
             prob%cell(ic)%x(1,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(1,:))
             prob%cell(ic)%x(2,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(2,:))
             prob%cell(ic)%x(3,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(3,:))
@@ -474,6 +503,17 @@ SUBROUTINE WriteProb(prob)
     WRITE(88,*) prob%cts
     WRITE(88,*) prob%t
     CLOSE(88)
+    
+!   Output strains if requested
+    IF(prob%info%OutputStrain) THEN
+        filename = TRIM('strains_'//ctsst)
+        OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
+        WRITE(88,*) cell%avgJ
+        WRITE(88,*) cell%maxJ
+        WRITE(88,*) cell%avgSh
+        WRITE(88,*) cell%maxSh
+        CLOSE(88)
+    ENDIF
     
     IF(.not. cell%writ) cell%writ = .true.
     ENDDO
