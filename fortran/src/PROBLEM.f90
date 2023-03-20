@@ -572,6 +572,17 @@ SUBROUTINE WriteProb(prob)
     WRITE(88,*) prob%t
     CLOSE(88)
     
+!   Output strains if requested
+    IF(prob%info%OutputStrain) THEN
+        filename = TRIM('strains_'//ctsst)
+        OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
+        WRITE(88,*) cell%avgJ
+        WRITE(88,*) cell%maxJ
+        WRITE(88,*) cell%avgSh
+        WRITE(88,*) cell%maxSh
+        CLOSE(88)
+    ENDIF
+    
     IF(.not. cell%writ) cell%writ = .true.
     ENDDO
 

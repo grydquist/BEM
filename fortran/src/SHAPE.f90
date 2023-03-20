@@ -38,6 +38,7 @@ TYPE cellType
     REAL(KIND = 8), ALLOCATABLE :: fab(:,:,:), ff(:,:,:), fc(:,:,:)
     COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:), nkmn(:,:), fmn2(:,:), &
                                       nkt(:,:), Jtmn(:)
+    REAL(KIND = 8) :: maxJ, maxSh, avgJ, avgSh
 
 !   Cell velocity constants
     COMPLEX(KIND = 8), ALLOCATABLE :: umn(:,:), xmn(:,:)
@@ -471,6 +472,10 @@ SUBROUTINE Stresscell(cell, thti, cm)
         it1 = 1
         it2 = Y%nt
     ENDIF
+    cell%maxJ  = 0
+    cell%maxSh = 0
+    cell%avgJ  = 0
+    cell%avgSh = 0
 
     nks = 0D0
     cell%ff = 0D0
@@ -842,6 +847,12 @@ SUBROUTINE Stresscell(cell, thti, cm)
                               + 0D0 !fbt
             
             nks(:,i,j) = -nk
+
+!           Max strains for output
+            cell%maxJ  = MAX(cell%maxJ,  es(1)*es(2))
+            cell%maxSh = MAX(cell%maxSh, es(1)/es(2))
+            cell%avgJ  = cell%avgJ  + es(1)*es(2)/(Y%nt*Y%np)
+            cell%avgSh = cell%avgSh + es(1)/(es(2)*Y%nt*Y%np)
             
         ENDDO inner
     ENDDO

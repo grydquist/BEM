@@ -66,6 +66,9 @@ TYPE sharedType
     INTEGER :: GMRES_it
     REAL(KIND = 8) :: GMRES_tol
 
+!   Ouput flags
+    LOGICAL :: OutputStrain = .false.
+
     CONTAINS
     PROCEDURE :: bvAdvance => bvAdvanceInfo
     PROCEDURE :: GalInfo
@@ -111,6 +114,14 @@ FUNCTION newinfo(filein) RESULT (info)
         info%CellCell = .true.
     ELSE
         info%CellCell = .false.
+    ENDIF
+
+!   Should we output info on the strains
+    CALL READ_MFS(cellchar, filein, 'Output_strain')
+    IF(TRIM(cellchar) .eq. "Yes") THEN
+        info%OutputStrain = .true.
+    ELSE
+        info%OutputStrain = .false.
     ENDIF
 
 !   Periodic box length
