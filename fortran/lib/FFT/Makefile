@@ -1,5 +1,5 @@
 FC	   = ifort
-FFLAGS = -O3
+FFLAGS = -Ofast
 
 fftpack5.o : fftpack5.f90
 	$(FC) $(FFLAGS) -o $@ -c $<
