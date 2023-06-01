@@ -22,3 +22,4 @@ fortran/FFTs/fftpack5.o
 turb*mfs
 .vscode/
 dumbplot.m
+run
