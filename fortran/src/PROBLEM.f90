@@ -368,7 +368,8 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
 !   How many timesteps from G do we actually need?
     Gfac = prob%nts*prob%kfr/(prob%NT*prob%info%dt) ! Gfac: Ratio of total time in velgrad to total time requested
 !   If we have fewer velocity gradient time steps than requested, set down to gradient
-    IF(Gfac .le. 1) THEN
+!   Don't care about if it's preset flow type
+    IF(Gfac .le. 1 .and. .not.(info%shear .or. info%extens .or. info%none)) THEN
         prob%NT = FLOOR(prob%NT*Gfac)
         IF(prob%cm%mas()) print *, "Warning: Fewer gradient time steps than requested total time steps"
         IF(prob%cm%mas()) print *, "Setting total timesteps to "
