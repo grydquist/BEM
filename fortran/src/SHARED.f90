@@ -61,6 +61,7 @@ TYPE sharedType
 !   Special flow cases (extensional, shear)
     LOGICAL :: shear  = .false.
     LOGICAL :: extens = .false.
+    LOGICAL :: none   = .false.
 
 !   Number GMRES iterations/tolerance before termination
     INTEGER :: GMRES_it
@@ -132,6 +133,7 @@ FUNCTION newinfo(filein) RESULT (info)
     CALL READ_MFS(cellchar, filein, 'Flow_type') 
     IF(TRIM(cellchar) .eq. 'e') info%extens = .true.
     IF(TRIM(cellchar) .eq. 's') info%shear  = .true.
+    IF(TRIM(cellchar) .eq. 'n') info%none  = .true.
 
     info%GMRES_it = 45
     info%GMRES_tol = 1D-6
@@ -183,7 +185,7 @@ SUBROUTINE initInfo(info)
 !   a fine patch with a sinh transform and a coarse one.
     IF(info%NCell .gt. 1 .or. info%periodic) THEN
 !       Size of patch
-        nt  = MIN(FLOOR(SQRT(REAL(info%Y%p))) + 6, info%Y%nt)
+        nt  = MIN(FLOOR(SQRT(REAL(info%Y%p))) + 2, info%Y%nt)
         np  = 2*nt
 
 !       Try doing partition of unity
@@ -252,17 +254,23 @@ SUBROUTINE bvAdvanceInfo(info, t)
 
 !   temporary lees-edwards
     IF(info%shear) THEN
-        IF(info%bv(1,3).gt.info%bvl/2) info%bv(1,3) = info%bv(1,3) - info%bvl
+        DO WHILE(info%bv(1,3).gt.info%bvl/2)
+            info%bv(1,3) = info%bv(1,3) - info%bvl
+        ENDDO
 
 !   This is just for periodic strain
     ELSEIF(info%extens) THEN
         bvt = info%bv
         lamp = LOG((3D0 + sqrt(9D0 - 4D0))/2D0)
-        IF(t/lamp + 0.5D0 - floor(t/lamp + 0.5D0) .le. info%dt/lamp) THEN
+        IF(info%bv(1,3) .lt. -info%bvl/2) THEN
+        DO WHILE(info%bv(1,3) .lt. 0)
+        ! IF(t/lamp + 0.5D0 - floor(t/lamp + 0.5D0) .le. info%dt/lamp) THEN
             info%bv(1,1) = bvt(1,1) +     bvt(1,3) 
             info%bv(1,3) = bvt(1,1) + 2D0*bvt(1,3)
             info%bv(3,1) = bvt(3,1) +     bvt(3,3)
             info%bv(3,3) = bvt(3,1) + 2d0*bvt(3,3)
+            bvt = info%bv
+        ENDDO
         ENDIF
     ENDIF
 

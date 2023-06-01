@@ -119,6 +119,11 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
         info%dU = ExtensdU()
     ENDIF
 
+!   Hardcoded quiescent
+    IF(info%none) THEN
+        info%dU = 0D0
+    ENDIF
+
     celltmp = cellType(filein, reduce, info, props)
 
 !   Loop and make individual cells
@@ -394,12 +399,14 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
     ENDIF
 
 !   Relax cell to get it into an equilibrium state, get volumes
+!   Exception here for not continue !!!
 !!  ============================
     IF(prob%cm%mas()) print *, 'Getting initial shape -'
     IF(prob%cm%mas()) print *, 'Max velocity coefficient w.r.t. membrane time (want less than 0.005*Ca):'
     Gfac = (((4D0*PI/3D0)/((0.95D0**(3D0))*(PI/6D0)))**(1D0/3D0))/2D0
+    IF(.not. info%periodic) info%bvl = 5.1174D0
     DO ic = 1, prob%NCell
-            CALL prob%cell(ic)%relax(0.005D0)!!!
+            CALL prob%cell(ic)%relax(0.005D0, prob%cm)!!!
             CALL prob%cell(ic)%derivs()
             CALL prob%cell(ic)%stress()
             prob%cell(ic)%V0 = prob%cell(ic)%Vol()
@@ -410,66 +417,67 @@ FUNCTION newprob(filein, reduce, cm, info) RESULT(prob)
                 prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
                 prob%cell(ic)%xmn(3,1) = .45D0/(ispi*0.5D0)
             CASE(1)
-                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
                 prob%cell(ic)%xmn(3,1) = .45D0/(ispi*0.5D0)
             CASE(2)
-                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = 1.4/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + info%bvl/4D0)/(ispi*0.5D0)
             CASE(3)
-                prob%cell(ic)%xmn(1,1) = 1.4/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + info%bvl/4D0)/(ispi*0.5D0)
             CASE(4)
                 prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
                 prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + info%bvl/2D0)/(ispi*0.5D0)
             CASE(5)
-                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + info%bvl/2D0)/(ispi*0.5D0)
             CASE(6)
                 prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + 3*info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             CASE(7)
-                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
                 prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + 3*info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             CASE(8)
-                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = 1.4/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + info%bvl/2D0)/(ispi*0.5D0)
-            CASE(9)
-                prob%cell(ic)%xmn(1,1) = 1.4/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
-            CASE(10)
-                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
                 prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + info%bvl/2D0)/(ispi*0.5D0)
+            CASE(9)
+                prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+            CASE(10)
+                prob%cell(ic)%xmn(1,1) = (1.4D0 + info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             CASE(11)
-                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             CASE(12)
                 prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
                 prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             CASE(13)
-                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
                 prob%cell(ic)%xmn(2,1) = 1.4D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             CASE(14)
                 prob%cell(ic)%xmn(1,1) = 1.4D0/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             CASE(15)
-                prob%cell(ic)%xmn(1,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(2,1) = (1.4 + info%bvl/2D0)/(ispi*0.5D0)
-                prob%cell(ic)%xmn(3,1) = (.45 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(1,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(2,1) = (1.4D0 + info%bvl/2D0)/(ispi*0.5D0)
+                prob%cell(ic)%xmn(3,1) = (.45D0 + 3D0*info%bvl/4D0)/(ispi*0.5D0)
             END SELECT
+            IF(prob%Ncell.eq.1) prob%cell(ic)%xmn(:,1) = 0D0
             prob%cell(ic)%x(1,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(1,:))
             prob%cell(ic)%x(2,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(2,:))
             prob%cell(ic)%x(3,:,:) = prob%cell(ic)%info%Y%backward(prob%cell(ic)%xmn(3,:))
@@ -492,6 +500,7 @@ SUBROUTINE WriteProb(prob)
     CHARACTER (LEN = 45) ctsst, datdir, filename
     INTEGER ic
     COMPLEX(KIND = 8), ALLOCATABLE :: fmn(:,:)
+    REAL(KIND =8), ALLOCATABLE :: ff(:,:), intg1, intg2, intg3
 
     IF(prob%cm%slv()) RETURN
 !   Don't write if it's not a timestep to write
@@ -530,6 +539,19 @@ SUBROUTINE WriteProb(prob)
     WRITE(88,*) REAL(cell%umn)!REAL(cell%fmn(:,1:((cell%p+1)*(cell%p+1)))) !
     WRITE(88,*) AIMAG(cell%umn)!AIMAG(cell%fmn(:,1:((cell%p+1)*(cell%p+1))))!
     CLOSE(88)
+
+!   Write drag coeff
+    ! filename = TRIM('K_'//ctsst)
+    ! ff = cell%ff(1,:,:)
+    ! intg1 = -cell%intg(ff)
+    ! ff = cell%ff(2,:,:)
+    ! intg2 = -cell%intg(ff)
+    ! ff = cell%ff(3,:,:)
+    ! intg3 = -cell%intg(ff)
+    ! OPEN (UNIT = 88, FILE = TRIM(datdir)//TRIM(filename))
+    ! ! WRITE(88,*) -cell%intg(ff)/(6D0*pi*REAL(prob%cell(1)%umn(3,1))*ispi*0.5D0)
+    ! WRITE(88,*) SQRT(intg1*intg1+intg2*intg2+intg3D0*intg3)/(6D0*pi*NORM2(REAL(cell%umn(:,1)))*ispi*0.5D0)
+    ! CLOSE(88)
 
 !   Write force
     ! fmn(1,:) = cell%Yf%forward(cell%ff(1,:,:), cell%q)
@@ -643,6 +665,9 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
     ELSEIF(info%extens) THEN
 !       Hardcoded periodic extension
         info%dU = ExtensdU()
+    ELSEIF(info%none) THEN
+!       Quiescent
+        info%dU = 0D0
     ELSE
 !       Do interpolation to get current grad tensor, then normalize by kolm time
         info%dU = VelInterp(prob%G,prob%t,prob%nts,prob%kfr)*prob%kdt
@@ -792,11 +817,13 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
         cell => prob%cell(ic)
         it = 1
         im = 0
-        DO n  = 0, Y%p - 1
+        DO n  = 0, Y%p
             DO m = -n,n
                 im = im + 1
                 cell%umn(:,im) = bmn(row + it - 1:row + it + 1) &
                                + MATMUL(Q(row + it - 1:row + it + 1,1:k), y_v)
+                IF(n .eq. Y%p) cell%umn(:,im) = 0D0 ! Explicitly set to 0
+                IF(n .eq. Y%p) cell%xmn(:,im) = 0D0 ! b/c caused trouble
                 Q_k(row + it - 1:row + it + 1) = cell%umn(:,im)
                 it = it+3
             ENDDO
@@ -806,7 +833,11 @@ SUBROUTINE UpdateProb(prob, ord, reduce)
 !       Removed for reduce, because that keeps things at constant volume
         IF(.not. reduce) THEN
             zm = -(cell%Vol() - cell%V0)/(cell%SA()*info%dt)
-            cell%umn = cell%umn + zm*cell%nkmn(:,1:((cell%info%p+1)*(cell%info%p+1)))
+
+!           Changed so that I'm more careful with last term
+            cell%umn(:,1:((cell%info%p-1)*(cell%info%p-1))) &
+               = cell%umn (:,1:((cell%info%p-1)*(cell%info%p-1))) &
+               + zm*cell%nkmn(:,1:((cell%info%p-1)*(cell%info%p-1)))
         ENDIF
 
 !       Volume reduction (add small inward normal vel every timestep)
@@ -1180,7 +1211,7 @@ SUBROUTINE ContinueProb(prob)
     CLASS(probType), INTENT(INOUT) :: prob
     TYPE(cellType), POINTER :: cell
     CHARACTER (LEN = 35) contfile, cfile2, trash
-    INTEGER ic, endt, stat, p, i, jmp, trash2, repar_num
+    INTEGER ic, endt, stat, p, i, jmp, trash2, repar_num, p_prev
     REAL(KIND = 8) tmpdt, endtime, zm, lamp
     REAL(KIND = 8), ALLOCATABLE :: xmnraw(:,:), dUtmp(:,:), bvt(:,:)
     LOGICAL :: exist_in
@@ -1211,8 +1242,18 @@ SUBROUTINE ContinueProb(prob)
         cfile2 = TRIM('dat/'//prob%fileout//'/'//TRIM(cell%fileout)//'/x_'//TRIM(cfile2))
 
 !       Read in the files
-        p = (cell%info%p + 1)*(cell%info%p + 1)*2
+
+!       We may want to try seeing how different p's respond: read in 
+!       old p
+        contfile = TRIM('dat/'//prob%fileout//'/'//TRIM(cell%fileout)//'/Params')
+        OPEN(unit = 13, file = TRIM(contfile), action = 'read')
+        READ(13, "(a)", iostat = stat) trash
+        READ(13, *, iostat = stat) p_prev
+        CLOSE(13)
+
+        p = (p_prev + 1)*(p_prev + 1)*2 !(cell%info%p + 1)*(cell%info%p + 1)*2
         IF(.not.ALLOCATED(xmnraw)) ALLOCATE(xmnraw(3,p))
+        xmnraw = 0D0
         OPEN(unit = 13, file = cfile2, action = 'read')
         DO i = 1,p
             READ(13, *, iostat = stat) xmnraw(:,i)
@@ -1221,7 +1262,8 @@ SUBROUTINE ContinueProb(prob)
 
 !       Text file format: all real, then imag
         p = cell%info%p
-        jmp = (p+1)*(p+1)
+        p = MIN(p, p_prev)
+        jmp = (p_prev+1)*(p_prev+1)
     
         cell%xmn = 0D0
 
@@ -1229,9 +1271,9 @@ SUBROUTINE ContinueProb(prob)
         cell%xmn(2,1:(p+1)*(p+1)) = xmnraw(2,1:(p+1)*(p+1))
         cell%xmn(3,1:(p+1)*(p+1)) = xmnraw(3,1:(p+1)*(p+1))
 
-        cell%xmn(1,1:(p+1)*(p+1)) = cell%xmn(1,1:(p+1)*(p+1)) + xmnraw(1, jmp+1: 2*jmp)*ii
-        cell%xmn(2,1:(p+1)*(p+1)) = cell%xmn(2,1:(p+1)*(p+1)) + xmnraw(2, jmp+1: 2*jmp)*ii
-        cell%xmn(3,1:(p+1)*(p+1)) = cell%xmn(3,1:(p+1)*(p+1)) + xmnraw(3, jmp+1: 2*jmp)*ii
+        cell%xmn(1,1:(p+1)*(p+1)) = cell%xmn(1,1:(p+1)*(p+1)) + xmnraw(1, jmp+1: jmp + (p+1)*(p+1))*ii
+        cell%xmn(2,1:(p+1)*(p+1)) = cell%xmn(2,1:(p+1)*(p+1)) + xmnraw(2, jmp+1: jmp + (p+1)*(p+1))*ii
+        cell%xmn(3,1:(p+1)*(p+1)) = cell%xmn(3,1:(p+1)*(p+1)) + xmnraw(3, jmp+1: jmp + (p+1)*(p+1))*ii
         
         cell%x(1,:,:) = prob%info%Y%backward(cell%xmn(1,:))
         cell%x(2,:,:) = prob%info%Y%backward(cell%xmn(2,:))
@@ -1297,6 +1339,7 @@ END SUBROUTINE ContinueProb
 SUBROUTINE OutputProb(prob)
     CLASS(probType), INTENT(IN) :: prob
     INTEGER ic
+    REAL(KIND =8), ALLOCATABLE :: ff(:,:), intg1, intg2, intg3
     IF(prob%cm%slv()) RETURN
 
 !   What the output means
@@ -1305,10 +1348,19 @@ SUBROUTINE OutputProb(prob)
         PRINT *, "----------------------------------------------------"
     ENDIF
 
+!   Drag stuff
+    ! ff = prob%cell(1)%ff(1,:,:)
+    ! intg1 = -prob%cell(1)%intg(ff)
+    ! ff = prob%cell(1)%ff(2,:,:)
+    ! intg2 = -prob%cell(1)%intg(ff)
+    ! ff = prob%cell(1)%ff(3,:,:)
+    ! intg3 = -prob%cell(1)%intg(ff)
+    ! print *, SQRT(intg1*intg1 + intg2*intg2 + intg3D0*intg3)/(6D0*pi*NORM2(REAL(prob%cell(1)%umn(:,1)))*ispi*0.5D0)
+
 !   The output
     DO ic = 1, prob%NCell
-        ! prob%cell(ic)%umn(:,1) = 0D0
-        write(*,'(I5,X,F8.5,X,I5, X, F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
+        prob%cell(ic)%umn(:,1) = 0D0
+        write(*,'(I5,X,F8.4,X,I5, X, F11.7,X,F11.7,X,F8.4,X,F8.4,X,F8.4,X,F8.4)') & 
         prob%cts, prob%t, ic, MAXVAL(ABS(prob%cell(ic)%ff))*prob%cell(ic)%Ca, &
         MAXVAL(ABS(prob%cell(ic)%umn)), prob%cell(ic)%vol(), prob%cell(ic)%SA()
     ENDDO

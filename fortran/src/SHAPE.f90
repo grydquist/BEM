@@ -846,6 +846,13 @@ SUBROUTINE Stresscell(cell, thti, cm)
                               + cell%fab(3, i, j)*(-nk) &
                               + 0D0 !fbt
             
+!           !!! Below for drag
+            ! cell%ff(3,i,j) = cell%ff(3,i,j) - 1D0
+            ! cell%ff(1,i,j) = cell%ff(1,i,j) - 1D0
+            ! cell%ff(:,i,j) = cell%ff(:,i,j) + 1D0*cell%xf(3,i,j)*nk
+            ! cell%ff(:,i,j) = cell%ff(:,i,j) + 1D0*cell%xf(1,i,j)*nk
+            ! cell%ff(:,i,j) = cell%ff(:,i,j) + 1D0*sqrt(cell%xf(3,i,j)*cell%xf(3,i,j) + cell%xf(1,i,j)*cell%xf(1,i,j))*nk
+
             nks(:,i,j) = -nk
 
 !           Max strains for output
@@ -886,8 +893,9 @@ END SUBROUTINE Stresscell
 
 ! -------------------------------------------------------------------------!
 ! Runs until initial cell is relaxed
-SUBROUTINE RelaxCell(cell, tol)
+SUBROUTINE RelaxCell(cell, tol, cm)
     CLASS(cellType), INTENT(INOUT) :: cell
+    TYPE(cmType), INTENT(IN), POINTER, OPTIONAL :: cm
     TYPE(sharedType), POINTER :: info
     REAL(KIND = 8), INTENT(IN) :: tol
     COMPLEX(KIND = 8), ALLOCATABLE :: A2(:,:), b2(:), ut(:), wrk(:)
@@ -896,7 +904,7 @@ SUBROUTINE RelaxCell(cell, tol)
     COMPLEX, ALLOCATABLE :: swrk(:)
     INTEGER, ALLOCATABLE :: IPIV(:)
 
-    IF(cell%id .eq. 1) print *, 'WARNING: Relax cell not supported right now for GMRES'
+    IF(cell%id .eq. 1 .and. cm%mas()) print *, 'WARNING: Relax cell not supported right now for GMRES'
     RETURN
 
     info => cell%info
@@ -1600,7 +1608,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
             IF(PRESENT(celli)) THEN
 
 !               Check minimum spacing between eval point and integration cell
-                minr = celli%h + 1D0
+                minr = 3D0*celli%h + 1D0
                 DO i2 = 1, Yf%nt
                     DO j2 = 1, Yf%np
                         r = celli%xf(:,i2,j2) - xcr
@@ -1636,7 +1644,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
                     ENDDO
                 ENDDO
 
-                IF(minr .lt. celli%h) THEN
+                IF(minr .lt. 3D0*celli%h) THEN
                     sing = .true.
                     tht_rot = Yf%tht(indi)
                     phi_rot = Yf%phi(indj)
@@ -1849,8 +1857,8 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
 !                   Assume must be at least within singular distance to add
 !                    (not necc true, just want repulsion for now)
                     IF(PRESENT(celli) .and. (rn .lt. 3D0*info%r0) .and. info%CellCell .and. sing) THEN 
-                        ft = ft + Morse(r, rn, info%D, info%r0, info%Beta)*Jrot(i2,j2)
-                        ft = ft +    LJ(r, rn, info%epsi, info%r0)*Jrot(i2,j2)
+                        ! ft = ft + Morse(r, rn, info%D, info%r0, info%Beta)*Jrot(i2,j2)
+                        ft = ft +    LJ(r, rn, info%epsi, info%r0)*Jrot(i2,j2) !!! Should be scaled by Ca???
                         ! IF(.not.sing) ft = ft/SIN(tht_t(i2)) !!! Why is this needed??? sin taken car of wgi
                     ENDIF
                     IF(sing) ft2 = ft2*info%n(i2)
@@ -1905,7 +1913,7 @@ SUBROUTINE RHS_realCell(cell, v_input, v_input_mn, v, celli, periodic_in, &
 
                         rn = NORM2(r)
                         IF(PRESENT(celli) .and. (rn .lt. 3D0*info%r0) .and. info%CellCell) THEN
-                            ft = ft + Morse(r, rn, info%D, info%r0, info%Beta)*Jur(i2,j2)
+                            ! ft = ft + Morse(r, rn, info%D, info%r0, info%Beta)*Jur(i2,j2)
                             ft = ft +    LJ(r, rn, info%epsi, info%r0)*Jur(i2,j2)
                         ENDIF
 
@@ -2147,7 +2155,7 @@ FUNCTION PeriodicCellCell(info, r) RESULT(fG)
                 rcur = r + i*info%bv(:,1) + j*info%bv(:,2) + k*info%bv(:,3)
                 rn = NORM2(rcur)
                 IF(rn .lt. 3D0*info%r0) THEN
-                    f =  Morse(rcur, rn, info%D, info%r0, info%Beta)
+                    ! f =  Morse(rcur, rn, info%D, info%r0, info%Beta)
                     f = f + LJ(rcur, rn, info%epsi, info%r0)
                     G = Gij(rcur, info%eye)
                     fG = INNER3_33(f,G)
